@@ -2412,7 +2412,7 @@ __bu_bind_fzf_autocomplete_impl()
                 then
                     mapfile -t BU_COMPREPLY_METADATA < <(file "${COMPREPLY[@]}" | sed 's/.*: *//' | awk '{printf "%s\n", substr($0, 1, 20)}')
                 fi
-                mapfile -t COMPREPLY < <(printf "%q\n" "${COMPREPLY[@]}")
+                #mapfile -t COMPREPLY < <(printf "%q\n" "${COMPREPLY[@]}")
 
                 # Get some ansi color codes in to make the world more colorful
                 # - If completion func already provides ansi colors, then don't proceed 

@@ -268,3 +268,15 @@ function bu_example() { ... }
 
 **Logging**:
 - `bu_log_info`, `bu_log_err`, `bu_log_warn`
+
+
+## MacOS
+
+Setup steps
+```bash
+brew install bash
+brew install findutils
+brew install bash-completion@2
+brew install fzf
+```
+

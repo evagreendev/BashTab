@@ -99,7 +99,7 @@ bu_mkdir \
 
 # Variables prefixed with BU_PROC_ are process specific
 # BU_PROC_FIFO is allows reading from stdout of a command without using a subshell
-# Iirc, bash 5 will support subshell-less process substitution, but until then, this is a workaround
+# Iirc, bash 5.3 will support subshell-less process substitution, but until then, this is a workaround
 BU_PROC_FIFO=$BU_PROC_DIR/scratch.fifo
 BU_PROC_FILE=$BU_PROC_DIR/scratch.txt
 # Use an fd to further reduce overhead
@@ -116,15 +116,28 @@ then
 fi
 exec {BU_PROC_FIFO_FD}<>"$BU_PROC_FIFO"
 
+BU_ENV_IS_MACOS=
 # Detect if we are in WSL
 BU_ENV_IS_WSL=
-read -r < /proc/version
-if [[ "$REPLY" = *Microsoft* ]]
-then
-    BU_ENV_IS_WSL=true
-else
+case "$(uname -s)" in
+Darwin)
+    BU_ENV_IS_MACOS=true
     BU_ENV_IS_WSL=false
-fi
+    ;;
+Linux)
+    BU_ENV_IS_MACOS=false
+    read -r < /proc/version
+    if [[ "$REPLY" = *Microsoft* ]]
+    then
+        BU_ENV_IS_WSL=true
+    else
+        BU_ENV_IS_WSL=false
+    fi
+    ;;
+*)
+    echo "Unrecognized uname: $(uname -s)" >&2
+esac
+
 
 # MARK: Conversion utilities
 
