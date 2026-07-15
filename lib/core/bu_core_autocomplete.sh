@@ -2779,10 +2779,31 @@ __bu_bind_fzf_autocomplete_impl_ts()
     printf -v ps1_last_row_no_escape_rendered "%s" "${ps1_last_row_no_escape@P}"
     local col_with_ps1=$((${#ps1_last_row_no_escape_rendered} % COLUMNS))
 
-    # Print the command line with syntax highlighting (IDE-style preview)
-    local displayed_back=${BU_TPUT_RED}${command_line_back%%[[:space:]]*}${BU_TPUT_RESET}
-    displayed_back+=${BU_TPUT_GREY}${command_line_back#${command_line_back%%[[:space:]]*}}${BU_TPUT_RESET}
-    printf "%s%s%s%s%s%s"         "${BU_TPUT_GREY}${pipe_before}${BU_TPUT_RESET}"         "${BU_TPUT_VSCODE_GREEN}${BU_TS_RESULT[envVars]}${BU_TPUT_RESET}"         "${BU_TPUT_VSCODE_YELLOW}${cmd_name}${BU_TPUT_RESET}"         ""         "${BU_TPUT_BLUE}${BU_TPUT_UNDERLINE}?${BU_TPUT_RESET}"         "$displayed_back"
+    # Print the full command line with syntax highlighting (IDE-style preview)
+    # Build the text already typed between command name and the word being completed
+    local prefix_end=${#pipe_before}
+    if [[ -n "${BU_TS_RESULT[envVars]}" ]]; then
+        prefix_end=$((prefix_end + ${#BU_TS_RESULT[envVars]} + 1))
+    fi
+    prefix_end=$((prefix_end + ${#cmd_name}))
+    local already_typed=""
+    if (( replace_start > prefix_end )); then
+        already_typed="${original:prefix_end:replace_start-prefix_end}"
+    fi
+    local completing_word=${BU_TS_RESULT[cursor,replaceText]}
+
+    # Build displayed back portion (first word in red, rest in grey)
+    local back_first=${command_line_back%%[[:space:]]*}
+    local back_rest=${command_line_back:${#back_first}}
+    local displayed_back=${BU_TPUT_RED}${back_first}${BU_TPUT_RESET}${BU_TPUT_GREY}${back_rest}${BU_TPUT_RESET}
+
+    printf "%s%s%s%s%s%s" \
+        "${BU_TPUT_GREY}${pipe_before}${BU_TPUT_RESET}" \
+        "${BU_TPUT_VSCODE_GREEN}${BU_TS_RESULT[envVars]}${BU_TPUT_RESET}" \
+        "${BU_TPUT_VSCODE_YELLOW}${cmd_name}${BU_TPUT_RESET}" \
+        "${already_typed}" \
+        "${BU_TPUT_VSCODE_RED}${completing_word}${BU_TPUT_BLUE}${BU_TPUT_UNDERLINE}?${BU_TPUT_RESET}" \
+        "$displayed_back"
 
     # --- Generate completions based on the kind of node at cursor ---
     COMPREPLY=()
