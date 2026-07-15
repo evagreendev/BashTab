@@ -2798,7 +2798,8 @@ __bu_bind_fzf_autocomplete_impl_ts()
         already_typed="${original:prefix_end:effective_start-prefix_end}"
     fi
     local completing_word=""
-    if (( effective_end > effective_start )); then
+    # Only show completing word if it starts after the command name
+    if (( effective_end > effective_start && effective_start >= prefix_end )); then
         completing_word="${original:effective_start:effective_end-effective_start}"
     fi
 

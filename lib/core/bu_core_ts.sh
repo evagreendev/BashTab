@@ -105,8 +105,8 @@ bu_ts_daemon_stop()
     if [[ -n "$BU_TS_COPROC_PID" ]]; then
         kill "$BU_TS_COPROC_PID" 2>/dev/null || true
         wait "$BU_TS_COPROC_PID" 2>/dev/null || true
-        exec {BU_TS_COPROC[0]}>&- 2>/dev/null || true
-        exec {BU_TS_COPROC[1]}>&- 2>/dev/null || true
+        { exec {BU_TS_COPROC[0]}>&-; } 2>/dev/null || true
+        { exec {BU_TS_COPROC[1]}>&-; } 2>/dev/null || true
         BU_TS_COPROC_PID=
         BU_TS_TRAP_SET=
         bu_log_info "tree-sitter daemon stopped"
