@@ -13,16 +13,32 @@ fi
 
 BU_TS_DAEMON=$BU_LIB_BIN_DIR/bu_ts_daemon.js
 BU_TS_COPROC_PID=
+BU_TS_TRAP_SET=
 
 # Start the daemon via coproc if not running
 __bu_ts_daemon_start()
 {
+    # Check if daemon is still alive
     if [[ -n "$BU_TS_COPROC_PID" ]] && kill -0 "$BU_TS_COPROC_PID" 2>/dev/null; then
         return 0
     fi
 
+    # Clean up any stale coproc state from previous sourcing.
+    # Closing the fds will cause the old node daemon to exit on EOF.
+    if [[ -v BU_TS_COPROC ]]; then
+        exec {BU_TS_COPROC[0]}>&- 2>/dev/null || true
+        exec {BU_TS_COPROC[1]}>&- 2>/dev/null || true
+        unset -v BU_TS_COPROC
+    fi
+
     coproc BU_TS_COPROC { node "$BU_TS_DAEMON"; }
     BU_TS_COPROC_PID=$!
+
+    # Set exit trap once to clean up daemon on shell exit
+    if [[ -z "$BU_TS_TRAP_SET" ]]; then
+        trap 'bu_ts_daemon_stop' EXIT
+        BU_TS_TRAP_SET=1
+    fi
 
     # Read the ready signal
     local ready
@@ -89,7 +105,10 @@ bu_ts_daemon_stop()
     if [[ -n "$BU_TS_COPROC_PID" ]]; then
         kill "$BU_TS_COPROC_PID" 2>/dev/null || true
         wait "$BU_TS_COPROC_PID" 2>/dev/null || true
+        exec {BU_TS_COPROC[0]}>&- 2>/dev/null || true
+        exec {BU_TS_COPROC[1]}>&- 2>/dev/null || true
         BU_TS_COPROC_PID=
+        BU_TS_TRAP_SET=
         bu_log_info "tree-sitter daemon stopped"
     fi
 }
