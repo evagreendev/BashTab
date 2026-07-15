@@ -2759,6 +2759,10 @@ __bu_bind_fzf_autocomplete_impl_ts()
     else
         command_line=("")
     fi
+    # Bash drops trailing empty fields; restore if original ends with space
+    if [[ "${original:${#original}-1}" = ' ' ]]; then
+        command_line+=("")
+    fi
 
     tput sc
     local oldstty=$(stty -g </dev/tty)
@@ -2833,8 +2837,18 @@ __bu_bind_fzf_autocomplete_impl_ts()
         --cycle
         --no-sort
         --sync
-        --query "${command_line[-1]}"
     )
+
+    # Position fzf dropdown aligned under the cursor (IDE-style)
+    local replace_len=${BU_TS_RESULT[cursor,replaceEnd]}
+    replace_len=$((replace_len - ${BU_TS_RESULT[cursor,replaceStart]}))
+    local left_pos=$(( (col_with_ps1 - 2 + READLINE_POINT - replace_len) % COLUMNS ))
+    (( left_pos < 0 )) && left_pos=0
+    local right_margin=$(( COLUMNS - left_pos - 40 ))
+    (( right_margin < 0 )) && right_margin=0
+    fzf_opts+=(--margin "0,$right_margin,0,$left_pos")
+
+    fzf_opts+=(--query "${BU_TS_RESULT[cursor,replaceText]}")
 
     if [[ -n "$BU_COMPREPLY_HINT" ]]; then
         fzf_opts+=(--header "Hint: $BU_COMPREPLY_HINT")
