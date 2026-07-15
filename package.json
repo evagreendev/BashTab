@@ -1,0 +1,27 @@
+{
+  "name": "bashtab",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "example": "examples",
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "ssh://local/evagreendev/BashTab.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "tree-sitter": "^0.25.0",
+    "tree-sitter-bash": "^0.25.1",
+    "tree-sitter-cli": "^0.26.11"
+  }
+}

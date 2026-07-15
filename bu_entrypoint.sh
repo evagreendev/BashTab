@@ -90,6 +90,8 @@ bu_source_user_defined_pre_init_callbacks
 
 source ./lib/core/bu_core_init.sh
 
+source ./lib/core/bu_core_ts.sh --__bu-once
+
 popd &>/dev/null
 
 bu_source_user_defined_post_entrypoint_callbacks

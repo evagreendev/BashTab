@@ -863,14 +863,18 @@ bu_autocomplete_get_autocompletions()
     if ((${#COMPREPLY[@]} == 0))
     then
         # Taken from the _variables function from /usr/share/bash-completion/bash_completion
-        if [[ "$cur_word" =~ ^(\$(\{[!#]?)?)([A-Za-z0-9_]*)$ ]]
+        # Extended to handle prefixes (e.g. inside double quotes: "$HO or "2020-11-$HO)
+        if [[ "$cur_word" =~ ^([^$]*)(\$(\{[!#]?)?)([A-Za-z0-9_]*)$ ]]
         then
-            # shellcheck disable=SC2016
-            if [[ "$cur_word" == '${'* ]]
+            local _prefix="${BASH_REMATCH[1]}"
+            local _dollar="${BASH_REMATCH[2]}"
+            local _brace="${BASH_REMATCH[3]}"
+            local _name="${BASH_REMATCH[4]}"
+            if [[ -n "$_brace" ]]
             then
                 local arrs vars
-                vars=( $(compgen -A variable -P ${BASH_REMATCH[1]} -S '}' -- "${BASH_REMATCH[3]}") )
-                arrs=( $(compgen -A arrayvar -P ${BASH_REMATCH[1]} -S '[' -- "${BASH_REMATCH[3]}") )
+                vars=( $(compgen -A variable -P "${_prefix}${_dollar}" -S '}' -- "$_name") )
+                arrs=( $(compgen -A arrayvar -P "${_prefix}${_dollar}" -S '[' -- "$_name") )
                 if ((${#vars[@]} == 1 && ${#arrs[@]} != 0))
                 then
                     compopt -o nospace &>/dev/null
@@ -879,7 +883,7 @@ bu_autocomplete_get_autocompletions()
                     COMPREPLY+=("${vars[@]}")
                 fi
             else
-                COMPREPLY+=( $(compgen -A variable -P '$' -- "${BASH_REMATCH[3]}") )
+                COMPREPLY+=( $(compgen -A variable -P "${_prefix}\$" -- "$_name") )
             fi
         else
             if [[ "$cur_word" =~ ^(\$\{[#!]?)([A-Za-z0-9_]*)\[([^]]*)$ ]]
@@ -2044,6 +2048,9 @@ __bu_parse_bash()
             "'")
                 is_new_or_append_word=true
                 ;;
+            '"')
+                is_new_or_append_word=true
+                ;;
             '$')
                 if "$is_op_prev"
                 then
@@ -2075,7 +2082,7 @@ __bu_parse_bash()
             # To keep things simple we will ignore backslash (\)
 
             case "$op" in
-            '$'|'${'*)
+            '$'*|'${'*)
                 __bu_parse_bash_token_stack[-1]+=$char
                 ;;
             *)
@@ -2120,7 +2127,7 @@ __bu_parse_bash()
             for ((j=${#__bu_parse_bash_op_idx_stack[@]}-2; j > 0; j--))
             do
                 case "${__bu_parse_bash_token_stack[${__bu_parse_bash_op_idx_stack[j]}]}" in
-                '$('|'${'*|'$((')
+                '$('*|'${'*|'$(('*)
                     break
                     ;;
                 ';'|'|'|'||'|'&&'|'$'*)
@@ -2131,7 +2138,7 @@ __bu_parse_bash()
                 esac
             done
             case "${__bu_parse_bash_token_stack[${__bu_parse_bash_op_idx_stack[j]}]}" in
-            '('|'$(')
+            '('|'$('*)
                 if [[ "${__bu_parse_bash_token_stack[-1]}" != ')' ]]
                 then
                     bu_log_err "Parse error, expected ), got ${__bu_parse_bash_token_stack[-1]}"
@@ -2145,7 +2152,7 @@ __bu_parse_bash()
                     return 1
                 fi
                 ;;
-            '(('|'$((')
+            '(('|'$(('*)
                 if [[ "${__bu_parse_bash_token_stack[-1]}" = ')' ]]
                 then
                     continue
@@ -2179,11 +2186,7 @@ __bu_parse_bash()
             esac
             __bu_parse_bash_token_stack+=('')
             __bu_parse_bash_color_stack+=("${bracket_colors[--bracket_depth]}" '')
-            local len=${#__bu_parse_bash_op_idx_stack[@]}
-            for ((;j < len; j++))
-            do
-                unset -v '__bu_parse_bash_op_idx_stack['"$j"']'
-            done
+            __bu_parse_bash_op_idx_stack=("${__bu_parse_bash_op_idx_stack[@]:0:j}")
         fi
         if "$is_separator"
         then
@@ -2239,6 +2242,11 @@ __bu_bind_fzf_autocomplete_impl()
     local fzf_dynamic_reload=${4:-false}
     local use_tab_to_confirm=${5:-false}
 
+    if "$BU_AUTOCOMPLETE_USE_TREE_SITTER" && bu_symbol_is_function bu_ts_parse; then
+        __bu_bind_fzf_autocomplete_impl_ts "$@"
+        return
+    fi
+
     local delimiter=$'\x01'
 
 
@@ -2263,6 +2271,7 @@ __bu_bind_fzf_autocomplete_impl()
     do
         case "${token_stack[op_idx_stack[-1]]}" in
         '$('|'$((') break;;
+        '"'|"'"|'('|'{') unset -v 'op_idx_stack[-1]';;
         '$'*) unset -v 'op_idx_stack[-1]';;
         *) break;;
         esac
@@ -2709,6 +2718,185 @@ __bu_bind_fzf_autocomplete_dynamic()
 __bu_bind_fzf_tab_autocomplete()
 {
     __bu_bind_fzf_autocomplete_impl "${READLINE_LINE:0:$READLINE_POINT}" "${READLINE_LINE:$READLINE_POINT}" false false true
+}
+
+# ```
+# *Description*:
+# Tree-sitter powered fzf autocomplete implementation.
+# Uses the tree-sitter-bash daemon for accurate cursor-position tracking,
+# range-based replacement (LSP TextEdit style), and context-aware completion.
+# ```
+__bu_bind_fzf_autocomplete_impl_ts()
+{
+    local command_line_front=$1
+    local command_line_back=$2
+    local move_cursor_to_end=$3
+    local fzf_dynamic_reload=${4:-false}
+    local use_tab_to_confirm=${5:-false}
+
+    local cursor_offset=${#command_line_front}
+
+    # Parse with tree-sitter daemon
+    bu_ts_parse "$cursor_offset" "$command_line_front" || {
+        # Fall back to built-in parser if tree-sitter fails
+        __bu_bind_fzf_autocomplete_impl_legacy "$@"
+        return
+    }
+
+    local original=${BU_TS_RESULT[original]}
+    local pipe_before=${BU_TS_RESULT[pipeBefore]}
+    local pipe_after=${BU_TS_RESULT[pipeAfter]}
+    local cmd_name=${BU_TS_RESULT[cmdName]}
+    local complete_kind=${BU_TS_RESULT[cursor,completeKind]}
+    local replace_start=${BU_TS_RESULT[cursor,replaceStart]}
+    local replace_end=${BU_TS_RESULT[cursor,replaceEnd]}
+
+    # Build command_line array from cmdWords (unit-separator delimited)
+    local -a command_line=()
+    local IFS=$''
+    if [[ -n "${BU_TS_RESULT[cmdWords]}" ]]; then
+        command_line=(${BU_TS_RESULT[cmdWords]})
+    else
+        command_line=("")
+    fi
+
+    tput sc
+    local oldstty=$(stty -g </dev/tty)
+    __bu_terminal_get_pos2 "$oldstty"
+    local row_start=${BU_RET[0]}
+
+    local ps1_last_row=$(tail -n 1 <<<"${PS1##*\n}")
+    printf "%s" "${ps1_last_row@P}"
+
+    local ps1_last_row_no_escape=$(sed -r 's/\\[([^]]*([^\]\]|\[^]])?)*\\]//g' <<<"$ps1_last_row")
+    local ps1_last_row_no_escape_rendered
+    printf -v ps1_last_row_no_escape_rendered "%s" "${ps1_last_row_no_escape@P}"
+    local col_with_ps1=$((${#ps1_last_row_no_escape_rendered} % COLUMNS))
+
+    # --- Generate completions based on the kind of node at cursor ---
+    COMPREPLY=()
+    local BU_COMPREPLY_METADATA=()
+    local BU_COMPREPLY_HINT=
+    local BU_RET_MAP=()
+    local is_ansi=false
+
+    case "$complete_kind" in
+    dollar_word|dollar_brace)
+        # Variable expansion: complete variable names
+        local cur_text=${BU_TS_RESULT[cursor,replaceText]}
+        local var_name=${cur_text#\$}
+        var_name=${var_name#\{}
+        if [[ "$complete_kind" == "dollar_brace" ]]; then
+            # ${VAR} style
+            COMPREPLY=($(compgen -A variable -P "\${" -S "}" -- "$var_name"))
+        else
+            # $VAR style
+            COMPREPLY=($(compgen -A variable -P "\$" -- "$var_name"))
+        fi
+        ;;
+    *)
+        # Generic completion via bash completion system
+        bu_autocomplete_initialize_current_completion_options "${command_line[0]}"
+        # Need BU_COMPOPT_CURRENT_COMPLETION_OPTIONS to be set
+        if ((${#command_line[@]} > 1)); then
+            bu_autocomplete_initialize_current_completion_options "${command_line[0]}"
+        else
+            BU_COMPOPT_CURRENT_COMPLETION_OPTIONS=()
+        fi
+        bu_autocomplete_get_autocompletions --accept-ansi-colors "${command_line[@]}"
+        is_ansi=${BU_RET_MAP[has_ansi_colors]:-false}
+        ;;
+    esac
+
+    if ((${#COMPREPLY[@]} == 0 && -z "$BU_COMPREPLY_HINT")); then
+        tput rc
+        return 0
+    fi
+
+    local is_nospace=false
+    local is_filenames=false
+    if ((${#command_line[@]} > 1)); then
+        [[ "${BU_COMPOPT_CURRENT_COMPLETION_OPTIONS[nospace]}" = -o ]] && is_nospace=true
+        [[ "${BU_COMPOPT_CURRENT_COMPLETION_OPTIONS[filenames]}" = -o ]] && is_filenames=true
+    fi
+
+    # --- fzf display setup ---
+    __bu_terminal_get_pos2 "$oldstty"
+    local row_before_fzf=${BU_RET[0]}
+
+    local fzf_opts=(
+        --exit-0
+        --select-1
+        --reverse
+        --height 20% --min-height 14
+        --extended --exact -i
+        --cycle
+        --no-sort
+        --sync
+        --query "${command_line[-1]}"
+    )
+
+    if [[ -n "$BU_COMPREPLY_HINT" ]]; then
+        fzf_opts+=(--header "Hint: $BU_COMPREPLY_HINT")
+    fi
+
+    if "$is_ansi"; then
+        fzf_opts+=(--ansi)
+    fi
+
+    local fzf_colors=(
+        'fg:#569CD6' 'bg:#1F1F1F' 'hl:#C586C0' 'fg+:#9CDCFE'
+        'hl+:#D16969' 'header:#DCDCAA' 'prompt:#DCDCAA' 'info:#B5CEA8'
+        'pointer:#CCCCCC' 'border:#CCCCCC' 'gutter:#1F1F1F'
+        'preview-fg:-1' 'preview-bg:-1'
+    )
+    bu_list_join , "${fzf_colors[@]}"
+    fzf_opts+=(--color=dark,"$BU_RET")
+
+    if "$use_tab_to_confirm"; then
+        fzf_opts+=(--bind "tab:accept")
+    fi
+
+    local selected_command
+    if selected_command=$(
+        printf "%s
+" "${COMPREPLY[@]}" | sort --unique | fzf "${fzf_opts[@]}"
+    ) && [[ -n "$selected_command" ]]; then
+        # --- Range-based replacement (LSP TextEdit) ---
+        local readline_line
+        # Splice: keep text before replaceStart, insert selection, keep text after replaceEnd
+        readline_line="${original:0:replace_start}${selected_command}${original:replace_end}"
+        local readline_point=${#readline_line}
+
+        # Append text that was after the cursor
+        readline_line+=$command_line_back
+
+        if "$move_cursor_to_end"; then
+            readline_point=${#readline_line}
+        fi
+
+        READLINE_LINE=$readline_line
+        READLINE_POINT=$readline_point
+    fi
+
+    __bu_terminal_get_pos2 "$oldstty"
+    local row_after_fzf=${BU_RET[0]}
+    if ((row_before_fzf == row_after_fzf)); then
+        tput rc
+    elif ((row_start < row_before_fzf)); then
+        tput cuu "$((row_before_fzf - row_start))"
+    fi
+}
+
+# Fallback: original implementation for when tree-sitter is unavailable
+__bu_bind_fzf_autocomplete_impl_legacy()
+{
+    # This is just a trampoline back to the real function with tree-sitter disabled.
+    # We temporarily flip the toggle so the recursive call uses the old path.
+    local _saved=$BU_AUTOCOMPLETE_USE_TREE_SITTER
+    BU_AUTOCOMPLETE_USE_TREE_SITTER=false
+    __bu_bind_fzf_autocomplete_impl "$@"
+    BU_AUTOCOMPLETE_USE_TREE_SITTER=$_saved
 }
 
 # ```
