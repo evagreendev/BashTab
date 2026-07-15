@@ -2753,12 +2753,14 @@ __bu_bind_fzf_autocomplete_impl_ts()
 
     # Build command_line array from cmdWords (unit-separator delimited)
     local -a command_line=()
-    local IFS=$''
+    local _saved_ifs=$IFS
+    IFS=$''
     if [[ -n "${BU_TS_RESULT[cmdWords]}" ]]; then
         command_line=(${BU_TS_RESULT[cmdWords]})
     else
         command_line=("")
     fi
+    IFS=$_saved_ifs
     # Bash drops trailing empty fields; restore if original ends with space
     if [[ "${original:${#original}-1}" = ' ' ]]; then
         command_line+=("")
@@ -2777,31 +2779,35 @@ __bu_bind_fzf_autocomplete_impl_ts()
     printf -v ps1_last_row_no_escape_rendered "%s" "${ps1_last_row_no_escape@P}"
     local col_with_ps1=$((${#ps1_last_row_no_escape_rendered} % COLUMNS))
 
+    # Print the command line with syntax highlighting (IDE-style preview)
+    local displayed_back=${BU_TPUT_RED}${command_line_back%%[[:space:]]*}${BU_TPUT_RESET}
+    displayed_back+=${BU_TPUT_GREY}${command_line_back#${command_line_back%%[[:space:]]*}}${BU_TPUT_RESET}
+    printf "%s%s%s%s%s%s"         "${BU_TPUT_GREY}${pipe_before}${BU_TPUT_RESET}"         "${BU_TPUT_VSCODE_GREEN}${BU_TS_RESULT[envVars]}${BU_TPUT_RESET}"         "${BU_TPUT_VSCODE_YELLOW}${cmd_name}${BU_TPUT_RESET}"         ""         "${BU_TPUT_BLUE}${BU_TPUT_UNDERLINE}?${BU_TPUT_RESET}"         "$displayed_back"
+
     # --- Generate completions based on the kind of node at cursor ---
     COMPREPLY=()
     local BU_COMPREPLY_METADATA=()
     local BU_COMPREPLY_HINT=
     local BU_RET_MAP=()
     local is_ansi=false
+    local is_range_replace=false
 
     case "$complete_kind" in
     dollar_word|dollar_brace)
-        # Variable expansion: complete variable names
+        # Variable expansion: complete variable names (range-based)
+        is_range_replace=true
         local cur_text=${BU_TS_RESULT[cursor,replaceText]}
         local var_name=${cur_text#\$}
         var_name=${var_name#\{}
         if [[ "$complete_kind" == "dollar_brace" ]]; then
-            # ${VAR} style
             COMPREPLY=($(compgen -A variable -P "\${" -S "}" -- "$var_name"))
         else
-            # $VAR style
             COMPREPLY=($(compgen -A variable -P "\$" -- "$var_name"))
         fi
         ;;
     *)
-        # Generic completion via bash completion system
+        # Generic completion via bash completion system (whole-word replacement)
         bu_autocomplete_initialize_current_completion_options "${command_line[0]}"
-        # Need BU_COMPOPT_CURRENT_COMPLETION_OPTIONS to be set
         if ((${#command_line[@]} > 1)); then
             bu_autocomplete_initialize_current_completion_options "${command_line[0]}"
         else
@@ -2876,11 +2882,36 @@ __bu_bind_fzf_autocomplete_impl_ts()
         printf "%s
 " "${COMPREPLY[@]}" | sort --unique | fzf "${fzf_opts[@]}"
     ) && [[ -n "$selected_command" ]]; then
-        # --- Range-based replacement (LSP TextEdit) ---
+        # Strip ANSI color codes from the selection
+        # Strip ANSI color codes from the selection (literal ESC via $'\x1b')
+        selected_command=$(sed -r $'s/\x1b\\[[0-9;]*[mGK]//g' <<<"$selected_command")
+        selected_command=$(sed -r $'s/\x1b\\(B//g' <<<"$selected_command")
         local readline_line
-        # Splice: keep text before replaceStart, insert selection, keep text after replaceEnd
-        readline_line="${original:0:replace_start}${selected_command}${original:replace_end}"
-        local readline_point=${#readline_line}
+        local readline_point
+
+        if "$is_range_replace"; then
+            # --- Range-based replacement (LSP TextEdit) ---
+            # Splice: keep text before replaceStart, insert selection, keep after replaceEnd
+            readline_line="${original:0:replace_start}${selected_command}${original:replace_end}"
+            readline_point=${#readline_line}
+        else
+            # --- Whole-word replacement (traditional) ---
+            command_line[-1]=$selected_command
+            readline_line=${command_line[*]}
+            # Remove the last word of command_line_back
+            local back_no_op=${command_line_back%%[[:space:]]*}
+            back_no_op=${back_no_op%%)*}
+            back_no_op=${back_no_op%%;*}
+            back_no_op=${back_no_op%%&&*}
+            back_no_op=${back_no_op%%|*}
+            command_line_back=${command_line_back:${#back_no_op}}
+            command_line_back=${command_line_back# }
+            if ! "$is_nospace" && [[ "${readline_line:${#readline_line}-1}" != ' ' && "${command_line_back:0:1}" != ' ' ]]; then
+                readline_line+=' '
+            fi
+            readline_line=${pipe_before}${readline_line}
+            readline_point=${#readline_line}
+        fi
 
         # Append text that was after the cursor
         readline_line+=$command_line_back
