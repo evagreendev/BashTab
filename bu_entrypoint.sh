@@ -92,6 +92,12 @@ source ./lib/core/bu_core_init.sh
 
 source ./lib/core/bu_core_ts.sh --__bu-once
 
+# Warm-start the tree-sitter daemon at shell init so first Tab is instant.
+# (~200ms one-time cost absorbed into shell startup)
+if "$BU_AUTOCOMPLETE_USE_TREE_SITTER" && [[ $- == *i* ]]; then
+    __bu_ts_daemon_start &>/dev/null
+fi
+
 popd &>/dev/null
 
 bu_source_user_defined_post_entrypoint_callbacks
