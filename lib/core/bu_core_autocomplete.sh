@@ -2786,11 +2786,21 @@ __bu_bind_fzf_autocomplete_impl_ts()
         prefix_end=$((prefix_end + ${#BU_TS_RESULT[envVars]} + 1))
     fi
     prefix_end=$((prefix_end + ${#cmd_name}))
-    local already_typed=""
-    if (( replace_start > prefix_end )); then
-        already_typed="${original:prefix_end:replace_start-prefix_end}"
+    # When cursor is at end of line, replaceStart/End are both 0; use cursor offset
+    local effective_start=$replace_start
+    local effective_end=$replace_end
+    if (( effective_start == 0 && effective_end == 0 )); then
+        effective_start=$cursor_offset
+        effective_end=$cursor_offset
     fi
-    local completing_word=${BU_TS_RESULT[cursor,replaceText]}
+    local already_typed=""
+    if (( effective_start > prefix_end )); then
+        already_typed="${original:prefix_end:effective_start-prefix_end}"
+    fi
+    local completing_word=""
+    if (( effective_end > effective_start )); then
+        completing_word="${original:effective_start:effective_end-effective_start}"
+    fi
 
     # Build displayed back portion (first word in red, rest in grey)
     local back_first=${command_line_back%%[[:space:]]*}
