@@ -2768,7 +2768,7 @@ __bu_bind_fzf_autocomplete_impl_ts()
     local ps1_last_row=$(tail -n 1 <<<"${PS1##*\n}")
     printf "%s" "${ps1_last_row@P}"
 
-    local ps1_last_row_no_escape=$(sed -r 's/\\[([^]]*([^\]\]|\[^]])?)*\\]//g' <<<"$ps1_last_row")
+    local ps1_last_row_no_escape=$(sed -r 's/\\\[([^]]*([^\\]\]|\\[^]])?)*\\\]//g' <<<"$ps1_last_row")
     local ps1_last_row_no_escape_rendered
     printf -v ps1_last_row_no_escape_rendered "%s" "${ps1_last_row_no_escape@P}"
     local col_with_ps1=$((${#ps1_last_row_no_escape_rendered} % COLUMNS))
