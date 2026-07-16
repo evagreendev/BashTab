@@ -31,7 +31,7 @@ __bu_ts_daemon_start()
         unset -v BU_TS_COPROC
     fi
 
-    coproc BU_TS_COPROC { node "$BU_TS_DAEMON"; }
+    coproc BU_TS_COPROC { trap '' INT; node "$BU_TS_DAEMON"; }
     BU_TS_COPROC_PID=$!
 
     # Set exit trap once to clean up daemon on shell exit
