@@ -1345,9 +1345,11 @@ __bu_autocomplete_completion_func_master_helper()
                     case "${bu_parsed_multiselect_arguments[$option]}" in
                     '') 
                         COMPREPLY+=("${current_ansi_color}${option}${reset_ansi_color}")
-                        local docs_esc_newline=${bu_script_option_docs[i]//$'\n'/"\n"}
-                        local docs_no_tab=${docs_esc_newline//$'\t'/}
-                        BU_COMPREPLY_METADATA+=("<${bu_script_option_synopsis[i]}> ${docs_no_tab}${BU_TPUT_RESET}")
+                        local _syn=${bu_script_option_synopsis[i]}
+                        local _desc=${bu_script_option_docs[i]//$'\n'/"\n"}
+                        _desc=${_desc//$'\t'/}
+                        # Type tag in violet, description in grey
+                        BU_COMPREPLY_METADATA+=("${BU_TPUT_VIOLET}<${_syn}>${BU_TPUT_RESET} ${BU_TPUT_GREY}${_desc}${BU_TPUT_RESET}")
                         ;;
                     1) continue ;;
                     esac
