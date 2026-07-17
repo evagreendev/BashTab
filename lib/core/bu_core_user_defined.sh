@@ -121,3 +121,34 @@ bu_user_defined_autocomplete_lazy()
     done
     return "$exit_code"
 }
+
+# ```
+# *Description*:
+# Register a module with BashTab's module registry.
+# Modules call this to self-identify with a name and optional version,
+# enabling bu module-list and other inspection commands.
+#
+# *Params*:
+# - `$1`: Module name (e.g. "utilities", "demoapp")
+# - `$2`: Module version (e.g. "0.1.0", or empty string)
+# - `$3`: Path to the module's preinit callback script
+#
+# *Side effects*:
+# - Registers the module in BU_MODULE_REGISTRY (associative array)
+# - Appends the preinit callback to BU_USER_DEFINED_STATIC_PRE_INIT_ENTRYPOINT_CALLBACKS
+# ```
+__bu_module_register()
+{
+    local name=$1
+    local version=$2
+    local preinit=$3
+
+    if [[ -z "${BU_MODULE_REGISTRY[$name]}" ]]; then
+        BU_MODULE_REGISTRY[$name]="$version:$preinit"
+    fi
+    # Also build an exportable scalar for subshell inspection
+    if [[ "$BU_MODULE_LIST" != *"${name}:"* ]]; then
+        BU_MODULE_LIST+="${name}:${version}:${preinit};"
+    fi
+    BU_USER_DEFINED_STATIC_PRE_INIT_ENTRYPOINT_CALLBACKS+=("$preinit")
+}

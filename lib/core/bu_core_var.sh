@@ -62,6 +62,15 @@ declare -A -g BU_COMMAND_NOUNS=()
 declare -A -g BU_COMMAND_NAMESPACES=()
 
 # ```
+# Registry of loaded modules: name → "version:preinit_path"
+# Populated by __bu_module_register. Inspected by bu module-list.
+# ```
+declare -A -g BU_MODULE_REGISTRY=()
+# Exportable scalar version of the registry for subshell inspection
+# Format: "name:version:path;name:version:path;..."
+export BU_MODULE_LIST=${BU_MODULE_LIST:-}
+
+# ```
 # It is recommended to isolate this by declaring `local -A BU_COMPOPT_CURRENT_COMPLETION_OPTIONS`
 # instead of using the global version.
 # ```
