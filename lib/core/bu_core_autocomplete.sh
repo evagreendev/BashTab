@@ -9,6 +9,54 @@ fi
 # has_name: String
 # completion_options: AssociativeArray 
 # to be defined
+# ```
+# *Description*:
+# Compute fzf dropdown positioning to fit within the terminal.
+#
+# *Params*:
+# - `$1`: Terminal columns (COLUMNS)
+# - `$2`: Anchor column — the column where the dropdown should start
+#          (typically the column of the completing word's first character)
+# - `$3`: Completing word length (characters of text being replaced)
+# - `$4`: Base fzf text width (completions + padding, min ~60)
+# - `$5`: Preview window width (0 if no preview, typically 40)
+#
+# *Sets*:
+# - `${BU_RET[0]}`: left_margin (fzf --margin 0,right,0,left part)
+# - `${BU_RET[1]}`: right_margin
+# - `${BU_RET[2]}`: box_length (chars available inside borders for text)
+# ```
+__bu_fzf_compute_dimensions()
+{
+    local columns=$1
+    local anchor_col=$2
+    local word_len=$3
+    local base_width=$4
+    local preview_width=${5:-0}
+
+    local borders_width=3
+    (( preview_width > 0 )) && borders_width=5
+
+    local left_pos=$anchor_col
+    (( left_pos < 0 )) && left_pos=0
+
+    local min_width=$((base_width + preview_width + word_len))
+    local right_pos=$(( left_pos + min_width ))
+    (( right_pos > columns )) && right_pos=$columns
+    left_pos=$(( right_pos - min_width ))
+    (( left_pos < 0 )) && left_pos=0
+    right_pos=$(( left_pos + min_width ))
+    (( right_pos > columns )) && right_pos=$columns
+
+    local box_length=$((right_pos - left_pos - preview_width - borders_width))
+    (( box_length < 20 )) && box_length=20
+
+    local right_margin=$(( columns - right_pos ))
+    (( right_margin < 0 )) && right_margin=0
+
+    BU_RET=("$left_pos" "$right_margin" "$box_length")
+}
+
 __bu_autocomplete_collect_compopt()
 {
     if [[ "$1" = compopt ]]
@@ -2584,19 +2632,17 @@ __bu_bind_fzf_autocomplete_impl()
     fi
 
     local preview_window_size=0
-    local borders_width=3
-    if "$show_preview"
-    then
+    if "$show_preview"; then
         preview_window_size=40
-        borders_width=5
     fi
 
-    local left_pos=$(( ( col_with_ps1 - 2 + READLINE_POINT - ${#command_line[-1]} ) % COLUMNS))
-    local min_width=$((base_width + preview_window_size + ${#command_line[-1]}))
-    local right_pos=$(( ((left_pos + min_width) < COLUMNS) ? (left_pos + min_width) : COLUMNS  ))
-    left_pos=$(( (right_pos - min_width) > 0 ? (right_pos - min_width) : 0 ))
-    local box_length=$((right_pos - left_pos - preview_window_size - borders_width))
-    local right_margin=$(( COLUMNS - right_pos ))
+    # Anchor dropdown under the completing word's first character
+    local _fw_anchor=$(( (col_with_ps1 - 2 + READLINE_POINT - ${#command_line[-1]}) % COLUMNS ))
+    (( _fw_anchor < 0 )) && _fw_anchor=0
+    __bu_fzf_compute_dimensions "$COLUMNS" "$_fw_anchor" "${#command_line[-1]}" "$base_width" "$preview_window_size"
+    local left_pos=${BU_RET[0]}
+    local right_margin=${BU_RET[1]}
+    local box_length=${BU_RET[2]}
     
     local fzf_opts=(
         --exit-0
@@ -2985,15 +3031,44 @@ __bu_bind_fzf_autocomplete_impl_ts()
         --sync
     )
 
-    # Position fzf dropdown aligned under the cursor (IDE-style)
-    local replace_len=${BU_TS_RESULT[cursor,replaceEnd]}
-    replace_len=$((replace_len - ${BU_TS_RESULT[cursor,replaceStart]}))
-    local left_pos=$(( (col_with_ps1 - 2 + READLINE_POINT - replace_len) % COLUMNS ))
-    (( left_pos < 0 )) && left_pos=0
-    local right_margin=$(( COLUMNS - left_pos - 40 ))
-    (( right_margin < 0 )) && right_margin=0
-    fzf_opts+=(--margin "0,$right_margin,0,$left_pos")
+    # --- Width & metadata calculations (shared with non-TS path) ---
+    local base_width=60
+    local bu_compreply_metadata_no_ansi=()
+    local show_preview=false
 
+    if "$BU_AUTOCOMPLETE_BIND_FZF_DISPLAY_METADATA" && (("${#BU_COMPREPLY_METADATA[@]}" > 0)) && ((${#COMPREPLY[@]} < 2000)); then
+        mapfile -t bu_compreply_metadata_no_ansi < <(sed -r -e 's/\\n/ /g' -e "s/\x1B\[([0-9]{1,3}(;[0-9]{1,3})*)?[mGK]//g" < <(printf "%s\n" "${BU_COMPREPLY_METADATA[@]}"))
+        local _ts_total=0 _ts_i
+        for ((_ts_i=0; _ts_i < ${#bu_compreply_metadata_no_ansi[@]}; _ts_i++)); do
+            : $((_ts_total+=${#bu_compreply_metadata_no_ansi[_ts_i]}))
+        done
+        local _ts_avg=$(( _ts_total / ${#bu_compreply_metadata_no_ansi[@]} ))
+        base_width=$(( base_width > _ts_avg + 30 ? base_width : _ts_avg + 30 ))
+        base_width=$(( base_width > ${#__BU_PADDING_TABLE[@]} ? ${#__BU_PADDING_TABLE[@]} : base_width ))
+        for ((_ts_i=0; _ts_i < ${#bu_compreply_metadata_no_ansi[@]}; _ts_i++)); do
+            if (( base_width < ${#bu_compreply_metadata_no_ansi[_ts_i]} )); then
+                show_preview=true; break
+            fi
+        done
+    fi
+
+    local preview_window_size=0
+    if "$show_preview"; then
+        preview_window_size=40
+    fi
+
+    # Anchor under the completing word
+    local _fw_replace_len=${BU_TS_RESULT[cursor,replaceEnd]}
+    _fw_replace_len=$((_fw_replace_len - ${BU_TS_RESULT[cursor,replaceStart]}))
+    (( _fw_replace_len < 0 )) && _fw_replace_len=0
+    local _fw_anchor=$(( (col_with_ps1 - 2 + READLINE_POINT - _fw_replace_len) % COLUMNS ))
+    (( _fw_anchor < 0 )) && _fw_anchor=0
+    __bu_fzf_compute_dimensions "$COLUMNS" "$_fw_anchor" "$_fw_replace_len" "$base_width" "$preview_window_size"
+    local left_pos=${BU_RET[0]}
+    local right_margin=${BU_RET[1]}
+    local box_length=${BU_RET[2]}
+
+    fzf_opts+=(--margin "0,$right_margin,0,$left_pos")
     fzf_opts+=(--query "${BU_TS_RESULT[cursor,replaceText]}")
 
     if [[ -n "$BU_COMPREPLY_HINT" ]]; then
@@ -3019,36 +3094,40 @@ __bu_bind_fzf_autocomplete_impl_ts()
 
     # Format metadata alongside completions (same as non-TS path)
     local delimiter=$'\x01'
-    local show_preview=false
-    if "$BU_AUTOCOMPLETE_BIND_FZF_DISPLAY_METADATA" && (("${#BU_COMPREPLY_METADATA[@]}" > 0)) && ((${#COMPREPLY[@]} < 2000)); then
+    if "$BU_AUTOCOMPLETE_BIND_FZF_DISPLAY_METADATA" && (("${#BU_COMPREPLY_METADATA[@]}")) && ((${#COMPREPLY[@]} < 2000)); then
         local _md_i _md_pad _md_min_pad=1
+        # https://github.com/junegunn/fzf/issues/4626
         BU_COMPREPLY_METADATA=("${BU_COMPREPLY_METADATA[@]//$'\E'/'__ANSI__'}")
-        local -a _md_no_ansi=("${BU_COMPREPLY_METADATA[@]}")
-        local _md_box=$(( COLUMNS - left_pos - right_margin - 5 ))
-        (( _md_box < 20 )) && _md_box=20
         if ! "$is_ansi"; then
-            for _md_i in "${!_md_no_ansi[@]}"; do
-                _md_no_ansi[_md_i]=${_md_no_ansi[_md_i]:0:_md_box - ${#COMPREPLY[_md_i]}}
-                _md_pad=$((_md_box - ${#COMPREPLY[_md_i]} - ${#_md_no_ansi[_md_i]}))
-                COMPREPLY[_md_i]=${COMPREPLY[_md_i]}${delimiter}${__BU_PADDING_TABLE[_md_pad > _md_min_pad ? _md_pad : _md_min_pad]}${BU_TPUT_GREY}${_md_no_ansi[_md_i]}${BU_TPUT_RESET}${delimiter}${BU_COMPREPLY_METADATA[_md_i]}
+            for _md_i in "${!bu_compreply_metadata_no_ansi[@]}"; do
+                bu_compreply_metadata_no_ansi[_md_i]=${bu_compreply_metadata_no_ansi[_md_i]:0:box_length - ${#COMPREPLY[_md_i]}}
+                _md_pad=$((box_length - ${#COMPREPLY[_md_i]} - ${#bu_compreply_metadata_no_ansi[_md_i]}))
+                COMPREPLY[_md_i]=${COMPREPLY[_md_i]}${delimiter}${__BU_PADDING_TABLE[_md_pad > _md_min_pad ? _md_pad : _md_min_pad]}${BU_TPUT_GREY}${bu_compreply_metadata_no_ansi[_md_i]}${BU_TPUT_RESET}${delimiter}${BU_COMPREPLY_METADATA[_md_i]}
             done
         else
             local -a _md_stripped
-            mapfile -t _md_stripped < <(sed -r -e $'s/\x1B\(B\x1B\[m//g' -e $'s/\x1B\[([0-9]{1,3}(;[0-9]{1,3})*)?[mGK]//g' < <(printf "%s\n" "${COMPREPLY[@]}"))
-            for _md_i in "${!_md_no_ansi[@]}"; do
-                _md_no_ansi[_md_i]=${_md_no_ansi[_md_i]:0:_md_box - ${#_md_stripped[_md_i]}}
-                _md_pad=$((_md_box - ${#_md_stripped[_md_i]} - ${#_md_no_ansi[_md_i]}))
-                COMPREPLY[_md_i]=${COMPREPLY[_md_i]}${delimiter}${__BU_PADDING_TABLE[_md_pad > _md_min_pad ? _md_pad : _md_min_pad]}${BU_TPUT_GREY}${_md_no_ansi[_md_i]}${BU_TPUT_RESET}${delimiter}${BU_COMPREPLY_METADATA[_md_i]}
+            mapfile -t _md_stripped < <(sed -r -e 's/\x1B\(B\x1B\[m//g' -e "s/\x1B\[([0-9]{1,3}(;[0-9]{1,3})*)?[mGK]//g" < <(printf "%s\n" "${COMPREPLY[@]}"))
+            for _md_i in "${!bu_compreply_metadata_no_ansi[@]}"; do
+                bu_compreply_metadata_no_ansi[_md_i]=${bu_compreply_metadata_no_ansi[_md_i]:0:box_length - ${#_md_stripped[_md_i]}}
+                _md_pad=$((box_length - ${#_md_stripped[_md_i]} - ${#bu_compreply_metadata_no_ansi[_md_i]}))
+                COMPREPLY[_md_i]=${COMPREPLY[_md_i]}${delimiter}${__BU_PADDING_TABLE[_md_pad > _md_min_pad ? _md_pad : _md_min_pad]}${BU_TPUT_GREY}${bu_compreply_metadata_no_ansi[_md_i]}${BU_TPUT_RESET}${delimiter}${BU_COMPREPLY_METADATA[_md_i]}
             done
         fi
-        show_preview=true
-    fi
 
-    if "$show_preview"; then
         fzf_opts+=(
-            --preview="__bu_bind_fzf_autocomplete_impl_display {3}"
-            --preview-window=:40:wrap
+            --delimiter "$delimiter"
+            --nth 1
+            --with-nth 1,2
         )
+
+        if "$show_preview"; then
+            fzf_opts+=(
+                --preview="__bu_bind_fzf_autocomplete_impl_display {3}"
+                --preview-window=:$preview_window_size:wrap
+            )
+        fi
+
+        is_ansi=true
     fi
 
     local selected_command
