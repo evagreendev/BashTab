@@ -3075,10 +3075,6 @@ __bu_bind_fzf_autocomplete_impl_ts()
         fzf_opts+=(--header "Hint: $BU_COMPREPLY_HINT")
     fi
 
-    if "$is_ansi"; then
-        fzf_opts+=(--ansi)
-    fi
-
     local fzf_colors=(
         'fg:#569CD6' 'bg:#1F1F1F' 'hl:#C586C0' 'fg+:#9CDCFE'
         'hl+:#D16969' 'header:#DCDCAA' 'prompt:#DCDCAA' 'info:#B5CEA8'
@@ -3128,6 +3124,10 @@ __bu_bind_fzf_autocomplete_impl_ts()
         fi
 
         is_ansi=true
+    fi
+
+    if "$is_ansi"; then
+        fzf_opts+=(--ansi)
     fi
 
     local selected_command
