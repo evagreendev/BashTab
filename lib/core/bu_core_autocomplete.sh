@@ -1244,6 +1244,40 @@ BU_AUTOCOMPLETE_EXIT_CODE_RETRY=124
 # *Returns*
 # - `${COMPREPLY[@]}`: An array of completions that doesn't necessarily match on cur_word prefix.
 # ```
+
+# ```
+# *Description*:
+# Map raw option synopsis to a compact, color-coded tag.
+#   _FLAG         → {green}flag{reset}
+#   *_FILTER      → {blue}shortname{reset}  (enum positional)
+#   anything else → {yellow}shortname{reset}  (free string positional)
+# ```
+__bu_synopsis_color()
+{
+    local raw=$1
+    local short tag_color
+
+    case "$raw" in
+        _FLAG)
+            short=flag
+            tag_color=$BU_TPUT_GREEN
+            ;;
+        *_FILTER)
+            short=${raw%_FILTER}
+            short=${short,,}
+            tag_color=$BU_TPUT_BLUE
+            ;;
+        *)
+            short=${raw,,}
+            short=${short#script_}
+            short=${short#command_}
+            tag_color=$BU_TPUT_VSCODE_YELLOW
+            ;;
+    esac
+
+    printf '%s%s%s' "$tag_color" "$short" "$BU_TPUT_RESET"
+}
+
 __bu_autocomplete_completion_func_master_helper()
 {
     local completion_command_path=$1
@@ -1348,8 +1382,9 @@ __bu_autocomplete_completion_func_master_helper()
                         local _syn=${bu_script_option_synopsis[i]}
                         local _desc=${bu_script_option_docs[i]//$'\n'/"\n"}
                         _desc=${_desc//$'\t'/}
-                        # Type tag in violet, description in grey
-                        BU_COMPREPLY_METADATA+=("${BU_TPUT_VIOLET}<${_syn}>${BU_TPUT_RESET} ${BU_TPUT_GREY}${_desc}${BU_TPUT_RESET}")
+                        # Short type tag, color-coded: flag=green, enum=blue, str=yellow
+                        local _tag=$(__bu_synopsis_color "$_syn")
+                        BU_COMPREPLY_METADATA+=("${_tag} ${BU_TPUT_GREY}${_desc}${BU_TPUT_RESET}")
                         ;;
                     1) continue ;;
                     esac
