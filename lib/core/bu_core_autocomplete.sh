@@ -986,6 +986,23 @@ bu_autocomplete_get_autocompletions()
             fi
         fi
     fi
+
+    # File metadata: if completions are existing files/dirs, add hints
+    if ((${#COMPREPLY[@]} > 0)) && [[ -e "${COMPREPLY[0]}" && -e "${COMPREPLY[-1]}" ]]; then
+        if ((${#COMPREPLY[@]} < 2000)); then
+            # Add trailing slashes to directories
+            local _fm_i
+            for (( _fm_i = 0; _fm_i < ${#COMPREPLY[@]}; _fm_i++ )); do
+                if [[ -d "${COMPREPLY[_fm_i]}" && "${COMPREPLY[_fm_i]: -1}" != / ]]; then
+                    COMPREPLY[_fm_i]+=/
+                fi
+            done
+            if (( ${#BU_COMPREPLY_METADATA[@]} == 0 )); then
+                __bu_file_metadata_append "${COMPREPLY[@]}"
+            fi
+        fi
+    fi
+
     return "$ret"
 }
 
@@ -3000,6 +3017,40 @@ __bu_bind_fzf_autocomplete_impl_ts()
         fzf_opts+=(--bind "tab:accept")
     fi
 
+    # Format metadata alongside completions (same as non-TS path)
+    local delimiter=$'\x01'
+    local show_preview=false
+    if "$BU_AUTOCOMPLETE_BIND_FZF_DISPLAY_METADATA" && (("${#BU_COMPREPLY_METADATA[@]}" > 0)) && ((${#COMPREPLY[@]} < 2000)); then
+        local _md_i _md_pad _md_min_pad=1
+        BU_COMPREPLY_METADATA=("${BU_COMPREPLY_METADATA[@]//$'\E'/'__ANSI__'}")
+        local -a _md_no_ansi=("${BU_COMPREPLY_METADATA[@]}")
+        local _md_box=$(( COLUMNS - left_pos - right_margin - 5 ))
+        (( _md_box < 20 )) && _md_box=20
+        if ! "$is_ansi"; then
+            for _md_i in "${!_md_no_ansi[@]}"; do
+                _md_no_ansi[_md_i]=${_md_no_ansi[_md_i]:0:_md_box - ${#COMPREPLY[_md_i]}}
+                _md_pad=$((_md_box - ${#COMPREPLY[_md_i]} - ${#_md_no_ansi[_md_i]}))
+                COMPREPLY[_md_i]=${COMPREPLY[_md_i]}${delimiter}${__BU_PADDING_TABLE[_md_pad > _md_min_pad ? _md_pad : _md_min_pad]}${BU_TPUT_GREY}${_md_no_ansi[_md_i]}${BU_TPUT_RESET}${delimiter}${BU_COMPREPLY_METADATA[_md_i]}
+            done
+        else
+            local -a _md_stripped
+            mapfile -t _md_stripped < <(sed -r -e $'s/\x1B\(B\x1B\[m//g' -e $'s/\x1B\[([0-9]{1,3}(;[0-9]{1,3})*)?[mGK]//g' < <(printf "%s\n" "${COMPREPLY[@]}"))
+            for _md_i in "${!_md_no_ansi[@]}"; do
+                _md_no_ansi[_md_i]=${_md_no_ansi[_md_i]:0:_md_box - ${#_md_stripped[_md_i]}}
+                _md_pad=$((_md_box - ${#_md_stripped[_md_i]} - ${#_md_no_ansi[_md_i]}))
+                COMPREPLY[_md_i]=${COMPREPLY[_md_i]}${delimiter}${__BU_PADDING_TABLE[_md_pad > _md_min_pad ? _md_pad : _md_min_pad]}${BU_TPUT_GREY}${_md_no_ansi[_md_i]}${BU_TPUT_RESET}${delimiter}${BU_COMPREPLY_METADATA[_md_i]}
+            done
+        fi
+        show_preview=true
+    fi
+
+    if "$show_preview"; then
+        fzf_opts+=(
+            --preview="__bu_bind_fzf_autocomplete_impl_display {3}"
+            --preview-window=:40:wrap
+        )
+    fi
+
     local selected_command
     if selected_command=$(
         printf "%s
@@ -3009,6 +3060,10 @@ __bu_bind_fzf_autocomplete_impl_ts()
         # Strip ANSI color codes from the selection (literal ESC via $'\x1b')
         selected_command=$(sed -r $'s/\x1b\\[[0-9;]*[mGK]//g' <<<"$selected_command")
         selected_command=$(sed -r $'s/\x1b\\(B//g' <<<"$selected_command")
+        # Strip metadata delimiter from fzf selection (if metadata was shown)
+        if "$BU_AUTOCOMPLETE_BIND_FZF_DISPLAY_METADATA" && (("${#BU_COMPREPLY_METADATA[@]}")); then
+            selected_command=${selected_command%%"${delimiter}"*}
+        fi
         local readline_line
         local readline_point
 
