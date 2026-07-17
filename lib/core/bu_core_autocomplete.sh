@@ -782,6 +782,88 @@ bu_autocomplete_get_completion_func()
 # - `${BU_RET_MAP[has_ansi_colors]}`: Whether the command is "ansi aware"
 # - `${COMPREPLY[@]}`: List of autocompletions
 # ```
+
+# ```
+# *Description*:
+# Populate BU_COMPREPLY_METADATA with human-readable file hints:
+#   directories  → (empty, already indicated by / suffix + color)
+#   symlinks     → "→ target  (size)"
+#   regular files → "(size)"
+# Uses a single stat(1) call for size, readlink for symlink targets.
+#
+# *Params*:
+# - `$@`: File paths (must be existing paths)
+#
+# *Returns (appends to)*:
+# - `${BU_COMPREPLY_METADATA[@]}`
+# ```
+__bu_file_metadata_append()
+{
+    (($# == 0)) && return
+    # Separate symlinks from regular files — symlink sizes are uninteresting,
+    # we want the target's size (stat -L).
+    local -a regs=() links=()
+    local f
+    for f; do
+        if [[ -L "$f" ]]; then links+=("$f"); else regs+=("$f"); fi
+    done
+
+    # Single stat call for regular files (directories included but skipped)
+    local -A sz_map=()
+    if ((${#regs[@]} > 0)); then
+        local -a reg_sizes=()
+        local line
+        while IFS= read -r line; do
+            reg_sizes+=("$line")
+        done < <(stat -c '%s' -- "${regs[@]}" 2>/dev/null)
+        while ((${#reg_sizes[@]} < ${#regs[@]})); do reg_sizes+=(0); done
+        local i=0
+        for f in "${regs[@]}"; do sz_map["$f"]=${reg_sizes[i]}; ((i++)); done
+    fi
+    # Stat -L for symlinks to get target size
+    if ((${#links[@]} > 0)); then
+        local -a link_sizes=()
+        local line
+        while IFS= read -r line; do
+            link_sizes+=("$line")
+        done < <(stat -L -c '%s' -- "${links[@]}" 2>/dev/null)
+        while ((${#link_sizes[@]} < ${#links[@]})); do link_sizes+=(0); done
+        local i=0
+        for f in "${links[@]}"; do sz_map["$f"]=${link_sizes[i]}; ((i++)); done
+    fi
+
+    local sz hint tgt
+    for f; do
+        if [[ -d "$f" ]]; then
+            BU_COMPREPLY_METADATA+=("")
+        else
+            sz=${sz_map["$f"]:-0}
+            hint=$(__bu_human_size "$sz")
+            if [[ -L "$f" ]]; then
+                tgt=$(readlink "$f" 2>/dev/null)
+                hint="→ ${tgt}  ${hint}"
+            fi
+            BU_COMPREPLY_METADATA+=("$hint")
+        fi
+    done
+}
+
+__bu_human_size()
+{
+    # Convert bytes to human-readable: 0B, 12K, 4.2M, 1.3G
+    local b=$1 s u
+    if ((b < 0)); then b=0; fi
+    if ((b < 1024)); then
+        printf '%sB' "$b"
+    elif ((b < 1048576)); then
+        awk -v n="$b" 'BEGIN { printf "%.1fK", n / 1024 }'
+    elif ((b < 1073741824)); then
+        awk -v n="$b" 'BEGIN { printf "%.1fM", n / 1048576 }'
+    else
+        awk -v n="$b" 'BEGIN { printf "%.1fG", n / 1073741824 }'
+    fi
+}
+
 bu_autocomplete_get_autocompletions()
 {
     local BU_AUTOCOMPLETE_ACCEPT_ANSI_COLORS=false
@@ -1236,8 +1318,17 @@ __bu_autocomplete_completion_func_master_helper()
                         non_files+=("${COMPREPLY[i]}")
                     fi
                 done
+                # Populate file metadata before ls reorders entries (only if no
+                # other metadata was already set by the completion function)
+                if (( ${#BU_COMPREPLY_METADATA[@]} == 0 )); then
+                    __bu_file_metadata_append "${dirs_or_files[@]}"
+                fi
                 mapfile -t COMPREPLY < <(ls -d --color -- "${dirs_or_files[@]}")
                 COMPREPLY+=("${non_files[@]}")
+            else
+                if (( ${#BU_COMPREPLY_METADATA[@]} == 0 )); then
+                    __bu_file_metadata_append "${COMPREPLY[@]}"
+                fi
             fi
         fi
     fi
