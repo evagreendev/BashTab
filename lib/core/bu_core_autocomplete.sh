@@ -833,11 +833,12 @@ bu_autocomplete_get_completion_func()
 
 # ```
 # *Description*:
-# Populate BU_COMPREPLY_METADATA with human-readable file hints:
+# Populate BU_COMPREPLY_METADATA with color-coded file hints:
 #   directories  → (empty, already indicated by / suffix + color)
-#   symlinks     → "→ target  (size)"
-#   regular files → "(size)"
-# Uses a single stat(1) call for size, readlink for symlink targets.
+#   symlinks     → "{blue}→ target{reset}  {green}type{reset} ({yellow}size{reset})"
+#   regular files → "{green}type{reset} ({yellow}size{reset})"
+# Batches a single stat(1) + file(1) call.  Symlink target sizes
+# are resolved via stat -L.
 #
 # *Params*:
 # - `$@`: File paths (must be existing paths)
@@ -848,52 +849,132 @@ bu_autocomplete_get_completion_func()
 __bu_file_metadata_append()
 {
     (($# == 0)) && return
-    # Separate symlinks from regular files — symlink sizes are uninteresting,
-    # we want the target's size (stat -L).
+
+    # Separate symlinks, directories, regular files
     local -a regs=() links=()
     local f
     for f; do
-        if [[ -L "$f" ]]; then links+=("$f"); else regs+=("$f"); fi
+        if [[ -L "$f" ]]; then links+=("$f")
+        else regs+=("$f")
+        fi
     done
 
-    # Single stat call for regular files (directories included but skipped)
+    # --- Batch stat for sizes ---
     local -A sz_map=()
     if ((${#regs[@]} > 0)); then
         local -a reg_sizes=()
-        local line
-        while IFS= read -r line; do
-            reg_sizes+=("$line")
-        done < <(stat -c '%s' -- "${regs[@]}" 2>/dev/null)
+        local line i=0
+        while IFS= read -r line; do reg_sizes+=("$line"); done < <(stat -c '%s' -- "${regs[@]}" 2>/dev/null)
         while ((${#reg_sizes[@]} < ${#regs[@]})); do reg_sizes+=(0); done
-        local i=0
         for f in "${regs[@]}"; do sz_map["$f"]=${reg_sizes[i]}; ((i++)); done
     fi
-    # Stat -L for symlinks to get target size
     if ((${#links[@]} > 0)); then
         local -a link_sizes=()
-        local line
-        while IFS= read -r line; do
-            link_sizes+=("$line")
-        done < <(stat -L -c '%s' -- "${links[@]}" 2>/dev/null)
+        local line i=0
+        while IFS= read -r line; do link_sizes+=("$line"); done < <(stat -L -c '%s' -- "${links[@]}" 2>/dev/null)
         while ((${#link_sizes[@]} < ${#links[@]})); do link_sizes+=(0); done
-        local i=0
         for f in "${links[@]}"; do sz_map["$f"]=${link_sizes[i]}; ((i++)); done
     fi
 
-    local sz hint tgt
+    # --- Batch file(1) for type tags (regular files, not symlinks) ---
+    local -A type_map=()
+    if ((${#regs[@]} > 0)); then
+        local -a ftypes=()
+        local line i=0
+        while IFS= read -r line; do ftypes+=("$line"); done < <(file -b -- "${regs[@]}" 2>/dev/null)
+        for f in "${regs[@]}"; do type_map["$f"]=${ftypes[i]}; ((i++)); done
+    fi
+
+    # --- Build colored metadata ---
+    local g=$BU_TPUT_GREY  gn=$BU_TPUT_GREEN  yl=$BU_TPUT_VSCODE_YELLOW
+    local bl=$BU_TPUT_BLUE  rs=$BU_TPUT_RESET
+    local sz hint typ tgt short
+
     for f; do
         if [[ -d "$f" ]]; then
             BU_COMPREPLY_METADATA+=("")
-        else
-            sz=${sz_map["$f"]:-0}
-            hint=$(__bu_human_size "$sz")
-            if [[ -L "$f" ]]; then
-                tgt=$(readlink "$f" 2>/dev/null)
-                hint="→ ${tgt}  ${hint}"
-            fi
-            BU_COMPREPLY_METADATA+=("$hint")
+            continue
         fi
+
+        hint=""
+        # Symlink target (blue)
+        if [[ -L "$f" ]]; then
+            tgt=$(readlink "$f" 2>/dev/null)
+            hint+="${bl}→ ${tgt}${rs}  "
+        fi
+
+        # Type tag (green, from file -b)
+        typ=${type_map["$f"]}
+        if [[ -n "$typ" ]]; then
+            short=$(__bu_file_type_short "$typ")
+            [[ -n "$short" ]] && hint+="${gn}${short}${rs} "
+        fi
+
+        # Size (yellow inside grey parens)
+        sz=${sz_map["$f"]:-0}
+        hint+="${g}(${yl}$(__bu_human_size "$sz")${g})${rs}"
+
+        BU_COMPREPLY_METADATA+=("$hint")
     done
+}
+
+# ```
+# *Description*:
+# Map file(1) description to a compact type tag (≤ 4 chars).
+#
+# *Params*:
+# - `$1`: Raw file -b output (e.g. "ASCII text", "ELF 64-bit ... executable")
+#
+# *Returns*:
+# - stdout: short type tag, or empty for uninteresting types
+# ```
+__bu_file_type_short()
+{
+    local desc=$1
+    # Chop off comma/colon‑delimited detail
+    desc=${desc%%,*}
+    desc=${desc%%:*}
+    # Strip leading/trailing whitespace
+    desc=${desc## }
+    desc=${desc%% }
+
+    case "$desc" in
+        *"ASCII text"*)                     echo "text" ;;
+        *"Unicode text"*|*"UTF-8"*"text"*)  echo "text" ;;
+        *"CSV text"*)                        echo "csv"  ;;
+        *"JSON"*"data"*)                     echo "json" ;;
+        *"YAML"*)                            echo "yaml" ;;
+        *"XML"*"document"*|*"XML"*"text"*)   echo "xml"  ;;
+        *"HTML"*"document"*|*"HTML"*"text"*) echo "html" ;;
+        *"shell script"*|*"Bourne-Again"*)   echo "sh"   ;;
+        *"Python"*"script"*)                 echo "py"   ;;
+        *"Perl"*"script"*)                   echo "pl"   ;;
+        *"Ruby"*"script"*)                   echo "rb"   ;;
+        *"Node.js"*"script"*)                echo "js"   ;;
+        *"ELF"*"executable"*|*"ELF"*"pie executable"*) echo "exe" ;;
+        *"ELF"*"shared object"*)             echo "lib"  ;;
+        *"ELF"*)                             echo "elf"  ;;
+        *"tar archive"*)                      echo "tar"  ;;
+        *"gzip compressed"*)                  echo "gz"   ;;
+        *"bzip2 compressed"*)                 echo "bz2"  ;;
+        *"Zip archive"*)                      echo "zip"  ;;
+        *"7-zip archive"*)                    echo "7z"   ;;
+        *"archive"*|*"ar archive"*)          echo "ar"   ;;
+        *"PNG image"*)                        echo "png"  ;;
+        *"JPEG image"*)                       echo "jpg"  ;;
+        *"GIF image"*)                        echo "gif"  ;;
+        *"SVG"*)                              echo "svg"  ;;
+        *"PDF document"*)                     echo "pdf"  ;;
+        *"directory"*)                        echo ""     ;;
+        *"symbolic link"*)                    echo ""     ;;
+        *"empty"*)                            echo "0B"   ;;
+        *"very short file"*)                  echo "tiny" ;;
+        *"C source"*)                         echo "c"    ;;
+        *"C++ source"*)                       echo "c++"  ;;
+        *"makefile"*|*"Makefile"*)            echo "mk"   ;;
+        *"data"*)                             echo "bin"  ;;
+        *)                                    echo ""     ;;
+    esac
 }
 
 __bu_human_size()
@@ -2667,6 +2748,8 @@ __bu_bind_fzf_autocomplete_impl()
         local i
         local pad
         local min_pad=1
+        # Save colored copy before __ANSI__ escape (used for inline display)
+        local -a bu_compreply_metadata_colored=("${BU_COMPREPLY_METADATA[@]}")
         # https://github.com/junegunn/fzf/issues/4626
         BU_COMPREPLY_METADATA=("${BU_COMPREPLY_METADATA[@]//$'\E'/'__ANSI__'}") # Extremely hacky to prevent fzf from swallowing our ansi colors
         if ! "$is_ansi"
@@ -2677,7 +2760,7 @@ __bu_bind_fzf_autocomplete_impl()
                 bu_compreply_metadata_no_ansi[i]=${bu_compreply_metadata_no_ansi[i]:0:box_length - ${#COMPREPLY[i]}}
                 pad=$((box_length - ${#COMPREPLY[i]} - ${#bu_compreply_metadata_no_ansi[i]}))
                 # echo COMPREPLY: ${#COMPREPLY[i]} bu_compreply_metadata_no_ansi: ${#bu_compreply_metadata_no_ansi[i]} ${bu_compreply_metadata_no_ansi[i]} pad: $pad
-                COMPREPLY[i]=${COMPREPLY[i]}${delimiter}${__BU_PADDING_TABLE[pad > min_pad ? pad : min_pad]}${BU_TPUT_GREY}${bu_compreply_metadata_no_ansi[i]}${BU_TPUT_RESET}${delimiter}${BU_COMPREPLY_METADATA[i]}
+                COMPREPLY[i]=${COMPREPLY[i]}${delimiter}${__BU_PADDING_TABLE[pad > min_pad ? pad : min_pad]}${bu_compreply_metadata_colored[i]}${delimiter}${BU_COMPREPLY_METADATA[i]}
             done
         else
             # Best effort attempt to strip ansi color codes
@@ -2692,7 +2775,7 @@ __bu_bind_fzf_autocomplete_impl()
                 pad=$((box_length - ${#compreply_no_color[i]} - ${#bu_compreply_metadata_no_ansi[i]}))
                 # printf "%q " compreply_no_color: \"${compreply_no_color[i]}\" ${#compreply_no_color[i]} bu_compreply_metadata_no_ansi: ${bu_compreply_metadata_no_ansi[i]} ${#bu_compreply_metadata_no_ansi[i]} ${bu_compreply_metadata_no_ansi[i]} pad: $pad
                 # echo
-                COMPREPLY[i]=${COMPREPLY[i]}${delimiter}${__BU_PADDING_TABLE[pad > min_pad ? pad : min_pad]}${BU_TPUT_GREY}${bu_compreply_metadata_no_ansi[i]}${BU_TPUT_RESET}${delimiter}${BU_COMPREPLY_METADATA[i]}
+                COMPREPLY[i]=${COMPREPLY[i]}${delimiter}${__BU_PADDING_TABLE[pad > min_pad ? pad : min_pad]}${bu_compreply_metadata_colored[i]}${delimiter}${BU_COMPREPLY_METADATA[i]}
             done
         fi
 
@@ -3092,13 +3175,15 @@ __bu_bind_fzf_autocomplete_impl_ts()
     local delimiter=$'\x01'
     if "$BU_AUTOCOMPLETE_BIND_FZF_DISPLAY_METADATA" && (("${#BU_COMPREPLY_METADATA[@]}")) && ((${#COMPREPLY[@]} < 2000)); then
         local _md_i _md_pad _md_min_pad=1
+        # Save colored copy before __ANSI__ escape (used for inline display)
+        local -a bu_compreply_metadata_colored=("${BU_COMPREPLY_METADATA[@]}")
         # https://github.com/junegunn/fzf/issues/4626
         BU_COMPREPLY_METADATA=("${BU_COMPREPLY_METADATA[@]//$'\E'/'__ANSI__'}")
         if ! "$is_ansi"; then
             for _md_i in "${!bu_compreply_metadata_no_ansi[@]}"; do
                 bu_compreply_metadata_no_ansi[_md_i]=${bu_compreply_metadata_no_ansi[_md_i]:0:box_length - ${#COMPREPLY[_md_i]}}
                 _md_pad=$((box_length - ${#COMPREPLY[_md_i]} - ${#bu_compreply_metadata_no_ansi[_md_i]}))
-                COMPREPLY[_md_i]=${COMPREPLY[_md_i]}${delimiter}${__BU_PADDING_TABLE[_md_pad > _md_min_pad ? _md_pad : _md_min_pad]}${BU_TPUT_GREY}${bu_compreply_metadata_no_ansi[_md_i]}${BU_TPUT_RESET}${delimiter}${BU_COMPREPLY_METADATA[_md_i]}
+                COMPREPLY[_md_i]=${COMPREPLY[_md_i]}${delimiter}${__BU_PADDING_TABLE[_md_pad > _md_min_pad ? _md_pad : _md_min_pad]}${bu_compreply_metadata_colored[_md_i]}${delimiter}${BU_COMPREPLY_METADATA[_md_i]}
             done
         else
             local -a _md_stripped
@@ -3106,7 +3191,7 @@ __bu_bind_fzf_autocomplete_impl_ts()
             for _md_i in "${!bu_compreply_metadata_no_ansi[@]}"; do
                 bu_compreply_metadata_no_ansi[_md_i]=${bu_compreply_metadata_no_ansi[_md_i]:0:box_length - ${#_md_stripped[_md_i]}}
                 _md_pad=$((box_length - ${#_md_stripped[_md_i]} - ${#bu_compreply_metadata_no_ansi[_md_i]}))
-                COMPREPLY[_md_i]=${COMPREPLY[_md_i]}${delimiter}${__BU_PADDING_TABLE[_md_pad > _md_min_pad ? _md_pad : _md_min_pad]}${BU_TPUT_GREY}${bu_compreply_metadata_no_ansi[_md_i]}${BU_TPUT_RESET}${delimiter}${BU_COMPREPLY_METADATA[_md_i]}
+                COMPREPLY[_md_i]=${COMPREPLY[_md_i]}${delimiter}${__BU_PADDING_TABLE[_md_pad > _md_min_pad ? _md_pad : _md_min_pad]}${bu_compreply_metadata_colored[_md_i]}${delimiter}${BU_COMPREPLY_METADATA[_md_i]}
             done
         fi
 
