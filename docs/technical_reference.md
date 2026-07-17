@@ -6,6 +6,25 @@ nav-order: 5
 ---
 
 ## Using bu as a scripting dependency
+
+The recommended way to use BashTab in your project is via the module system.
+
+```sh
+# 1. Add BashTab as a git submodule
+git submodule add https://github.com/sunjc826/BashTab.git deps/bash-tab
+
+# 2. Scaffold your module
+source deps/bash-tab/activate
+bu new-module --name myproject
+
+# 3. Edit myproject/myproject_bu_preinit.sh, then activate
+source ./myproject/activate
+```
+
+See the [Workflow Guide](how-to-02-BashTab-workflow) for a complete walkthrough.
+
+### Legacy (manual registration)
+
 The following variables and functions are used by libraries invoking BashTab to change its behavior at initialization time.
 
 ### Initialization variables
@@ -43,6 +62,23 @@ Variable list
 | `BU_USER_DEFINED_COMPLETION_COMMAND_TO_KEY_CONVERSIONS` | `Array[Function]` | User-defined command-to-key conversion functions. These functions can customize how commands are converted to completion keys. |
 | `BU_USER_DEFINED_AUTOCOMPLETE_HELPERS` | `Array[Function]` | User-defined autocomplete helper functions. These functions provide custom lazy autocompletion behavior. |
 | `BU_USER_DEFINED_CLI_COMMAND_NAME` | `Function` | A custom command line name for `bu`. |
+
+### Module registry
+
+Modules can self-identify via `__bu_module_register`:
+
+```sh
+__bu_module_register "modname" "0.1.0" "/path/to/modname_bu_preinit.sh"
+```
+
+This populates:
+
+| Variable | Type | Description |
+|---|---|---|
+| `BU_MODULE_REGISTRY` | `Map[String, String]` | `name → "version:preinit_path"`. Available in current shell. |
+| `BU_MODULE_LIST` | `String` (exported) | `"name:version:path;..."`. Survives subshells for `bu module-list`. |
+
+`bu module-list` reads `BU_MODULE_LIST` to display loaded modules with name, version, and path. Legacy modules (without `__bu_module_register`) still work but won't appear in the listing.
 
 ### Initialization callable functions
 Another point of customization are the pre-init functions. They are found in [bu_core_preinit.sh][bu_core_preinit]. They all have the `bu_preinit_` prefix.
@@ -90,42 +126,35 @@ There are library functions that are not used by the core scripting framework, b
 
 ### Running Tests
 
-BashTab uses the [BATS (Bash Automated Testing System)](https://github.com/bats-core/bats-core) framework for unit testing. Currently, tests are written for the core functions.
-
-#### Prerequisites
-
-Initialize BATS submodules if not already done:
+BashTab uses the [BATS (Bash Automated Testing System)](https://github.com/bats-core/bats-core) framework for unit testing.
 
 ```sh
 git submodule update --init
-```
-
-#### Running the Test Suite
-
-Source the test entrypoint to add BATS to your PATH:
-
-```sh
 source ./bu_test_entrypoint.sh
+bats ./test/parse_bash_test.bats    # hand-written parser tests (54 tests)
+bats ./test/ts_test.bats            # tree-sitter daemon tests (49 tests)
+bats ./test/fzf_dims_test.bats      # fzf dimension calculation tests (14 tests)
 ```
 
-Alternatively, you can use the activate script with the `-e` flag:
+### Tree-sitter daemon
 
-```sh
-source ./activate -e
-```
+Located at `lib/bin/bu_ts_daemon.js`. The bash wrapper `lib/core/bu_core_ts.sh` manages a `coproc` node process that accepts `CURSOR:LINE` input and returns JSON CST with:
 
-Then run the tests with BATS:
+| Field | Description |
+|---|---|
+| `cmdName` | Command name at cursor |
+| `cmdWords` | Space-separated command words (unit separator delimited) |
+| `pipeBefore` / `pipeAfter` | Text before/after the last pipe separator |
+| `cursor.replaceStart/End/Text` | Range-based replacement (LSP TextEdit style) |
+| `cursor.completeKind` | `command`, `dollar_word`, `dollar_brace` |
 
-```sh
-# Run tests in parallel using half of available CPU cores
-bats --jobs "$((($(nproc) + 1) / 2))" ./test/test.bats
-```
+Toggle with `BU_AUTOCOMPLETE_USE_TREE_SITTER=true`.
 
-You can also run the test script directly (hardcoded to use 16 jobs):
+### fzf autocomplete display
 
-```sh
-./test/test.bats
-```
+The `__bu_fzf_compute_dimensions` function handles dropdown positioning (tested across 40–200 column terminals). Metadata formatting is shared between the legacy and tree-sitter autocomplete paths, with:
+- Inline hints: type tags + sizes in fzf `--with-nth` fields
+- Preview panel: 40-char side window via `--preview` when metadata overflows
 
 ### Code Documentation Standards
 

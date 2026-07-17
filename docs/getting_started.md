@@ -5,284 +5,111 @@ permalink: /getting-started/
 nav-order: 2
 ---
 
-## Installation
+## Install
 
-### 1. Clone the Repository
-
-Start by cloning the BashTab repository:
-
-```bash
-git clone git@github.com:sunjc826/BashTab.git
+```sh
+git clone https://github.com/sunjc826/BashTab.git
 cd BashTab
 ```
 
-### 2. Install Optional Dependencies
+**Optional dependencies:**
 
-While BashTab works without additional dependencies, we recommend installing `fzf` for enhanced interactive features:
+| Tool | Why |
+|---|---|
+| [`fzf`](https://github.com/junegunn/fzf) | Interactive dropdown completions, history search, inline editing |
+| `tree-sitter` + `tree-sitter-bash` (npm) | CST-based command-line parsing for accurate pipe/variable/substitution detection |
+| `file` | File-type hints in autocomplete (text/json/exe/png tags) |
 
-**On Debian-based systems (Ubuntu, Debian, etc.):**
-```bash
-sudo apt install fzf
+```sh
+sudo apt install fzf          # or your package manager
+npm install tree-sitter tree-sitter-bash   # optional, for tree-sitter parser
 ```
 
-**Other systems:**
-Refer to the [fzf installation guide](https://github.com/junegunn/fzf#installation)
+## Activate
 
-## Initialization
+From the repo root:
 
-### Activate BashTab
-
-Once you have the repository cloned, initialize BashTab by sourcing one of the activation scripts from the repository root:
-
-```bash
+```sh
 source ./activate
 ```
 
-Alternatively, you can source the main entrypoint directly:
+This loads all core modules and registers built-in commands. Add this to your `.bashrc` for persistent setup:
 
-```bash
-source ./bu_entrypoint.sh
+```sh
+source /path/to/BashTab/activate
 ```
 
-### Expected Output
+### Customize the CLI name
 
-After sourcing the activation script, you should see the following debug and info messages:
-
-```
-DEBUG   sourcing(--__bu-once) ./lib/core/bu_core_user_defined.sh
-DEBUG   sourcing(--__bu-once) ./config/bu_config_static.sh
-DEBUG   sourcing(--__bu-once) ./lib/core/bu_core_var.sh
-DEBUG   sourcing(--__bu-once) ./lib/core/bu_core_base.sh
-DEBUG   sourcing(--__bu-once) ./lib/core/bu_core_autocomplete.sh
-DEBUG   sourcing(--__bu-once) ./lib/core/bu_core_tmux.sh
-DEBUG   sourcing(--__bu-once) ./lib/core/bu_core_cli.sh
-DEBUG   sourcing(--__bu-once) ./lib/core/bu_core_preinit.sh
-DEBUG   sourcing(--__bu-once) dotfiles_bu_pre_init_entrypoint
-INFO    bu_core_init.sh:48[__bu_init_vscode] code cli already initialized, to force VSCode CLI setup again, run unset -v VSCODE_IPC_HOOK_CLI
-INFO    bu_entrypoint.sh:93[source] Bash utils: fully set up
+```sh
+BU_USER_DEFINED_CLI_COMMAND_NAME=mycli source ./activate
+# Now use `mycli` instead of `bu`
 ```
 
-These messages indicate that BashTab has been successfully initialized and all core modules have been loaded.
+### Enable tree-sitter parser
 
-## Using BashTab
-
-### Discover Available Commands
-
-Type `bu` in your terminal to see all available commands and features:
-
-```bash
-bu
+```sh
+BU_AUTOCOMPLETE_USE_TREE_SITTER=true
 ```
 
-### Expected Output
+The hand-written parser is the default (zero dependencies). Tree-sitter handles complex pipelines, nested `$(...)`, and `$VAR` expansions more accurately. The daemon starts automatically on shell init.
 
-You should see a help message similar to:
+## Explore
 
-```
-WARN    bu_impl.sh:78[__bu_impl] No arguments specified, printing help
-Help for bu
-bu is the Bash CLI implemented by BashTab
-
-The following commands using a new shell context are available
-
-    new-command                       /home/sunjc/Documents/BashTab/commands/bu-new-command.sh
-
-The following commands using the current shell context are available
-
-    get-command                       /home/sunjc/Documents/BashTab/commands/bu-get-command.sh
-    import-environment                /home/sunjc/Documents/BashTab/commands/bu-import-environment.sh
-    invoke-cached-command             /home/sunjc/Documents/BashTab/commands/bu-invoke-cached-command.sh
-    invoke-enhanced-command           /home/sunjc/Documents/BashTab/commands/bu-invoke-enhanced-command.sh
-    invoke-spawn-command              /home/sunjc/Documents/BashTab/commands/bu-invoke-spawn-command.sh
-
-The following functions are available
-
-
-The following aliases are available
-
-    gc                                get-command --namespace {} {?} --verb {} {?} --noun {} {...}
-
-The following key bindings are available
-
-    \C-@ -> __bu_bind_fzf_autocomplete_dynamic
-    \C-x -> __bu_bind_fzf_autocomplete
-    \ea -> __bu_bind_fzf_history
-    \ec -> __bu_bind_fzf_autocomplete_dynamic
-    \ee -> __bu_bind_fzf_edit
-    \eg -> __bu_bind_toggle_gdb
-    \et -> dotfiles_bind_tmux_on_off
-    \ex -> __bu_bind_fzf_autocomplete
+```sh
+bu                           # list all commands, aliases, keybindings
+bu get-command               # query commands by namespace, verb, noun
+bu get-command --verb module # find module-related commands
+bu module-list               # list loaded modules
 ```
 
-This output shows you all the commands and keybindings available in your BashTab installation.
+### Autocomplete
 
-### Query Commands with get-command
-
-To explore all available commands and aliases in more detail, use the `get-command` command:
-
-```bash
-bu get-command
+```sh
+bu <TAB>                     # fzf dropdown with metadata hints
+bu new-command --<TAB>       # colored type tags (flag, enum, str)
+ls <TAB>                     # file completions with type + size hints
+echo $HO<TAB>                # variable name completion
 ```
 
-This command is inspired by PowerShell's `Get-Command` and is used to query all commands and aliases installed with `bu`. It provides a powerful way to discover and filter the available functionality.
+### Key bindings
 
-#### Using Bash Completions
+| Keys | Action |
+|---|---|
+| `Ctrl-Space` / `Ctrl-X` | Trigger fzf autocomplete |
+| `Tab` | Confirm fzf selection |
+| `Ctrl-T` / `Ctrl-R` | fzf file / history search (if available) |
 
-For an interactive way to explore commands, type `bu` followed by a space and then press **TAB** twice:
+## Create your first command
 
-```bash
-bu <TAB>
+```sh
+bu new-command --dir commands --name my-first-cmd
 ```
 
-Bash completions will list all available commands:
+This scaffolds a script with argument parsing, help generation, and autocomplete already wired up. See the [Creating Custom Commands](how-to-01-create-custom-commands) guide for details.
 
-```
-$ bu
-gc                       import-environment       invoke-enhanced-command  new-command
-get-command              invoke-cached-command    invoke-spawn-command
-```
+## Build a module
 
-Now type `bu get-command` and press **TAB** twice to see the available options:
-
-```bash
-bu get-command <TAB><TAB>
+```sh
+bu new-module --name myapp
 ```
 
-Bash completions will show all available flags and options:
+Generates:
 
 ```
-$ bu get-command
---                       --help                   +ns                      -v
---allow-empty-namespace  +n                       -ns                      --verb
---allow-empty-noun       -n                       -t
---allow-empty-verb       --namespace              --type
--h                       --noun                   +v
+myapp/
+├── activate                   ← source to activate
+├── myapp_bu_module.sh         ← registers with BU_MODULE_PATH
+├── myapp_bu_preinit.sh        ← imports commands directory
+└── commands/                  ← your subcommands
 ```
 
-Notice there's a `--help` flag available. Let's check it out:
+Then add commands:
 
-```bash
-bu get-command --help
+```sh
+cd myapp
+source activate
+bu new-command --dir commands --name my-first-cmd
 ```
 
-This displays the full help documentation with all available options:
-
-```
-$ bu get-command --help
-Help for /home/sunjc/Documents/BashTab/commands/bu-get-command.sh
-
-OPTIONS
-
--v,--verb
-        Glob pattern to filter by verb
-
-+v,--allow-empty-verb
-        If a command has no associated verb, it is also included in the results
-
--n,--noun
-        Glob pattern to filter by noun
-
-+n,--allow-empty-noun
-        If a command has no associated noun, it is also included in the results
-
--ns,--namespace
-        Glob pattern to filter by namespace
-
-+ns,--allow-empty-namespace
-        If a command has no associated namespace, it is also included in the results
-
--t,--type
-        Type of the command
-
---
-        Remaining options will be collected
-
--h,--help
-        Print help
-```
-
-As you can see, options have both short and long forms (e.g., `-v` or `--verb`, `-n` or `--noun`), and each option includes a description explaining what it does. This makes it easy to query and filter commands based on different criteria.
-
-## Querying Commands
-
-Now let's use `get-command` to actually filter and discover commands. Here are some practical examples:
-
-### Filter by Namespace
-
-To query all commands namespaced under `bu`, type:
-
-```bash
-bu get-command -ns bu
-```
-
-Output:
-```
-$ bu get-command -ns bu
-get-command
-import-environment
-invoke-cached-command
-invoke-enhanced-command
-new-command
-invoke-spawn-command
-```
-
-The namespace is derived from the command script's filename. For example, `get-command` links to `bu-get-command.sh`, where the `bu-` prefix indicates the `bu` namespace.
-
-Note that `gc` is an alias and doesn't have an associated namespace, so it's not included in the results above. To include commands without a namespace, use the `+ns` flag:
-
-```bash
-bu get-command -ns bu +ns
-```
-
-Output:
-```
-$ bu get-command -ns bu +ns
-get-command
-import-environment
-invoke-cached-command
-invoke-enhanced-command
-new-command
-invoke-spawn-command
-gc
-```
-
-The `+ns` flag includes any commands or aliases that don't have an associated namespace.
-
-### Filter by Verb
-
-Another useful way to query is by verb. The verb describes the high-level action taken by the command, for example, `get` suggests that we are querying or retrieving some info without modifying any underlying state. Type `bu get-command --verb` and press **TAB** twice to see available verbs:
-
-```bash
-bu get-command --verb <TAB><TAB>
-```
-
-Output:
-```
-$ bu get-command --verb
-get     import  invoke  new
-```
-
-Now, if you want to see all commands related to invoking other commands:
-
-```bash
-bu get-command --verb invoke
-```
-
-Output:
-```
-$ bu get-command --verb invoke
-invoke-cached-command
-invoke-enhanced-command
-invoke-spawn-command
-```
-
-This filtering makes it easy to discover related functionality and understand how BashTab is organized.
-
-## What's Next?
-
-Now that you have BashTab installed and initialized, you can:
-- Explore the available commands by using `bu COMMAND_NAME` with different command names
-- Create custom commands with `bu new-command`
-- Configure BashTab for your specific workflows
-
-For more information, check out the [README](../README.md) or explore the [commands documentation](../commands/README.md).
+See the [Workflow Guide](how-to-02-BashTab-workflow) for using BashTab as a project dependency.

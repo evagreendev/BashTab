@@ -229,14 +229,40 @@ Register via pre-init functions:
 - `bu_preinit_register_user_defined_subcommand_function`
 - `bu_preinit_register_new_alias`
 
+### Module System
+
+Module scripts in `BU_MODULE_PATH` register themselves:
+
+```bash
+__bu_module_register "modname" "0.1.0" "/path/to/preinit.sh"
+```
+
+This populates `BU_MODULE_REGISTRY` (associative array) and `BU_MODULE_LIST` (exported scalar for subshells).
+
+- `bu new-module --name myapp` — scaffold a module
+- `bu module-list` — list loaded modules with name, version, path
+
+### Tree-sitter Daemon
+
+- `lib/bin/bu_ts_daemon.js` — Node.js daemon using tree-sitter-bash for CST parsing
+- `lib/core/bu_core_ts.sh` — bash wrapper using `coproc`, exposes `bu_ts_parse()`
+- Toggle: `BU_AUTOCOMPLETE_USE_TREE_SITTER=true` (default `false`)
+- Handles pipes, command substitutions, variable expansions, returns range-based replacements
+
+### fzf Autocomplete Display
+
+- `__bu_fzf_compute_dimensions` — shared dimension calculation (tested 40–200 cols)
+- `__bu_file_metadata_append` — color-coded file hints (type tag + size + symlink)
+- `__bu_synopsis_color` — compact option type tags (flag/enum/str)
+- Preview panel only opens when metadata overflows box width
+
 ## Project Integration Pattern
 
-1. Add BashTab as git submodule (e.g., `deps/shell-utils`)
-2. Create project `activate` script
-3. Create `PROJECT_bu_module.sh` for callbacks
-4. Create `PROJECT_bu_preinit.sh` for pre-init setup
-5. Place custom commands in `commands/` directory
-6. Use `BU_MODULE_PATH` to register module paths
+1. Add BashTab as git submodule (`deps/bash-tab`)
+2. Run `bu new-module --name myproject` to scaffold module
+3. Customize `myproject_bu_preinit.sh` for your commands
+4. Add commands: `bu new-command --dir myproject/commands --name my-cmd`
+5. Users `source ./myproject/activate` to enter the environment
 
 ## Code Documentation
 
