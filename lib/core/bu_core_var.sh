@@ -63,7 +63,7 @@ declare -A -g BU_COMMAND_NAMESPACES=()
 
 # ```
 # Registry of loaded modules: name → "version:preinit_path"
-# Populated by __bu_module_register. Inspected by bu module-list.
+# Populated by __bu_module_register. Inspected by bu get-module.
 # ```
 declare -A -g BU_MODULE_REGISTRY=()
 # Exportable scalar version of the registry for subshell inspection

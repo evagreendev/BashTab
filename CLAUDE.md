@@ -240,7 +240,7 @@ __bu_module_register "modname" "0.1.0" "/path/to/preinit.sh"
 This populates `BU_MODULE_REGISTRY` (associative array) and `BU_MODULE_LIST` (exported scalar for subshells).
 
 - `bu new-module --name myapp` — scaffold a module
-- `bu module-list` — list loaded modules with name, version, path
+- `bu get-module` — list loaded modules with name, version, path
 
 ### Tree-sitter Daemon
 

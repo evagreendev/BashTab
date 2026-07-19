@@ -60,7 +60,7 @@ The hand-written parser is the default (zero dependencies). Tree-sitter handles 
 bu                           # list all commands, aliases, keybindings
 bu get-command               # query commands by namespace, verb, noun
 bu get-command --verb module # find module-related commands
-bu module-list               # list loaded modules
+bu get-module               # list loaded modules
 ```
 
 ### Autocomplete

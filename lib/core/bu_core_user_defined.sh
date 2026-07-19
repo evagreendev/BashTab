@@ -126,7 +126,7 @@ bu_user_defined_autocomplete_lazy()
 # *Description*:
 # Register a module with BashTab's module registry.
 # Modules call this to self-identify with a name and optional version,
-# enabling bu module-list and other inspection commands.
+# enabling bu get-module and other inspection commands.
 #
 # *Params*:
 # - `$1`: Module name (e.g. "utilities", "demoapp")

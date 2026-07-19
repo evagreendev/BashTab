@@ -28,7 +28,7 @@ bu new-module --name myapp    # scaffold a module
 ### 📦 Module system
 - `BU_MODULE_PATH` — colon-separated list of module scripts
 - `bu new-module --name myapp` — scaffold a module with activate / module script / preinit callback / commands directory
-- `bu module-list` — inspect loaded modules with name, version, and path
+- `bu get-module` — inspect loaded modules with name, version, and path
 - Module preinit callbacks register commands, keybindings, aliases, and completion specs
 
 ### 📝 Argument parsing that writes your completions
@@ -61,7 +61,7 @@ BashTab is **not**:
 [bu-get-command]: ../commands/bu-get-command.sh
 [bu-new-command]: ../commands/bu-new-command.sh
 [bu-new-module]: ../commands/bu-new-module.sh
-[bu-module-list]: ../commands/bu-module-list.sh
+[bu-get-module]: ../commands/bu-get-module.sh
 [bu_user_defined_decl]: ../bu_user_defined_decl.sh
 [bu_core_preinit]: ../lib/core/bu_core_preinit.sh
 [core]: ../lib/core/

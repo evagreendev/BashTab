@@ -105,7 +105,7 @@ Now `bu deploy` and `bu run-tests` are available with autocomplete.
 cd your-project
 source ./activate
 bu                          # see your commands alongside built-ins
-bu module-list              # verify your module is loaded
+bu get-module              # verify your module is loaded
 bu deploy --help            # auto-generated help
 ```
 
@@ -119,7 +119,7 @@ myproject_DIR=$(realpath -- "$(dirname -- "${BASH_SOURCE}")")
 __bu_module_register "myproject" "0.1.0" "$myproject_DIR/myproject_bu_preinit.sh"
 ```
 
-This makes the module visible to `bu module-list` and future module introspection tools. The legacy raw-array pattern still works but won't appear in module listings.
+This makes the module visible to `bu get-module` and future module introspection tools. The legacy raw-array pattern still works but won't appear in module listings.
 
 ## Key concepts
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-function __bu_bu_module_list_main()
+function __bu_bu_get_module_main()
 {
 local -r invocation_dir=$PWD
 
@@ -55,7 +55,7 @@ then
     bu_autohelp \
         --description "
 List all modules registered via __bu_module_register.
-Reads the BU_MODULE_LIST environment variable (populated when modules
+Reads the BU_get_module environment variable (populated when modules
 are sourced at shell startup). Modules that were loaded without calling
 __bu_module_register (legacy BU_MODULE_PATH entries) are shown with
 version \"-\" and a note.
@@ -123,4 +123,4 @@ fi
 bu_scope_pop_function
 }
 
-__bu_bu_module_list_main "$@"
+__bu_bu_get_module_main "$@"

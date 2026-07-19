@@ -76,9 +76,9 @@ This populates:
 | Variable | Type | Description |
 |---|---|---|
 | `BU_MODULE_REGISTRY` | `Map[String, String]` | `name → "version:preinit_path"`. Available in current shell. |
-| `BU_MODULE_LIST` | `String` (exported) | `"name:version:path;..."`. Survives subshells for `bu module-list`. |
+| `BU_MODULE_LIST` | `String` (exported) | `"name:version:path;..."`. Survives subshells for `bu get-module`. |
 
-`bu module-list` reads `BU_MODULE_LIST` to display loaded modules with name, version, and path. Legacy modules (without `__bu_module_register`) still work but won't appear in the listing.
+`bu get-module` reads `BU_MODULE_LIST` to display loaded modules with name, version, and path. Legacy modules (without `__bu_module_register`) still work but won't appear in the listing.
 
 ### Initialization callable functions
 Another point of customization are the pre-init functions. They are found in [bu_core_preinit.sh][bu_core_preinit]. They all have the `bu_preinit_` prefix.

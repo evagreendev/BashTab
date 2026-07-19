@@ -5,6 +5,10 @@ esac
 
 declare -a -g BU_RET=()
 declare -A -g BU_RET_MAP=()
+if (("${#BU_MODULE_REGISTRY[@]}" == 0))
+then
+    declare -A -g BU_MODULE_REGISTRY=()
+fi
 
 BU_REPO_DIR_PREV=$BU_REPO_DIR
 BU_REPO_SHA1_PREV=$BU_REPO_SHA1
