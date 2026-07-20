@@ -59,6 +59,44 @@ __bu_cli_command_type()
 
 # ```
 # *Description*:
+# Format a command name with verb and noun colorized separately.
+# When the command has parsed verb/noun properties, the verb is colored blue,
+# the noun green, and the dash grey.  Otherwise the name is bold as-is.
+# Output is a %b-ready string already padded to COLWIDTH visible characters.
+#
+# *Params*:
+# - `$1`: command key
+# - `$2`: column width (default 30)
+#
+# *Returns*: stdout: padded, colorized command name
+# ```
+__bu_cli_colorize_command_name()
+{
+    local -r key=$1
+    local -r colw=${2:-30}
+    local verb=${BU_COMMAND_PROPERTIES[$key,verb]:-}
+    local noun=${BU_COMMAND_PROPERTIES[$key,noun]:-}
+    local display
+
+    if [[ -n "$verb" && -n "$noun" ]]
+    then
+        # Verb (bold blue), dash (grey), noun (bold green)
+        display="${BU_TPUT_BOLD}${BU_TPUT_BLUE}${verb}${BU_TPUT_RESET}"
+        display+="${BU_TPUT_GREY}-${BU_TPUT_RESET}"
+        display+="${BU_TPUT_BOLD}${BU_TPUT_GREEN}${noun}${BU_TPUT_RESET}"
+    else
+        # Fallback: bold-only (no verb/noun split)
+        display="${BU_TPUT_BOLD}${key}${BU_TPUT_RESET}"
+    fi
+
+    local visible_len=${#key}
+    local padding=$((colw - visible_len))
+    ((padding < 1)) && padding=1
+    printf '%s%*s' "$display" "$padding" ''
+}
+
+# ```
+# *Description*:
 # Displays help information for the master command
 #
 # *Params*: None
@@ -67,8 +105,31 @@ __bu_cli_command_type()
 # ```
 __bu_cli_help()
 {
-    echo "${BU_TPUT_BOLD}${BU_TPUT_DARK_BLUE}Help for ${BU_CLI_COMMAND_NAME}${BU_TPUT_RESET}"
-    echo "${BU_CLI_COMMAND_NAME} is the Bash CLI implemented by BashTab"
+    local -r title="${BU_TPUT_BOLD}${BU_TPUT_DARK_BLUE}Help for ${BU_CLI_COMMAND_NAME}${BU_TPUT_RESET}"
+    local -r dim="${BU_TPUT_GREY}"
+    local -r rst="${BU_TPUT_RESET}"
+    local -r em="${BU_TPUT_BOLD}"
+    local -r ul="${BU_TPUT_UNDERLINE}"
+
+    echo "$title"
+    echo
+    echo "${em}bu${rst} is a ${em}Verb-Noun${rst} CLI with fzf-powered tab completion and a"
+    echo "PowerShell-inspired JSONL object pipeline."
+    echo
+    echo "${em}Getting started${rst}"
+    echo "  Type ${em}bu${rst} ${dim}<TAB>${rst} to explore commands in a fuzzy-search dropdown."
+    echo "  Command names follow ${em}Verb-Noun${rst} — the verb is ${BU_TPUT_BOLD}${BU_TPUT_BLUE}blue${rst} and the"
+    echo "  noun is ${BU_TPUT_BOLD}${BU_TPUT_GREEN}green${rst} in the listing below."
+    echo "  Run ${em}bu <command> --help${rst} for details on any subcommand."
+    echo
+    echo "${em}Pipelines${rst}"
+    echo "  Commands emit ${em}JSONL${rst} (one JSON object per line). Chain them with | :"
+    echo "    ${dim}bu get-command | bu where-object '.type == \"source\"' | bu format-table${rst}"
+    echo "  Or use classic Unix pipes — jq, awk, etc. work on the JSONL stream."
+    echo
+    echo "${em}Key bindings${rst} (see bottom of this page for the full list)"
+    echo "  ${dim}Ctrl-X${rst} / ${dim}Ctrl-@${rst}  Trigger fzf autocomplete"
+    echo "  ${dim}Alt-E${rst}         Edit the current command line in \$EDITOR"
 
     local key
     local value
@@ -109,7 +170,7 @@ __bu_cli_help()
     for key in $(__bu_cli_sort_keys <<<"${!executable_scripts[*]}")
     do
         value=${executable_scripts[$key]}
-        printf "    ${BU_TPUT_BOLD}%-30s${BU_TPUT_RESET}    %s\n" "$key" "$value"
+        printf '    %b    %s\n' "$(__bu_cli_colorize_command_name "$key")" "$value"
     done
 
     echo
@@ -126,7 +187,7 @@ __bu_cli_help()
         else
             opt_err=
         fi
-        printf "    ${BU_TPUT_BOLD}%-30s${BU_TPUT_RESET}    %s %s\n" "$key" "$value" "$opt_err"
+        printf '    %b    %s %s\n' "$(__bu_cli_colorize_command_name "$key")" "$value" "$opt_err"
     done
 
     echo
@@ -136,7 +197,7 @@ __bu_cli_help()
     for key in $(__bu_cli_sort_keys <<<"${!functions[*]}")
     do
         value=${functions[$key]}
-        printf "    ${BU_TPUT_BOLD}%-30s${BU_TPUT_RESET}    %s\n" "$key" "$value"
+        printf '    %b    %s\n' "$(__bu_cli_colorize_command_name "$key")" "$value"
     done
 
     echo
@@ -146,7 +207,7 @@ __bu_cli_help()
     for key in $(__bu_cli_sort_keys <<<"${!aliases[*]}")
     do
         value=${aliases[$key]}
-        printf "    ${BU_TPUT_BOLD}%-30s${BU_TPUT_RESET}    %s\n" "$key" "$value"
+        printf '    %b    %s\n' "$(__bu_cli_colorize_command_name "$key")" "$value"
     done
 
     echo
