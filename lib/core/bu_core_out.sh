@@ -60,36 +60,93 @@ __bu_out_validate_key()
 
 # ```
 # *Description*:
-# Convert a comma-separated column list to a JSON array
+# Parse a comma-separated column spec list, supporting optional display labels.
 #
 # *Params*:
-# - `$1`: Comma-separated columns (e.g. `name,version,path`). Empty string yields `[]`.
+# - `$1`: Comma-separated specs, each `key` or `key:Label`
+#         (e.g. `name:Module,version,path:Location`). Empty string yields empty arrays.
 #
 # *Returns*:
-# - `$BU_RET`: JSON array (e.g. `["name","version","path"]`)
+# - `$BU_RET`: JSON array of keys (e.g. `["name","version","path"]`)
+# - `$BU_RET_HEADERS`: JSON array of display labels, parallel to the keys
+#                      (e.g. `["Module","version","Location"]`). Unlabeled keys
+#                      use the key itself as the label.
+#
+# *Notes*:
+# - Labels are display-only; lookups and --colors always use the key.
+# - Keys must be identifiers (validated); labels may be any string.
 # ```
-__bu_out_cols_to_json()
+__bu_out_parse_colspecs()
 {
-    local -a cols=()
-    local col
+    local -a specs=()
+    local spec
     local ifs=$IFS
     IFS=','
     # shellcheck disable=SC2206 # Intentional word splitting on commas
-    cols=($1)
+    specs=($1)
     IFS=$ifs
-    local -a valid=()
-    for col in "${cols[@]}"
+    local -a keys=() headers=()
+    local key header
+    for spec in "${specs[@]}"
     do
-        [[ -z "$col" ]] && continue
-        __bu_out_validate_key "$col" || return 1
-        valid+=("$col")
+        [[ -z "$spec" ]] && continue
+        key=${spec%%:*}
+        header=${spec#*:}
+        [[ -z "$header" ]] && header=$key
+        __bu_out_validate_key "$key" || return 1
+        keys+=("$key")
+        headers+=("$header")
     done
-    if ((${#valid[@]} == 0))
+    if ((${#keys[@]} == 0))
     then
         BU_RET='[]'
+        BU_RET_HEADERS='[]'
     else
-        BU_RET=$("$BU_OUT_JQ" -cn --args '$ARGS.positional' -- "${valid[@]}")
+        BU_RET=$("$BU_OUT_JQ" -cn --args '$ARGS.positional' -- "${keys[@]}")
+        BU_RET_HEADERS=$("$BU_OUT_JQ" -cn --args '$ARGS.positional' -- "${headers[@]}")
     fi
+}
+
+# ```
+# *Description*:
+# Convert a comma-separated column spec list to a JSON array of keys,
+# silently dropping any `:Label` display labels.
+#
+# *Params*:
+# - `$1`: Comma-separated specs (see __bu_out_parse_colspecs)
+#
+# *Returns*:
+# - `$BU_RET`: JSON array of keys
+# ```
+__bu_out_cols_to_json()
+{
+    __bu_out_parse_colspecs "$@"
+}
+
+# ```
+# *Description*:
+# Convert a comma-separated column spec list to a JSON array of
+# `{key, header}` objects for the display formatters.
+#
+# *Params*:
+# - `$1`: Comma-separated specs (see __bu_out_parse_colspecs)
+#
+# *Returns*:
+# - `$BU_RET`: JSON array (e.g. `[{"key":"name","header":"Module"},...]`)
+# ```
+__bu_out_colspecs_to_json()
+{
+    __bu_out_parse_colspecs "$@" || return 1
+    local keys_json=$BU_RET
+    if [[ "$keys_json" == '[]' ]]
+    then
+        BU_RET='[]'
+        return 0
+    fi
+    BU_RET=$("$BU_OUT_JQ" -cn \
+        --argjson keys "$keys_json" \
+        --argjson headers "$BU_RET_HEADERS" \
+        '[range(0; $keys | length) | {key: $keys[.], header: $headers[.]}]')
 }
 
 # ```
@@ -341,6 +398,165 @@ bu_out_from_lines()
     "$BU_OUT_JQ" -R -c --arg k "$column" '{($k): .}'
 }
 
+# MARK: Transforms (JSONL -> JSONL)
+
+# ```
+# *Description*:
+# Filter a JSONL stream with a jq boolean expression (PowerShell Where-Object).
+# Streams record-by-record with O(1) latency.
+#
+# *Params*:
+# - `$1`: jq expression evaluated per record; records where it is truthy pass.
+#         The current record is `.` (e.g. `.version == "-"`, `.name | test("^bu")`).
+# - stdin: JSONL stream
+#
+# *Returns*:
+# - stdout: Filtered JSONL stream
+#
+# *Examples*:
+# ```bash
+# bu get-command | bu_out_where '.type == "source"'
+# ```
+#
+# *Notes*:
+# - The expression is embedded into a jq program verbatim (same trust
+#   boundary as writing raw jq).
+# ```
+bu_out_where()
+{
+    __bu_out_assert_jq || return 1
+    if (($# != 1))
+    then
+        bu_log_err "bu_out_where expects exactly one jq expression"
+        return 1
+    fi
+    "$BU_OUT_JQ" -c "select($1)"
+}
+
+# ```
+# *Description*:
+# Project a JSONL stream to a subset of fields, reordering and optionally
+# renaming them (PowerShell Select-Object).
+#
+# *Params*:
+# - `$1`: Comma-separated field specs. `name` keeps the field as-is;
+#         `new=old` renames field `old` to `new`.
+# - stdin: JSONL stream
+#
+# *Returns*:
+# - stdout: JSONL stream containing only the selected fields
+#
+# *Examples*:
+# ```bash
+# bu get-command | bu_out_select name,type
+# bu get-module | bu_out_select name,ver=version
+# ```
+#
+# *Notes*:
+# - Field order in the spec determines key order in the output records.
+# - Missing fields are emitted as null.
+# ```
+bu_out_select()
+{
+    __bu_out_assert_jq || return 1
+    if (($# != 1))
+    then
+        bu_log_err "bu_out_select expects a comma-separated field spec (e.g. 'name,ver=version')"
+        return 1
+    fi
+
+    local -a specs=()
+    local ifs=$IFS
+    IFS=','
+    # shellcheck disable=SC2206 # Intentional word splitting on commas
+    specs=($1)
+    IFS=$ifs
+
+    local prog= sep=
+    local spec new old
+    for spec in "${specs[@]}"
+    do
+        [[ -z "$spec" ]] && continue
+        case "$spec" in
+        *=*)
+            new=${spec%%=*}
+            old=${spec#*=}
+            __bu_out_validate_key "$new" || return 1
+            __bu_out_validate_key "$old" || return 1
+            ;;
+        *)
+            new=$spec
+            old=$spec
+            __bu_out_validate_key "$new" || return 1
+            ;;
+        esac
+        prog+="$sep\"$new\":.$old"
+        sep=,
+    done
+    if [[ -z "$prog" ]]
+    then
+        bu_log_err "bu_out_select got an empty field spec"
+        return 1
+    fi
+    "$BU_OUT_JQ" -c "{$prog}"
+}
+
+# ```
+# *Description*:
+# Sort a JSONL stream by a field (PowerShell Sort-Object). Buffers all input.
+# jq ordering rules apply: null < false < true < numbers < strings < arrays < objects.
+#
+# *Params*:
+# - `$1`: Field to sort by
+# - `--desc` (optional): Sort descending
+# - stdin: JSONL stream
+#
+# *Returns*:
+# - stdout: Sorted JSONL stream
+#
+# *Examples*:
+# ```bash
+# bu get-command | bu_out_sort_by noun
+# bu get-command | bu_out_sort_by name --desc
+# ```
+bu_out_sort_by()
+{
+    __bu_out_assert_jq || return 1
+
+    local key=
+    local is_desc=false
+    while (($#))
+    do
+        case "$1" in
+        --desc)
+            is_desc=true
+            ;;
+        *)
+            if [[ -n "$key" ]]
+            then
+                bu_log_err "bu_out_sort_by got an unexpected extra argument[$1]"
+                return 1
+            fi
+            key=$1
+            ;;
+        esac
+        shift
+    done
+    if [[ -z "$key" ]]
+    then
+        bu_log_err "bu_out_sort_by requires a field to sort by"
+        return 1
+    fi
+    __bu_out_validate_key "$key" || return 1
+
+    if "$is_desc"
+    then
+        "$BU_OUT_JQ" -sc --arg key "$key" 'sort_by(.[$key]) | reverse | .[]'
+    else
+        "$BU_OUT_JQ" -sc --arg key "$key" 'sort_by(.[$key]) | .[]'
+    fi
+}
+
 # MARK: Sinks (JSONL -> display)
 
 # Shared jq prelude for the display formatters.
@@ -359,8 +575,10 @@ EOF
 # Render a JSONL stream as an aligned table (PowerShell Format-Table).
 #
 # *Params*:
-# - `--columns a,b,c`: Columns to display, in order. Default: keys of the
-#                      first record (insertion order). Required with --stream.
+# - `--columns a,b,c`: Columns to display, in order. Each entry may carry a
+#                      display label as `key:Label` (e.g. `name:Module`).
+#                      Default: keys of the first record (insertion order).
+#                      Required with --stream.
 # - `--stream`:        Stream rows as they arrive using proportional column
 #                      widths derived from the terminal width, instead of
 #                      buffering all records for optimal auto-widths.
@@ -412,7 +630,7 @@ bu_format_table()
         shift "$shift_by"
     done
 
-    __bu_out_cols_to_json "$columns" || return 1
+    __bu_out_colspecs_to_json "$columns" || return 1
     local cols_json=$BU_RET
     __bu_out_colors_to_json "$colors" || return 1
     local colors_json=$BU_RET
@@ -442,13 +660,13 @@ bu_format_table()
             --arg bold "$bold" --arg reset "$reset" --arg ellipsis "…" \
             "$__BU_OUT_JQ_PRELUDE"'
             ($cols | length) as $n
-            | ([$cols[] | {key: ., width: ([$minw, ((($termw - 2 * ($n - 1)) / $n) | floor)] | max)}]) as $spec
+            | ([$cols[] | {key: .key, header: .header, width: ([$minw, ((($termw - 2 * ($n - 1)) / $n) | floor)] | max)}]) as $spec
             | def rowline($r): $spec | map(
                   . as $s
                   | ($r[$s.key] | cellstr | ellipsize($s.width) | pad($s.width)) as $cell
                   | ($colors[$s.key] // "") + $cell + (if $colors[$s.key] then $reset else "" end)
               ) | join("  ");
-            ($spec | map(. as $s | $bold + ($s.key | pad($s.width)) + $reset) | join("  ") | rtrim),
+            ($spec | map(. as $s | $bold + ($s.header | pad($s.width)) + $reset) | join("  ") | rtrim),
             ($spec | map("-" * .width) | join("  ") | rtrim),
             (inputs | rowline(.) | rtrim)
             '
@@ -465,8 +683,8 @@ bu_format_table()
         . as $rows
         | if ($rows | length) == 0 then empty
         else
-        ($cols | if length == 0 then $rows[0] | keys_unsorted else . end) as $cols
-        | ($cols | map(. as $c | {key: $c, width: ([($c | length)] + [$rows[] | .[$c] | cellstr | length] | max)})) as $init
+        ($cols | if length == 0 then $rows[0] | keys_unsorted | map({key: ., header: .}) else . end) as $cols
+        | ($cols | map(. as $c | {key: $c.key, header: $c.header, width: ([($c.header | length)] + [$rows[] | .[$c.key] | cellstr | length] | max)})) as $init
         | def fit($spec):
               if (($spec | map(.width) | add) + 2 * ($spec | length - 1)) <= $termw then $spec
               elif ($spec | all(.[]; .width <= $minw)) then $spec
@@ -475,7 +693,7 @@ bu_format_table()
                   | fit($spec | map(if .key == $mk then .width -= 1 else . end))
               end;
         fit($init) as $spec
-        | ($spec | map(. as $s | $bold + ($s.key | pad($s.width)) + $reset) | join("  ") | rtrim),
+        | ($spec | map(. as $s | $bold + ($s.header | pad($s.width)) + $reset) | join("  ") | rtrim),
           ($spec | map("-" * .width) | join("  ") | rtrim),
           ($rows[] | . as $r | $spec | map(
               . as $s
@@ -492,7 +710,9 @@ bu_format_table()
 # Streams record-by-record with O(1) latency.
 #
 # *Params*:
-# - `--columns a,b,c`: Fields to display, in order. Default: keys of each record.
+# - `--columns a,b,c`: Fields to display, in order. Each entry may carry a
+#                      display label as `key:Label` (e.g. `name:Module`).
+#                      Default: keys of each record.
 # - stdin: JSONL stream
 #
 # *Returns*:
@@ -530,16 +750,16 @@ bu_format_list()
         shift "$shift_by"
     done
 
-    __bu_out_cols_to_json "$columns" || return 1
+    __bu_out_colspecs_to_json "$columns" || return 1
     local cols_json=$BU_RET
 
     "$BU_OUT_JQ" -r \
         --argjson cols "$cols_json" \
         "$__BU_OUT_JQ_PRELUDE"'
         . as $r
-        | ($cols | if length == 0 then $r | keys_unsorted else . end) as $cs
-        | ($cs | map(length) | max) as $lw
-        | ($cs | map(. as $c | ($c | pad($lw)) + " : " + ($r[$c] | cellstr)) | join("\n")),
+        | ($cols | if length == 0 then $r | keys_unsorted | map({key: ., header: .}) else . end) as $cs
+        | ($cs | map(.header | length) | max) as $lw
+        | ($cs | map(. as $c | ($c.header | pad($lw)) + " : " + ($r[$c.key] | cellstr)) | join("\n")),
           ""
         '
 }

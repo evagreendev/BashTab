@@ -219,6 +219,30 @@ bu_parse_positional $# --hint "Name of the script"
 
 These functions unify parsing, autocompletion, and variable binding.
 
+## Structured Output (JSONL pipeline)
+
+PowerShell-inspired: JSONL (one JSON object per line) is the object stream, jq is the backend. Implemented in `lib/core/bu_core_out.sh`.
+
+- **Recordifiers**: `bu_out_record k=v` / `k:=v` (typed), `bu_out_from_tsv --columns`, `bu_out_from_lines --column`
+- **Transforms**: `bu_out_where '<jq expr>'`, `bu_out_select a,b=version`, `bu_out_sort_by key [--desc]`
+- **Sinks**: `bu_format_table` (auto-width, `--stream`, `--colors`), `bu_format_list`, `bu_format_json`, `bu_format_jsonl`, `bu_format_tsv`
+- **Dispatcher**: `bu_out` — Out-Default. Resolution: `--format` > `BU_OUTPUT_FORMAT` > TTY (table) vs pipe (jsonl)
+
+Command pattern (zero forks in the loop):
+```bash
+{
+    for entry in "${entries[@]}"; do
+        printf '%s\t%s\t%s\n' "$name" "$version" "$path"
+    done
+} | bu_out_from_tsv --columns name,version,path | bu_out --format "$format"
+```
+
+Commands expose `--format` (enum: auto table list json jsonl tsv) and `--columns` (supports `key:Label` display labels). Cmdlet wrappers usable in any pipeline: `bu format-table`, `bu format-list`, `bu convert-to-json`, `bu convert-to-jsonl`, `bu convert-to-tsv`, `bu out-default`.
+
+Command names support multi-word verbs via `BU_MULTI_WORD_VERBS` (default: `convert-to`, `convert-from`), so `convert-to-jsonl` parses as verb=`convert-to`, noun=`jsonl`.
+
+See `docs/technical_reference.md` for details.
+
 ## Extension Mechanisms
 
 Register via pre-init functions:

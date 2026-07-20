@@ -134,6 +134,7 @@ source ./bu_test_entrypoint.sh
 bats ./test/parse_bash_test.bats    # hand-written parser tests (54 tests)
 bats ./test/ts_test.bats            # tree-sitter daemon tests (49 tests)
 bats ./test/fzf_dims_test.bats      # fzf dimension calculation tests (14 tests)
+bats ./test/out_test.bats           # structured output tests (38 tests)
 ```
 
 ### Tree-sitter daemon
@@ -155,6 +156,46 @@ Toggle with `BU_AUTOCOMPLETE_USE_TREE_SITTER=true`.
 The `__bu_fzf_compute_dimensions` function handles dropdown positioning (tested across 40–200 column terminals). Metadata formatting is shared between the legacy and tree-sitter autocomplete paths, with:
 - Inline hints: type tags + sizes in fzf `--with-nth` fields
 - Preview panel: 40-char side window via `--preview` when metadata overflows
+
+### Structured output (JSONL pipeline)
+
+Inspired by PowerShell's object pipeline: **JSONL (one JSON object per line) is the object stream**. Commands produce records and a sink formatter decides presentation at the end of the pipeline. jq is the backend throughout. Implemented in [bu_core_out.sh](../lib/core/bu_core_out.sh).
+
+**Layers**
+
+| Layer | Functions | Model |
+|---|---|---|
+| Recordifiers (raw → JSONL) | `bu_out_record k=v` / `k:=v` (typed), `bu_out_from_tsv --columns`, `bu_out_from_lines --column` | per-record fork, or one jq per stream |
+| Transforms (JSONL → JSONL) | `bu_out_where '<jq expr>'`, `bu_out_select a,b=version`, `bu_out_sort_by key [--desc]` | streaming (except sort, which buffers) |
+| Sinks (JSONL → display) | `bu_format_table [--stream] [--colors]`, `bu_format_list`, `bu_format_json`, `bu_format_jsonl`, `bu_format_tsv` | see buffering notes below |
+| Dispatcher | `bu_out [--format auto\|table\|list\|json\|jsonl\|tsv]` | Out-Default analog |
+
+**Format resolution** (`bu_out` / `--format auto`): explicit flag → `BU_OUTPUT_FORMAT` → terminal detection (table on a TTY, JSONL when piped). So `bu get-module` prints a table interactively and `bu get-module | jq ...` just works.
+
+**Command integration pattern** — zero forks in the record loop, exactly two jq processes:
+
+```bash
+{
+    for entry in "${entries[@]}"; do
+        printf '%s\t%s\t%s\n' "$name" "$version" "$path"
+    done
+} | bu_out_from_tsv --columns name,version,path | bu_out --format "$format"
+```
+
+TSV mode requires values without tabs/newlines; use `bu_out_record` per record for arbitrary strings.
+
+**Sink buffering**: `table` (auto-width) and `json` buffer all input; `table --stream` emits immediately with proportional widths (requires `--columns`); `list`, `tsv`, `jsonl` stream with O(1) latency.
+
+**Column labels**: `--columns name:Module,version` renames display headers in table/list; lookups and `--colors name=green` still use the record key. tsv recordifiers strip labels.
+
+**Cmdlet commands** (usable in any pipeline): `bu format-table`, `bu format-list`, `bu convert-to-json`, `bu convert-to-jsonl`, `bu convert-to-tsv`, `bu out-default`.
+
+```bash
+bu get-command | bu format-table
+bu get-command | jq -c 'select(.verb == "get")' | bu out-default   # jq = Where-Object
+```
+
+**Multi-word verbs**: command name parsing honors `BU_MULTI_WORD_VERBS` (default: `convert-to`, `convert-from`), so `bu-convert-to-jsonl.sh` registers verb=`convert-to`, noun=`jsonl`. Longest match wins; extend the array from user-defined configs for custom multi-word verbs.
 
 ### Code Documentation Standards
 

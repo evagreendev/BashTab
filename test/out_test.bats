@@ -229,6 +229,121 @@ function test_bu_out_invalid_format { #@test
 }
 
 # ===========================================================================
+# Transforms: bu_out_where / bu_out_select / bu_out_sort_by
+# ===========================================================================
+
+function test_bu_out_where_filters { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"a","type":"source"}' '{"name":"b","type":"execute"}' | bu_out_where '.type == "source"')
+    assert_equal "$out" '{"name":"a","type":"source"}'
+}
+
+function test_bu_out_where_requires_expression { #@test
+    run bu_out_where </dev/null
+    assert_failure
+}
+
+function test_bu_out_select_projects_and_reorders { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"a","version":"1","path":"/x"}' | bu_out_select version,name)
+    assert_equal "$out" '{"version":"1","name":"a"}'
+}
+
+function test_bu_out_select_renames { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"a","version":"1"}' | bu_out_select name,ver=version)
+    assert_equal "$out" '{"name":"a","ver":"1"}'
+}
+
+function test_bu_out_select_invalid_key { #@test
+    run bu_out_select 'bad-key=x' </dev/null
+    assert_failure
+}
+
+function test_bu_out_sort_by_ascending { #@test
+    local out
+    out=$(printf '%s\n' '{"n":3}' '{"n":1}' '{"n":2}' | bu_out_sort_by n)
+    assert_equal "$out" '{"n":1}
+{"n":2}
+{"n":3}'
+}
+
+function test_bu_out_sort_by_descending { #@test
+    local out
+    out=$(printf '%s\n' '{"n":3}' '{"n":1}' '{"n":2}' | bu_out_sort_by n --desc)
+    assert_equal "$out" '{"n":3}
+{"n":2}
+{"n":1}'
+}
+
+function test_bu_out_sort_by_strings { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"gamma"}' '{"name":"alpha"}' | bu_out_sort_by name | jq -r .name | tr '\n' ' ')
+    assert_equal "$out" 'alpha gamma '
+}
+
+function test_bu_out_sort_by_requires_key { #@test
+    run bu_out_sort_by </dev/null
+    assert_failure
+}
+
+# ===========================================================================
+# Column labels (key:Label)
+# ===========================================================================
+
+function test_bu_format_table_labels { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"bashtab","version":"0.1.0"}' | bu_format_table --columns name:Module,version)
+    assert_equal "$out" 'Module   version
+-------  -------
+bashtab  0.1.0'
+}
+
+function test_bu_format_table_label_widens_column { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"x"}' | bu_format_table --columns name:ModuleName)
+    assert_equal "$out" 'ModuleName
+----------
+x'
+}
+
+function test_bu_format_table_label_with_spaces { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"x","version":"1"}' | bu_format_table --columns 'name:Module Name,version')
+    assert_equal "$out" 'Module Name  version
+-----------  -------
+x            1'
+}
+
+function test_bu_format_list_labels { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"bashtab","version":"0.1.0"}' | bu_format_list --columns name:Module,version)
+    assert_equal "$out" 'Module  : bashtab
+version : 0.1.0'
+}
+
+function test_bu_format_table_stream_labels { #@test
+    local out
+    out=$(COLUMNS=40; printf '%s\n' '{"name":"bashtab","version":"0.1.0"}' | bu_format_table --stream --columns name:Module,version)
+    assert_equal "$out" 'Module               version
+-------------------  -------------------
+bashtab              0.1.0'
+}
+
+function test_bu_format_tsv_strips_labels { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"x","version":"1"}' | bu_format_tsv --columns name:Module,version)
+    assert_equal "$out" $'x\t1'
+}
+
+function test_bu_format_table_colors_use_key_not_label { #@test
+    # --colors refers to the record key even when the display label differs
+    local out
+    out=$(printf '%s\n' '{"name":"x"}' | bu_format_table --columns name:Module --colors name=red | grep -c $'\033')
+    assert_equal "$out" '1'
+}
+
+# ===========================================================================
 # Integration: bu commands with structured output
 # ===========================================================================
 
@@ -302,4 +417,13 @@ function test_bu_pipeline_jq_as_where_object { #@test
     local out
     out=$(bu get-command | jq -c 'select(.verb == "get" and .namespace == "bu")' | bu out-default --format tsv --columns name | tr '\n' ' ')
     assert_equal "$out" 'get-command get-module '
+}
+
+function test_bu_pipeline_where_select_sort_table { #@test
+    # Full transform chain piped into a table sink
+    local out
+    out=$(bu get-command | bu_out_where '.namespace == "bu"' | bu_out_select name,verb | bu_out_sort_by name | bu_format_table | head -3)
+    assert_equal "$out" 'name                     verb
+-----------------------  ----------
+convert-to-json          convert-to'
 }
