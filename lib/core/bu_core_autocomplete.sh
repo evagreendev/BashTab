@@ -3124,7 +3124,7 @@ __bu_bind_fzf_autocomplete_impl_ts()
         ;;
     esac
 
-    if ((${#COMPREPLY[@]} == 0 && -z "$BU_COMPREPLY_HINT")); then
+    if (( ${#COMPREPLY[@]} == 0 )) && [[ -z "$BU_COMPREPLY_HINT" ]]; then
         tput rc
         return 0
     fi
