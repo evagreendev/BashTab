@@ -207,12 +207,95 @@ bu_parse_positional $# --hint "Name of the script"
 
 **Sourceable** (`source_script_template.sh`): Assumes entrypoint already loaded, sources `$BU_NULL` for shellcheck
 
-## Naming Conventions
+## Bash Style Guide
 
-- **Global variables**: `BU_*` prefix
-- **Functions**: `bu_*` prefix
+### Collections
+
+Use **arrays**, not space-delimited strings, for any collection of values:
+
+```bash
+# ✓ Good — array
+BU_OUT_FORMATS=(auto table list json jsonl tsv)
+
+# ✗ Avoid — string with implicit word splitting
+BU_OUT_FORMATS="auto table list json jsonl tsv"
+```
+
+When passing an array to a command, use `"${arr[@]}"` (preserves individual elements):
+
+```bash
+bu_parse_positional $# --enum "${BU_OUT_FORMATS[@]}" enum--
+```
+
+When iterating, use `"${arr[@]}"`:
+
+```bash
+for item in "${items[@]}"; do ...; done
+```
+
+When joining for display, use `${arr[*]}` (joins with first character of IFS, typically space).
+
+### Variables
+
+- **Global variables**: `BU_*` prefix, declare with `declare -g` or `declare -A -g`
+- **Local variables**: Always `local`, use `local -r` when the value never changes after initialization
 - **Return values**: `BU_RET` for strings/arrays, `BU_RET_MAP` for associative arrays
-- **User customization**: `BU_USER_DEFINED_*` prefix
+- **Constants**: `declare -r` at global scope
+
+Declare locals at the top of the function, not scattered throughout:
+
+```bash
+# ✓ Good
+function my_func() {
+    local name=
+    local -a items=()
+    local is_verbose=false
+    ...
+}
+```
+
+### Quoting
+
+Always quote variable expansions unless you explicitly want word splitting:
+
+```bash
+# ✓ Good
+bu_log_err "$error_msg"
+"$command" "${args[@]}"
+
+# ✗ Avoid — unquoted expansion
+bu_log_err $error_msg
+```
+
+### Case Statements
+
+Keep case patterns simple. Use `# _FLAG` for flags, `# HINT` for positional hints:
+
+```bash
+case "$1" in
+    -h|--help)# _FLAG
+        is_help=true
+        ;;
+    --format)# FORMAT
+        bu_parse_positional $# --enum "${BU_OUT_FORMATS[@]}" enum--
+        format=${!shift_by}
+        ;;
+    *)
+        bu_parse_error_enum "$1"
+        ;;
+esac
+```
+
+### Indentation
+
+4-space indentation. No tabs.
+
+### Function Naming
+
+- Public API: `bu_*` prefix
+- Private/internal: `__bu_*` prefix
+
+
 
 ## Key Argument Parsing Functions
 
