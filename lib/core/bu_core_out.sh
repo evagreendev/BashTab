@@ -879,6 +879,9 @@ bu_format_table()
                   | fit($spec | map(if .key == $mk then .width -= 1 else . end))
               end;
         fit($init) as $spec
+        | (if ($spec | length) < ($cols | length) then
+              debug("showing \($spec | length) of \($cols | length) columns (use --columns or --format list)")
+           else . end)
         | ($spec | map(. as $s | $bold + ($s.header | pad($s.width)) + $reset) | join("  ") | rtrim),
           ($spec | map("-" * .width) | join("  ") | rtrim),
           ($rows[] | . as $r | $spec | map(
