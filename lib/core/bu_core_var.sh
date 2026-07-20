@@ -62,6 +62,18 @@ declare -A -g BU_COMMAND_NOUNS=()
 declare -A -g BU_COMMAND_NAMESPACES=()
 
 # ```
+# Verbs that consist of multiple words (kebab-case), checked first when
+# parsing command names. PowerShell's two-word verbs in kebab form.
+# Example: with `convert-to` in this list, `convert-to-jsonl` parses as
+# verb=`convert-to`, noun=`jsonl` instead of verb=`convert`, noun=`to-jsonl`.
+# Extend from user-defined configs to support custom multi-word verbs.
+# ```
+if ((${#BU_MULTI_WORD_VERBS[@]} == 0))
+then
+    declare -a -g BU_MULTI_WORD_VERBS=(convert-to convert-from)
+fi
+
+# ```
 # Registry of loaded modules: name → "version:preinit_path"
 # Populated by __bu_module_register. Inspected by bu get-module.
 # ```

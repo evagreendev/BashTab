@@ -199,6 +199,45 @@ bu_preinit_register_user_defined_subcommand_function()
 # - Updates the global `BU_COMMAND_VERBS` and `BU_COMMAND_NOUNS` sets
 # - Stores verb/noun properties in `BU_COMMAND_PROPERTIES`
 # ```
+# ```
+# *Description*:
+# Split a command name (without namespace) into verb and remainder,
+# honoring multi-word verbs registered in `BU_MULTI_WORD_VERBS`.
+#
+# *Params*:
+# - `$1`: Command name without namespace (e.g. `convert-to-jsonl`)
+#
+# *Returns*:
+# - `$BU_RET_VERB`: The verb (e.g. `convert-to` if registered, else `convert`)
+# - `$BU_RET_REST`: The remainder after the verb (e.g. `jsonl`)
+#
+# *Notes*:
+# - Multi-word verbs are matched longest-first as a `verb-` prefix
+# - A name that is exactly a multi-word verb (no noun) is not special-cased;
+#   it falls back to single-word splitting
+# ```
+__bu_preinit_split_verb()
+{
+    local -r no_namespace=$1
+    local multi_word_verb best_match=
+    # Longest match wins, so e.g. a hypothetical `convert-to-utc` beats `convert-to`
+    for multi_word_verb in "${BU_MULTI_WORD_VERBS[@]}"
+    do
+        if [[ "$no_namespace" == "$multi_word_verb"-* ]] && (( ${#multi_word_verb} > ${#best_match} ))
+        then
+            best_match=$multi_word_verb
+        fi
+    done
+    if [[ -n "$best_match" ]]
+    then
+        BU_RET_VERB=$best_match
+        BU_RET_REST=${no_namespace#"$best_match"-}
+        return 0
+    fi
+    BU_RET_VERB=${no_namespace%%-*}
+    BU_RET_REST=${no_namespace#*-}
+}
+
 bu_convert_file_to_command_prefix()
 {
     local -r delimiter=$1
@@ -208,8 +247,9 @@ bu_convert_file_to_command_prefix()
     local -r file_base_no_ext=${file_base%.sh}
     local -r namespace=${file_base_no_ext%%$delimiter*}
     local -r no_namespace=${file_base_no_ext#*$delimiter} # Don't quote prefix, we allow it to be a pattern
-    local -r verb=${no_namespace%%-*}
-    local -r noun=${no_namespace#*-}
+    __bu_preinit_split_verb "$no_namespace"
+    local -r verb=$BU_RET_VERB
+    local -r noun=$BU_RET_REST
     BU_COMMAND_VERBS[$verb]=1
     BU_COMMAND_NOUNS[$noun]=1
     BU_COMMAND_NAMESPACES[$namespace]=1
@@ -246,8 +286,9 @@ bu_convert_file_to_command_powershell()
     local -r file_path=$1
     bu_basename "$file_path"
     local -r file_base_no_ext=${BU_RET%.sh}
-    local -r verb=${file_base_no_ext%%-*}
-    local -r no_verb=${file_base_no_ext#*-}
+    __bu_preinit_split_verb "$file_base_no_ext"
+    local -r verb=$BU_RET_VERB
+    local -r no_verb=$BU_RET_REST
     local -r namespace=${no_verb%%-*}
     local -r noun=${no_verb#*-}
     BU_COMMAND_VERBS[$verb]=1

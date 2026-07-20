@@ -27,3 +27,8 @@ BU_AUTOCOMPLETE_BIND_TAB_TO_FZF=true
 # Provides more accurate cursor-position tracking and syntax awareness.
 # ```
 BU_AUTOCOMPLETE_USE_TREE_SITTER=${BU_AUTOCOMPLETE_USE_TREE_SITTER:-false}
+
+# Default output format for `bu out` / `bu * --format auto` when stdout is
+# not a terminal can be overridden here. One of: table, list, json, jsonl, tsv
+# Empty means: table on a terminal, jsonl otherwise.
+BU_OUTPUT_FORMAT=${BU_OUTPUT_FORMAT:-}

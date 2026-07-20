@@ -82,6 +82,7 @@ bu_source_user_defined_configs
 
 source ./lib/core/bu_core_var.sh --__bu-once
 source ./lib/core/bu_core_base.sh --__bu-once
+source ./lib/core/bu_core_out.sh --__bu-once
 source ./lib/core/bu_core_compat.sh --__bu-once
 source ./lib/core/bu_core_autocomplete.sh --__bu-once
 source ./lib/core/bu_core_tmux.sh --__bu-once

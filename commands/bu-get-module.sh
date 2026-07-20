@@ -9,7 +9,8 @@ source "$BU_NULL"
 bu_scope_push_function
 bu_run_log_command "$@"
 
-local is_json=false
+local format=auto
+local columns=
 local is_help=false
 local error_msg=
 local options_finished=false
@@ -19,9 +20,16 @@ while (($#))
 do
     bu_parse_multiselect $# "$1"
     case "$1" in
-    --json)# _FLAG
-        # Output module list as JSON
-        is_json=true
+    --format)# FORMAT
+        # Output format
+        bu_parse_positional $# --enum auto table list json jsonl tsv enum-- --hint "Output format"
+        bu_validate_positional "${!shift_by}"
+        format=${!shift_by}
+        ;;
+    --columns)# COLUMNS
+        # Fields to display, in order (comma-separated)
+        bu_parse_positional $# --enum name version path enum-- --hint "Comma-separated fields"
+        columns=${!shift_by}
         ;;
     -h|--help)# _FLAG
         # Print help
@@ -59,9 +67,13 @@ Reads the BU_get_module environment variable (populated when modules
 are sourced at shell startup). Modules that were loaded without calling
 __bu_module_register (legacy BU_MODULE_PATH entries) are shown with
 version \"-\" and a note.
+
+Output is structured: piped output defaults to JSONL, terminal output
+defaults to a table. Use --format to override.
 " \
         --example "List modules" "" \
-        --example "List modules as JSON" "--json"
+        --example "List modules as a JSON array" "--format json" \
+        --example "List modules as a list" "--format list"
     return 0
 fi
 
@@ -74,34 +86,17 @@ if [[ -n "$BU_MODULE_LIST" ]]; then
     IFS=$_ifs
 fi
 
-if "$is_json"
+if ((${#entries[@]} == 0))
 then
-    printf '{\n'
-    local first=true
-    local entry
-    for entry in "${entries[@]}"
-    do
-        [[ -z "$entry" ]] && continue
-        "$first" || printf ',\n'
-        first=false
-        local name=${entry%%:*}
-        local rest=${entry#*:}
-        local version=${rest%%:*}
-        local path=${rest#*:}
-        printf '  "%s": {"version": "%s", "path": "%s"}' "$name" "$version" "$path"
-    done
-    printf '\n}\n'
+    # Hints go to stderr so they never pollute the structured stream
+    bu_log_info "No modules registered."
+    bu_log_info "Modules are detected via __bu_module_register in their module script."
+    bu_log_info "Use 'bu new-module --name <name>' to scaffold a properly registered module."
 else
-    if ((${#entries[@]} == 0))
-    then
-        echo "No modules registered."
-        echo "Modules are detected via __bu_module_register in their module script."
-        echo "Use 'bu new-module --name <name>' to scaffold a properly registered module."
-    else
-        local g=$BU_TPUT_GREEN b=$BU_TPUT_BOLD rs=$BU_TPUT_RESET yl=$BU_TPUT_VSCODE_YELLOW
-        printf '%-20s %-10s %s\n' "${b}NAME${rs}" "${b}VERSION${rs}" "${b}PATH${rs}"
-        printf '%-20s %-10s %s\n' '--------------------' '----------' '--------------------'
-        local entry
+    # Stream TSV records (zero forks in the loop), recordify once, then
+    # let bu_out decide presentation (table on a terminal, JSONL when piped)
+    local entry
+    {
         for entry in "${entries[@]}"
         do
             [[ -z "$entry" ]] && continue
@@ -109,15 +104,9 @@ else
             local rest=${entry#*:}
             local version=${rest%%:*}
             local path=${rest#*:}
-            local display_path=$path
-            local max_path=60
-            if ((${#display_path} > max_path))
-            then
-                display_path="...${display_path:${#display_path}-max_path+3}"
-            fi
-            printf '%-20s %-10s %s\n' "${g}${name}${rs}" "${yl}${version}${rs}" "$display_path"
+            printf '%s\t%s\t%s\n' "$name" "$version" "$path"
         done
-    fi
+    } | bu_out_from_tsv --columns name,version,path | bu_out --format "$format" ${columns:+--columns "$columns"}
 fi
 
 bu_scope_pop_function

@@ -34,6 +34,8 @@ local type_filter=
 local is_allow_empty_verb=false
 local is_allow_empty_noun=false
 local is_allow_empty_namespace=false
+local format=auto
+local columns=
 local is_help=false
 local error_msg=
 local options_finished=false
@@ -75,6 +77,17 @@ do
         bu_parse_positional $# --enum function execute source alias enum-- --hint "Command type"
         bu_validate_positional "${!shift_by}"
         type_filter=${!shift_by}
+        ;;
+    --format)# FORMAT
+        # Output format
+        bu_parse_positional $# --enum auto table list json jsonl tsv enum-- --hint "Output format"
+        bu_validate_positional "${!shift_by}"
+        format=${!shift_by}
+        ;;
+    --columns)# COLUMNS
+        # Fields to display, in order (comma-separated)
+        bu_parse_positional $# --enum name verb noun namespace type enum-- --hint "Comma-separated fields"
+        columns=${!shift_by}
         ;;
     -h|--help)# _FLAG
         # Print help
@@ -165,8 +178,19 @@ do
     filtered_commands+=("$command")
 done
 
-# TODO: Better output
-printf "%s\n" "${filtered_commands[@]}"
+# Stream TSV records (zero forks in the loop), recordify once, then
+# let bu_out decide presentation (table on a terminal, JSONL when piped)
+{
+    for command in "${filtered_commands[@]}"
+    do
+        __bu_cli_command_type "$command"
+        command_type=$BU_RET
+        command_verb=${BU_COMMAND_PROPERTIES[$command,verb]:-}
+        command_noun=${BU_COMMAND_PROPERTIES[$command,noun]:-}
+        command_namespace=${BU_COMMAND_PROPERTIES[$command,namespace]:-}
+        printf '%s\t%s\t%s\t%s\t%s\n' "$command" "$command_verb" "$command_noun" "$command_namespace" "$command_type"
+    done
+} | sort | bu_out_from_tsv --columns name,verb,noun,namespace,type | bu_out --format "$format" ${columns:+--columns "$columns"}
 
 
 bu_scope_pop_function
