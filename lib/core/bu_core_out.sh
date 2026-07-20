@@ -224,6 +224,19 @@ __bu_out_colspecs_to_json()
         '[range(0; $keys | length) | {key: $keys[.], header: $headers[.]}]')
 }
 
+# Predefined palette for --colors auto (rotating rainbow).
+# Keys: BU_TPUT_* color names (lowercase), in rotation order.
+__BU_OUT_RAINBOW=(
+    blue
+    green
+    yellow
+    red
+    violet
+    vscode_orange
+    vscode_pink
+    dark_blue
+)
+
 # ```
 # *Description*:
 # Build a JSON color map from a comma-separated `key=color` spec
@@ -771,17 +784,37 @@ bu_format_table()
 
     __bu_out_colspecs_to_json "$columns" || return 1
     local cols_json=$BU_RET
-    __bu_out_colors_to_json "$colors" || return 1
-    local colors_json=$BU_RET
+    local rainbow_json='[]'
+    if [[ "$colors" == auto ]]
+    then
+        # Build a JSON array of ANSI escape codes from the palette names
+        local -a _ansi_palette=()
+        local _cname _cvar
+        for _cname in "${__BU_OUT_RAINBOW[@]}"
+        do
+            _cvar=BU_TPUT_${_cname^^}
+            _ansi_palette+=("${!_cvar}")
+        done
+        rainbow_json=$("$BU_OUT_JQ" -cn --args '$ARGS.positional' -- "${_ansi_palette[@]}")
+        __bu_out_colors_to_json ""  # validate, produce empty
+        colors_json='{}'
+    else
+        __bu_out_colors_to_json "$colors" || return 1
+        colors_json=$BU_RET
+    fi
     __bu_out_term_width
     local termw=$BU_RET
 
-    # Bold header on terminals only
-    local bold= reset=
+    # Bold header on terminals only; reset always needed when colours are active
+    local bold= reset=$BU_TPUT_RESET
     if [[ -t 1 ]]
     then
         bold=$BU_TPUT_BOLD
-        reset=$BU_TPUT_RESET
+    fi
+    # No explicit or auto colours → suppress reset so plain output stays clean
+    if [[ -z "$colors" && "$rainbow_json" == '[]' ]]
+    then
+        reset=
     fi
 
     if "$is_stream"
@@ -794,11 +827,16 @@ bu_format_table()
         "$BU_OUT_JQ" -rn \
             --argjson cols "$cols_json" \
             --argjson colors "$colors_json" \
+            --argjson rainbow "$rainbow_json" \
             --argjson termw "$termw" \
             --argjson minw 4 \
             --arg bold "$bold" --arg reset "$reset" --arg ellipsis "…" \
             "$__BU_OUT_JQ_PRELUDE"'
-            ($cols | length) as $n
+            (if ($rainbow | length) > 0 then
+               reduce range(0; $cols | length) as $i ({};
+                   .[$cols[$i].key] = $rainbow[$i % ($rainbow | length)])
+             else $colors end) as $colors
+            | ($cols | length) as $n
             | ([$cols[] | {key: .key, header: .header, width: ([$minw, ((($termw - 2 * ($n - 1)) / $n) | floor)] | max)}]) as $spec
             | def rowline($r): $spec | map(
                   . as $s
@@ -815,6 +853,7 @@ bu_format_table()
     "$BU_OUT_JQ" -s -r \
         --argjson cols "$cols_json" \
         --argjson colors "$colors_json" \
+        --argjson rainbow "$rainbow_json" \
         --argjson termw "$termw" \
         --argjson minw 4 \
         --arg bold "$bold" --arg reset "$reset" --arg ellipsis "…" \
@@ -823,6 +862,10 @@ bu_format_table()
         | if ($rows | length) == 0 then empty
         else
         ($cols | if length == 0 then $rows[0] | keys_unsorted | map({key: ., header: .}) else . end) as $cols
+        | (if ($rainbow | length) > 0 then
+             reduce range(0; $cols | length) as $i ({};
+                 .[$cols[$i].key] = $rainbow[$i % ($rainbow | length)])
+           else $colors end) as $colors
         | ($cols | map(. as $c | {key: $c.key, header: $c.header, width: ([($c.header | length)] + [$rows[] | .[$c.key] | cellstr | ansilen] | max)})) as $init
         | def fit($spec):
               if (($spec | map(.width) | add) + 2 * ($spec | length - 1)) <= $termw then $spec
