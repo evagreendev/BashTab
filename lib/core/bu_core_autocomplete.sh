@@ -1278,6 +1278,30 @@ __bu_synopsis_color()
     printf '%s%s%s' "$tag_color" "$short" "$BU_TPUT_RESET"
 }
 
+# ```
+# *Description*:
+# Normalize an option token for alias comparison: strip leading `-`/`+`
+# characters and lowercase the remainder.
+# `--select`, `select` and `SELECT` all normalize to `select`.
+#
+# *Params*:
+# - `$1`: Name of the output variable (nameref)
+# - `$2`: Option token to normalize
+#
+# *Returns*:
+# - `$$1`: Normalized token
+# ```
+__bu_autocomplete_normalize_option()
+{
+    local -n __bu_autocomplete_normalize_option_out=$1
+    local __bu_autocomplete_normalize_option_t=$2
+    while [[ "$__bu_autocomplete_normalize_option_t" == [-+]* ]]
+    do
+        __bu_autocomplete_normalize_option_t=${__bu_autocomplete_normalize_option_t:1}
+    done
+    __bu_autocomplete_normalize_option_out=${__bu_autocomplete_normalize_option_t,,}
+}
+
 __bu_autocomplete_completion_func_master_helper()
 {
     local completion_command_path=$1
@@ -1353,6 +1377,68 @@ __bu_autocomplete_completion_func_master_helper()
             for ((i=0; i<${#bu_script_options[@]}; i++))
             do
                 bu_str_split '|' "${bu_script_options[i]}"
+                local -a line_options=("${BU_RET[@]}")
+
+                # Alias heuristic: alternatives equal modulo leading -/+ and
+                # case (--select, select, SELECT) are the same option. Show a
+                # single row, and exclude it once any form has been used.
+                # Options that merely share a handler but differ after
+                # normalization (--json, --yaml) are NOT merged.
+                local is_alias_group=false
+                if ((${#line_options[@]} > 1))
+                then
+                    local norm_base normalized_option
+                    __bu_autocomplete_normalize_option norm_base "${line_options[0]}"
+                    is_alias_group=true
+                    for option in "${line_options[@]:1}"
+                    do
+                        __bu_autocomplete_normalize_option normalized_option "$option"
+                        if [[ "$normalized_option" != "$norm_base" ]]
+                        then
+                            is_alias_group=false
+                            break
+                        fi
+                    done
+                fi
+
+                if "$is_alias_group"
+                then
+                    local is_alias_used=false
+                    for option in "${line_options[@]}"
+                    do
+                        if [[ "${bu_parsed_multiselect_arguments[$option]}" = 1 ]]
+                        then
+                            is_alias_used=true
+                            break
+                        fi
+                    done
+                    "$is_alias_used" && continue
+
+                    # Prefer the first form, unless the user has typed the
+                    # prefix of another form (keeps the row alive through the
+                    # compgen prefix filter downstream)
+                    local display_option=${line_options[0]}
+                    for option in "${line_options[@]:1}"
+                    do
+                        if [[ -n "$cur_word" && "$option" == "$cur_word"* && "$display_option" != "$cur_word"* ]]
+                        then
+                            display_option=$option
+                            break
+                        fi
+                    done
+
+                    COMPREPLY+=("${current_ansi_color}${display_option}${reset_ansi_color}")
+                    local _syn=${bu_script_option_synopsis[i]}
+                    local _desc=${bu_script_option_docs[i]//$'\n'/"\n"}
+                    _desc=${_desc//$'\t'/}
+                    # Short type tag, color-coded: flag=green, enum=blue, str=yellow
+                    local _tag=$(__bu_synopsis_color "$_syn")
+                    local _aka="aka ${line_options[*]:1}"
+                    [[ -n "$_desc" ]] && _aka+=" — "
+                    BU_COMPREPLY_METADATA+=("${_tag} ${BU_TPUT_GREY}${_aka}${_desc}${BU_TPUT_RESET}")
+                    continue
+                fi
+
                 # Some heuristics:
                 # If ${BU_RET[@]} is of length 2, and one of them is short-form, and the other is long-form
                 # e.g. -d --dir

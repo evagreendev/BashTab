@@ -763,3 +763,64 @@ function test_e2e_query_object_where_dot_completion { #@test
     bu_autocomplete_get_autocompletions bu query-object where ""
     assert_equal "${COMPREPLY[*]}" ".name .verb .noun .namespace .type"
 }
+
+# ===========================================================================
+# Alias merging in option completion (--select, select, SELECT are one row)
+# ===========================================================================
+
+function test_alias_merged_single_row { #@test
+    # --select/select merge into one row (the first form); no bare select row
+    bu_autocomplete_get_autocompletions bu query-object ""
+    local count=0 candidate
+    for candidate in "${COMPREPLY[@]}"
+    do
+        [[ "$candidate" == "--select" || "$candidate" == "select" ]] && ((count++))
+    done
+    assert_equal "$count" 1
+    assert_equal "${COMPREPLY[0]}" "--select"
+}
+
+function test_alias_merged_metadata_aka { #@test
+    # The merged row's metadata lists the alternative forms
+    bu_autocomplete_get_autocompletions bu query-object ""
+    assert_regex "${BU_COMPREPLY_METADATA[*]}" 'aka select'
+    assert_regex "${BU_COMPREPLY_METADATA[*]}" 'aka order-by'
+}
+
+function test_alias_display_follows_typed_prefix { #@test
+    # Typing the bare keyword's prefix switches the row to that form so the
+    # compgen prefix filter keeps it
+    bu_autocomplete_get_autocompletions bu query-object se
+    assert_equal "${COMPREPLY[*]}" "select"
+}
+
+function test_alias_excluded_after_any_form_used { #@test
+    # Using the bare form excludes the whole alias group
+    bu_autocomplete_get_autocompletions bu query-object select name ""
+    local candidate
+    for candidate in "${COMPREPLY[@]}"
+    do
+        refute_equal "$candidate" "--select"
+        refute_equal "$candidate" "select"
+    done
+    # Other clauses are still offered
+    local has_where=false
+    for candidate in "${COMPREPLY[@]}"
+    do
+        [[ "$candidate" == "--where" ]] && has_where=true
+    done
+    assert_equal "$has_where" true
+}
+
+function test_alias_non_alias_pairs_not_merged { #@test
+    # -v and --verb normalize differently: both rows remain
+    bu_autocomplete_get_autocompletions bu get-command ""
+    local has_short=false has_long=false candidate
+    for candidate in "${COMPREPLY[@]}"
+    do
+        [[ "$candidate" == "-v" ]] && has_short=true
+        [[ "$candidate" == "--verb" ]] && has_long=true
+    done
+    assert_equal "$has_short" true
+    assert_equal "$has_long" true
+}

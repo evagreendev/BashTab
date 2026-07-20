@@ -156,6 +156,7 @@ Toggle with `BU_AUTOCOMPLETE_USE_TREE_SITTER=true`.
 The `__bu_fzf_compute_dimensions` function handles dropdown positioning (tested across 40–200 column terminals). Metadata formatting is shared between the legacy and tree-sitter autocomplete paths, with:
 - Inline hints: type tags + sizes in fzf `--with-nth` fields
 - Preview panel: 40-char side window via `--preview` when metadata overflows
+- **Alias merging**: case-pattern alternatives that are equal modulo leading `-`/`+` and case (`--select`, `select`, `SELECT`) collapse into a single row — the first form, unless the user typed another form's prefix (keeps the row alive through compgen's prefix filter). Using any form excludes the whole group. Alternatives that differ after normalization (`-v|--verb`, `--json|--yaml`) stay separate rows; the legacy short/long used-option exclusion still applies.
 
 ### Structured output (JSONL pipeline)
 

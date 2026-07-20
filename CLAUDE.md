@@ -147,6 +147,10 @@ bu_scope_pop_function
 __bu_SCRIPT_NAME_main "$@"
 ```
 
+### Aliases in Case Patterns (Autocomplete)
+
+Alternatives in one case pattern that normalize to the same token (strip leading `-`/`+`, lowercase) are treated as **aliases**: `--select|select` shows a single completion row (first form wins, switching to a typed prefix), metadata shows `aka <other forms>`, and using any form excludes the group. Alternatives that differ after normalization (e.g. `-v|--verb`) are not merged — they stay separate rows with the legacy short/long exclusion. Put the preferred insert form first in the pattern.
+
 ### Comments in Case Statements (Autohelp Only)
 
 Comments after case patterns are **purely for autohelp generation** and have no runtime effect:
