@@ -213,6 +213,14 @@ bu get-command | bu select-object name,verb        # table on a terminal
 bu get-command | bu select-object name,verb | jq . # JSONL when piped
 ```
 
+**`bu query-object`** composes the transforms into one SQL-style command. Clause keywords work bare or dashed (`select` / `--select`), in any order; execution always follows SQL logical order: WHERE → SELECT → ORDER BY → FIRST. `--where` uses source field names (repeatable, ANDed), `--order-by` uses output field names (SELECT aliases, like SQL), `--first` is LIMIT. Clause values get pipeline field completion.
+
+```bash
+bu get-command | bu query-object where '.type == "source"' select name,verb order-by verb
+bu get-command | bu query-object order-by name desc first 5
+bu get-command | bu query-object select name,ver=version order-by ver   # order by alias
+```
+
 **Multi-word verbs**: command name parsing honors `BU_MULTI_WORD_VERBS` (default: `convert-to`, `convert-from`), so `bu-convert-to-jsonl.sh` registers verb=`convert-to`, noun=`jsonl`. Longest match wins; extend the array from user-defined configs for custom multi-word verbs.
 
 ### Pipeline-aware field completion

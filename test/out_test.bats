@@ -678,3 +678,88 @@ EOF
     out=$(script -qec "bash $helper" /dev/null | tr -d '\r')
     assert_equal "$out" 'b'
 }
+
+# ===========================================================================
+# bu query-object (SQL-style compositor)
+# ===========================================================================
+
+function test_bu_query_object_full_query { #@test
+    local out
+    out=$(bu get-command | bu query-object --where '.type == "source"' --select name,verb --order-by verb --first 2 --format tsv --columns name,verb)
+    assert_equal "$out" $'convert-from-lines\tconvert-from\nconvert-from-tsv\tconvert-from'
+}
+
+function test_bu_query_object_bare_keywords { #@test
+    # SQL keywords without dashes
+    local out
+    out=$(bu get-command | bu query-object where '.type == "source"' select name,verb order-by verb first 2 --format tsv --columns name,verb)
+    assert_equal "$out" $'convert-from-lines\tconvert-from\nconvert-from-tsv\tconvert-from'
+}
+
+function test_bu_query_object_clause_order_invariance { #@test
+    local a b
+    a=$(bu get-command | bu query-object where '.namespace == "bu"' select name order-by name --format jsonl)
+    b=$(bu get-command | bu query-object --order-by name --select name --where '.namespace == "bu"' --format jsonl)
+    assert_equal "$a" "$b"
+}
+
+function test_bu_query_object_bare_dashed_equivalence { #@test
+    local a b
+    a=$(bu get-command | bu query-object where '.verb == "get"' select name order-by name --format jsonl)
+    b=$(bu get-command | bu query-object --where '.verb == "get"' --select name --order-by name --format jsonl)
+    assert_equal "$a" "$b"
+    assert_equal "$a" '{"name":"get-command"}
+{"name":"get-module"}'
+}
+
+function test_bu_query_object_rename_then_order_by_alias { #@test
+    # SQL semantics: ORDER BY sees SELECT aliases
+    local out
+    out=$(BU_MODULE_LIST="b:2.0.0:/x;a:1.0.0:/y" bu get-module | bu query-object select name,ver=version order-by ver)
+    assert_equal "$out" '{"name":"a","ver":"1.0.0"}
+{"name":"b","ver":"2.0.0"}'
+}
+
+function test_bu_query_object_multiple_where_anded { #@test
+    local out
+    out=$(bu get-command | bu query-object where '.namespace == "bu"' where '.verb == "get"' select name --format tsv --columns name)
+    assert_equal "$out" $'get-command\nget-module'
+}
+
+function test_bu_query_object_desc { #@test
+    local out
+    out=$(bu get-command | bu query-object order-by name desc first 2 select name --format tsv --columns name)
+    assert_equal "$out" $'where-object\nsort-object'
+}
+
+function test_bu_query_object_invalid_first { #@test
+    run bu query-object first abc </dev/null
+    assert_failure
+}
+
+function test_bu_query_object_no_clauses_passthrough { #@test
+    local out
+    out=$(BU_MODULE_LIST="a:1.0.0:/x" bu get-module | bu query-object)
+    assert_equal "$out" '{"name":"a","version":"1.0.0","path":"/x"}'
+}
+
+function test_bu_query_object_metadata { #@test
+    local out
+    out=$(bu get-command | jq -c 'select(.name == "query-object")')
+    assert_equal "$out" '{"name":"query-object","verb":"query","noun":"object","namespace":"bu","type":"source"}'
+}
+
+function test_e2e_query_object_clause_completion { #@test
+    # Bare keywords are suggested as options, and clause values get pipeline fields
+    local command_line_front_before_pipe="bu get-command | "
+    bu_autocomplete_get_autocompletions bu query-object se
+    assert_equal "${COMPREPLY[*]}" "select"
+    bu_autocomplete_get_autocompletions bu query-object select ""
+    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type"
+}
+
+function test_e2e_query_object_where_dot_completion { #@test
+    local command_line_front_before_pipe="bu get-command | "
+    bu_autocomplete_get_autocompletions bu query-object where ""
+    assert_equal "${COMPREPLY[*]}" ".name .verb .noun .namespace .type"
+}
