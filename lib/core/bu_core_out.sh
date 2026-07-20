@@ -702,7 +702,7 @@ bu_out_distinct()
 # - ellipsize($w): truncate to width $w with a trailing ellipsis
 read -r -d '' __BU_OUT_JQ_PRELUDE <<'EOF' || :
 def cellstr: if . == null then "" elif type == "string" then . else tostring end;
-def ansistrip: gsub("\u001b\\[[0-9;]*[a-zA-Z]"; "");
+def ansistrip: gsub("\u001b[^a-zA-Z]*[a-zA-Z]"; "");
 def ansilen: ansistrip | length;
 def pad($w): . + " " * ($w - ansilen);
 def ellipsize($w): if ansilen > $w then .[0:($w - ($ellipsis | length))] + $ellipsis else . end;
