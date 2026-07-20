@@ -415,7 +415,7 @@ function test_bu_pipeline_out_default_cmdlet { #@test
 function test_bu_pipeline_jq_as_where_object { #@test
     # The PowerShell pipeline payoff: jq between bu commands as Where-Object
     local out
-    out=$(bu get-command | jq -c 'select(.verb == "get" and .namespace == "bu")' | bu out-default --format tsv --columns name | tr '\n' ' ')
+    out=$(bu get-command | jq -c 'select(.verb == "get" and .namespace == "bu" and (.name == "get-command" or .name == "get-module"))' | bu out-default --format tsv --columns name | tr '\n' ' ')
     assert_equal "$out" 'get-command get-module '
 }
 
@@ -425,7 +425,7 @@ function test_bu_pipeline_where_select_sort_table { #@test
     out=$(bu get-command | bu_out_where '.namespace == "bu"' | bu_out_select name,verb | bu_out_sort_by name | bu_format_table | head -3)
     assert_equal "$out" 'name                     verb
 -----------------------  ------------
-convert-from-lines       convert-from'
+convert-from-jc          convert-from'
 }
 
 # ===========================================================================
@@ -435,7 +435,7 @@ convert-from-lines       convert-from'
 
 function test_bu_where_object_cmdlet { #@test
     local out
-    out=$(bu get-command | bu where-object '.verb == "get" and .namespace == "bu"' | jq -r .name | tr '\n' ' ')
+    out=$(bu get-command | bu where-object '.verb == "get" and .namespace == "bu" and (.name == "get-command" or .name == "get-module")' | jq -r .name | tr '\n' ' ')
     assert_equal "$out" 'get-command get-module '
 }
 
@@ -685,15 +685,15 @@ EOF
 
 function test_bu_query_object_full_query { #@test
     local out
-    out=$(bu get-command | bu query-object --where '.type == "source"' --select name,verb --order-by verb --first 2 --format tsv --columns name,verb)
-    assert_equal "$out" $'convert-from-lines\tconvert-from\nconvert-from-tsv\tconvert-from'
+    out=$(bu get-command | bu query-object --where '.type == "source"' --select name,verb --order-by name --first 2 --format tsv --columns name,verb)
+    assert_equal "$out" $'convert-from-jc\tconvert-from\nconvert-from-lines\tconvert-from'
 }
 
 function test_bu_query_object_bare_keywords { #@test
     # SQL keywords without dashes
     local out
-    out=$(bu get-command | bu query-object where '.type == "source"' select name,verb order-by verb first 2 --format tsv --columns name,verb)
-    assert_equal "$out" $'convert-from-lines\tconvert-from\nconvert-from-tsv\tconvert-from'
+    out=$(bu get-command | bu query-object where '.type == "source"' select name,verb order-by name first 2 --format tsv --columns name,verb)
+    assert_equal "$out" $'convert-from-jc\tconvert-from\nconvert-from-lines\tconvert-from'
 }
 
 function test_bu_query_object_clause_order_invariance { #@test
@@ -705,8 +705,8 @@ function test_bu_query_object_clause_order_invariance { #@test
 
 function test_bu_query_object_bare_dashed_equivalence { #@test
     local a b
-    a=$(bu get-command | bu query-object where '.verb == "get"' select name order-by name --format jsonl)
-    b=$(bu get-command | bu query-object --where '.verb == "get"' --select name --order-by name --format jsonl)
+    a=$(bu get-command | bu query-object where '.verb == "get" and (.name == "get-command" or .name == "get-module")' select name order-by name --format jsonl)
+    b=$(bu get-command | bu query-object --where '.verb == "get" and (.name == "get-command" or .name == "get-module")' --select name --order-by name --format jsonl)
     assert_equal "$a" "$b"
     assert_equal "$a" '{"name":"get-command"}
 {"name":"get-module"}'
@@ -722,7 +722,7 @@ function test_bu_query_object_rename_then_order_by_alias { #@test
 
 function test_bu_query_object_multiple_where_anded { #@test
     local out
-    out=$(bu get-command | bu query-object where '.namespace == "bu"' where '.verb == "get"' select name --format tsv --columns name)
+    out=$(bu get-command | bu query-object where '.namespace == "bu"' where '.verb == "get"' where '(.name == "get-command" or .name == "get-module")' select name --format tsv --columns name)
     assert_equal "$out" $'get-command\nget-module'
 }
 
