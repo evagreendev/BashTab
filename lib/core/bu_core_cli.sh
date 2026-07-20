@@ -97,6 +97,39 @@ __bu_cli_colorize_command_name()
 
 # ```
 # *Description*:
+# Convert a readline key-binding escape sequence to a human-readable
+# label (e.g. `\C-x` → `Ctrl-X`, `\ea` → `Alt-A`).
+#
+# *Params*:
+# - `$1`: Raw key sequence as stored in BU_KEY_BINDINGS
+#
+# *Returns*: stdout: colored human-readable label
+# ```
+__bu_cli_format_keybinding()
+{
+    local -r raw=$1
+    local label
+
+    if [[ "$raw" == '\C-'* ]]
+    then
+        local chord=${raw#\\C-}
+        case "$chord" in
+        @) label='Ctrl-Space' ;;
+        *)  label="Ctrl-${chord^^}" ;;
+        esac
+        printf '%s%s%s' "${BU_TPUT_BOLD}${BU_TPUT_YELLOW}" "$label" "${BU_TPUT_RESET}"
+    elif [[ "$raw" == '\e'* ]]
+    then
+        local chord=${raw#\\e}
+        label="Alt-${chord^^}"
+        printf '%s%s%s' "${BU_TPUT_BOLD}${BU_TPUT_VIOLET}" "$label" "${BU_TPUT_RESET}"
+    else
+        printf '%s' "$raw"
+    fi
+}
+
+# ```
+# *Description*:
 # Displays help information for the master command
 #
 # *Params*: None
@@ -127,9 +160,12 @@ __bu_cli_help()
     echo "    ${dim}bu get-command | bu where-object '.type == \"source\"' | bu format-table${rst}"
     echo "  Or use classic Unix pipes — jq, awk, etc. work on the JSONL stream."
     echo
+    local ctrl_label alt_label
+    ctrl_label=$(__bu_cli_format_keybinding '\C-x')
+    alt_label=$(__bu_cli_format_keybinding '\ee')
     echo "${em}Key bindings${rst} (see bottom of this page for the full list)"
-    echo "  ${dim}Ctrl-X${rst} / ${dim}Ctrl-@${rst}  Trigger fzf autocomplete"
-    echo "  ${dim}Alt-E${rst}         Edit the current command line in \$EDITOR"
+    printf '  %b  Trigger fzf autocomplete\n' "$ctrl_label"
+    printf '  %b        Edit the current command line in $EDITOR\n' "$alt_label"
 
     local key
     local value
@@ -214,10 +250,12 @@ __bu_cli_help()
     echo "The following ${BU_TPUT_UNDERLINE}key bindings${BU_TPUT_NO_UNDERLINE} are available"
     echo
 
+    local kb_label kb_arrow="${BU_TPUT_GREY}→${BU_TPUT_RESET}"
     for key in $(__bu_cli_sort_keys <<<"${!BU_KEY_BINDINGS[*]}")
     do
         value=${BU_KEY_BINDINGS[$key]}
-        printf "    %s -> %s\n" "$key" "$value"
+        kb_label=$(__bu_cli_format_keybinding "$key")
+        printf '    %b %s %s\n' "$kb_label" "$kb_arrow" "$value"
     done
 } >&2
 
