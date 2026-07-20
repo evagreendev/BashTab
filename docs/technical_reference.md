@@ -160,107 +160,17 @@ The `__bu_fzf_compute_dimensions` function handles dropdown positioning (tested 
 
 ### Structured output (JSONL pipeline)
 
-Inspired by PowerShell's object pipeline: **JSONL (one JSON object per line) is the object stream**. Commands produce records and a sink formatter decides presentation at the end of the pipeline. jq is the backend throughout. Implemented in [bu_core_out.sh](../lib/core/bu_core_out.sh).
+PowerShell-inspired structured output: **JSONL (one JSON object per line) is the object stream**, jq is the backend. Commands emit records, transforms shape them, and a sink formatter decides presentation at the end of the pipeline (Out-Default: table on a terminal, JSONL when piped).
 
-**Layers**
+Implemented in [bu_core_out.sh](../lib/core/bu_core_out.sh) with cmdlet commands (`bu where-object`, `bu select-object`, `bu sort-object`, `bu query-object`, `bu format-table`, ...), including:
 
-| Layer | Functions | Model |
-|---|---|---|
-| Recordifiers (raw → JSONL) | `bu_out_record k=v` / `k:=v` (typed), `bu_out_from_tsv --columns`, `bu_out_from_lines --column` | per-record fork, or one jq per stream |
-| Transforms (JSONL → JSONL) | `bu_out_where '<jq expr>'`, `bu_out_select a,b=version`, `bu_out_sort_by key [--desc]` | streaming (except sort, which buffers) |
-| Sinks (JSONL → display) | `bu_format_table [--stream] [--colors]`, `bu_format_list`, `bu_format_json`, `bu_format_jsonl`, `bu_format_tsv` | see buffering notes below |
-| Dispatcher | `bu_out [--format auto\|table\|list\|json\|jsonl\|tsv]` | Out-Default analog |
+- Recordifiers / transforms / sinks with documented streaming-vs-buffering behavior
+- `bu query-object` — SQL-style clauses (`where group-by agg having select distinct order-by first`)
+- Pipeline-aware field completion (static registry + opt-in probing)
+- Alias merging in option completion (`--select|select` is one row)
+- Multi-word verbs (`convert-to`, `convert-from`)
 
-**Format resolution** (`bu_out` / `--format auto`): explicit flag → `BU_OUTPUT_FORMAT` → terminal detection (table on a TTY, JSONL when piped). So `bu get-module` prints a table interactively and `bu get-module | jq ...` just works.
-
-**Command integration pattern** — zero forks in the record loop, exactly two jq processes:
-
-```bash
-{
-    for entry in "${entries[@]}"; do
-        printf '%s\t%s\t%s\n' "$name" "$version" "$path"
-    done
-} | bu_out_from_tsv --columns name,version,path | bu_out --format "$format"
-```
-
-TSV mode requires values without tabs/newlines; use `bu_out_record` per record for arbitrary strings.
-
-**Sink buffering**: `table` (auto-width) and `json` buffer all input; `table --stream` emits immediately with proportional widths (requires `--columns`); `list`, `tsv`, `jsonl` stream with O(1) latency.
-
-**Column labels**: `--columns name:Module,version` renames display headers in table/list; lookups and `--colors name=green` still use the record key. tsv recordifiers strip labels.
-
-**Cmdlet commands** (usable in any pipeline):
-
-| PowerShell | bu command |
-|---|---|
-| `[PSCustomObject]@{...}` | `bu new-record k=v ...` |
-| ConvertFrom-Csv | `bu convert-from-tsv --columns`, `bu convert-from-lines --column` |
-| Where-Object | `bu where-object '<jq expr>'` |
-| Select-Object | `bu select-object name,ver=version` |
-| Sort-Object | `bu sort-object key [--desc]` |
-| Format-Table / Format-List | `bu format-table`, `bu format-list` |
-| ConvertTo-Json | `bu convert-to-json`, `bu convert-to-jsonl`, `bu convert-to-tsv` |
-| Out-Default | `bu out-default` |
-
-```bash
-bu get-command | bu format-table
-bu get-command | bu where-object '.verb == "get"' | bu sort-object name | bu out-default
-```
-
-**Cmdlets end at Out-Default**: every cmdlet pipes its records through `bu_out`, so a transform at the end of a terminal pipeline renders a table automatically — no explicit formatter needed. Intermediate stages see a pipe and stay JSONL. The core functions (`bu_out_select` etc.) remain pure JSONL for scripting; only the cmdlets append Out-Default.
-
-```bash
-bu get-command | bu select-object name,verb        # table on a terminal
-bu get-command | bu select-object name,verb | jq . # JSONL when piped
-```
-
-**`bu query-object`** composes the transforms into one SQL-style command. Clause keywords work bare or dashed (`select` / `--select`), in any order; execution always follows SQL logical order: WHERE → GROUP BY → HAVING → SELECT → ORDER BY → FIRST. `--where` uses source field names (repeatable, ANDed), `--order-by` uses output field names (SELECT aliases, like SQL), `--first` is LIMIT. Clause values get pipeline field completion.
-
-```bash
-bu get-command | bu query-object where '.type == "source"' select name,verb order-by verb
-bu get-command | bu query-object order-by name desc first 5
-bu get-command | bu query-object select name,ver=version order-by ver   # order by alias
-```
-
-**Grouping** (`bu_out_group_by` / `group-by` + `agg` + `having`): SQL GROUP BY emitting one flat record per group — table-native, unlike PowerShell's nested GroupInfo. `agg` takes `[name=]func[:field]` specs, repeatable and/or comma-separated: `count`, `sum:f`, `avg:f` (numeric), `min:f`, `max:f`, `first:f`, `last:f`, `collect:f` (array of values). Composite keys via `group-by a,b`. No `agg` = SELECT DISTINCT. Records missing the key form a null group.
-
-```bash
-bu get-command | bu query-object group-by verb agg count
-bu get-command | bu query-object group-by verb agg count,collect:noun having '.count > 1' order-by count desc
-```
-
-**Distinct** (`bu_out_distinct` / `distinct` / `bu distinct-object`): SELECT DISTINCT — dedupes whole records after projection, first occurrence wins, original order preserved (unlike `group-by`, which sorts by key). Records compare key-order-canonicalized. `select version distinct` ≡ `group-by version` once sorted.
-
-**Multi-word verbs**: command name parsing honors `BU_MULTI_WORD_VERBS` (default: `convert-to`, `convert-from`), so `bu-convert-to-jsonl.sh` registers verb=`convert-to`, noun=`jsonl`. Longest match wins; extend the array from user-defined configs for custom multi-word verbs.
-
-### Pipeline-aware field completion
-
-PowerShell-style: when completing after a pipe, `bu select-object`, `bu where-object`, `bu sort-object` and the `--columns` flags of the sink cmdlets suggest the **record fields of the pipeline producer**.
-
-```
-bu get-command | bu select-object <TAB>   # name verb noun namespace type
-bu get-command | bu select-object name,<TAB>   # comma-aware: offers the rest
-bu get-command | bu where-object <TAB>    # .name .verb .noun .namespace .type
-```
-
-Field sources, in order:
-
-1. **Static registry** `BU_OUT_PRODUCER_FIELDS` (assoc: producer prefix → fields).
-   Longest prefix match, so producer flags and later pipeline stages don't break
-   the match. Seeded with the builtins; register your own producers from a module
-   preinit script:
-   ```bash
-   bu_register_output_fields "bu get-pokemon" name id type hp attack
-   ```
-2. **Opt-in probing**: with `BU_OUT_PROBE_PIPELINE=true` and the producer head in
-   `BU_OUT_PROBE_COMMANDS`, the producer is executed as typed and the keys of its
-   first JSONL record become the candidates (piped bu commands auto-emit JSONL).
-   Off by default — probing runs user-typed text, so both switches are explicit.
-
-Producer text comes from the completion bindings via dynamic scope:
-`command_line_front_before_pipe` (legacy parser), `pipe_before` (tree-sitter),
-with a `COMP_WORDS` pipe-walk as fallback. Inaccurate by design for exotic
-pipelines — for simple cases it just works.
+**See the full guide: [Structured Output](./structured_output.md)**
 
 ### Code Documentation Standards
 

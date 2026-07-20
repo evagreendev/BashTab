@@ -247,7 +247,7 @@ Command names support multi-word verbs via `BU_MULTI_WORD_VERBS` (default: `conv
 
 After a pipe, field-aware completion suggests producer record fields for `select-object`/`where-object`/`sort-object` and sink `--columns`: static registry `BU_OUT_PRODUCER_FIELDS` (extend with `bu_register_output_fields`), opt-in live probing via `BU_OUT_PROBE_PIPELINE` + `BU_OUT_PROBE_COMMANDS`.
 
-See `docs/technical_reference.md` for details.
+See `docs/structured_output.md` for the full guide.
 
 ## Extension Mechanisms
 
