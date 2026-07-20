@@ -167,8 +167,7 @@ __bu_cli_help()
     printf '  %b  Trigger fzf autocomplete\n' "$ctrl_label"
     printf '  %b        Edit the current command line in $EDITOR\n' "$alt_label"
 
-    local key
-    local value
+    local key value properties
 
     local -A executable_scripts=()
     local -A source_scripts=()
@@ -198,72 +197,88 @@ __bu_cli_help()
         esac
     done
 
+    # Helper: emit a JSONL stream from a command array, then pipe through
+    # bu_format_table.  The name field carries ANSI verb/noun colors.
+    __bu_cli_emit_command_table()
+    {
+        local -n _arr=$1
+        local _key _path _name
+        local -a _jq_args=()
+        local _count=0
+        for _key in $(__bu_cli_sort_keys <<<"${!_arr[*]}")
+        do
+            _path=${_arr[$_key]}
+            _name=$(__bu_cli_colorize_command_name "$_key" 0)
+            _name=${_name%"${_name##*[! ]}"}
+            [[ -z "$_name" ]] && _name=$_key
+            _jq_args+=(--arg "n$_count" "$_name")
+            _jq_args+=(--arg "p$_count" "$_path")
+            ((_count++))
+        done
+        if ((_count == 0))
+        then
+            return 0
+        fi
+        "$BU_OUT_JQ" -cn \
+            "${_jq_args[@]}" \
+            'range(0; '"$_count"') as $i |
+             {name: $ARGS.named["n\($i)"],
+              path: $ARGS.named["p\($i)"]}' \
+        | bu_format_table --columns name,path
+    }
 
     echo
     echo "The following commands using a ${BU_TPUT_UNDERLINE}new${BU_TPUT_RESET} shell context are available"
     echo
-
-    for key in $(__bu_cli_sort_keys <<<"${!executable_scripts[*]}")
-    do
-        value=${executable_scripts[$key]}
-        printf '    %b    %s\n' "$(__bu_cli_colorize_command_name "$key")" "$value"
-    done
+    __bu_cli_emit_command_table executable_scripts
 
     echo
     echo "The following commands using the ${BU_TPUT_UNDERLINE}current${BU_TPUT_RESET} shell context are available"
     echo
-    
-    local opt_err=
-    for key in $(__bu_cli_sort_keys <<<"${!source_scripts[*]}")
-    do
-        value=${source_scripts[$key]}
-        if grep -q 'set -e' "$value"
-        then
-            opt_err="${BU_TPUT_YELLOW}WARNING: set -e found${BU_TPUT_RESET}"
-        else
-            opt_err=
-        fi
-        printf '    %b    %s %s\n' "$(__bu_cli_colorize_command_name "$key")" "$value" "$opt_err"
-    done
+    __bu_cli_emit_command_table source_scripts
 
-    echo
-    echo "The following functions are available"
-    echo
+    if ((${#functions[@]}))
+    then
+        echo
+        echo "The following functions are available"
+        echo
+        __bu_cli_emit_command_table functions
+    fi
 
-    for key in $(__bu_cli_sort_keys <<<"${!functions[*]}")
-    do
-        value=${functions[$key]}
-        printf '    %b    %s\n' "$(__bu_cli_colorize_command_name "$key")" "$value"
-    done
+    if ((${#aliases[@]}))
+    then
+        echo
+        echo "The following aliases are available"
+        echo
+        __bu_cli_emit_command_table aliases
+    fi
 
-    echo
-    echo "The following aliases are available"
-    echo
-
-    for key in $(__bu_cli_sort_keys <<<"${!aliases[*]}")
-    do
-        value=${aliases[$key]}
-        printf '    %b    %s\n' "$(__bu_cli_colorize_command_name "$key")" "$value"
-    done
-
+    # --- Key bindings ---
     echo
     echo "The following ${BU_TPUT_UNDERLINE}key bindings${BU_TPUT_NO_UNDERLINE} are available"
     echo
 
-    local kb_label kb_arrow="${BU_TPUT_GREY}→${BU_TPUT_RESET}" kb_doc
-    local -r kb_pad=14  # wide enough for "Ctrl-Space"
-    for key in $(__bu_cli_sort_keys <<<"${!BU_KEY_BINDINGS[*]}")
+    local _kb_key _kb_fn _kb_label _kb_doc _kb_jq_args=() _kb_count=0
+    for _kb_key in $(__bu_cli_sort_keys <<<"${!BU_KEY_BINDINGS[*]}")
     do
-        value=${BU_KEY_BINDINGS[$key]}
-        kb_label=$(__bu_cli_format_keybinding "$key")
-        kb_doc=${BU_KEY_BINDING_DOCS[$key]:-}
-        if [[ -n "$kb_doc" ]]
-        then
-            printf '    %b %s %s  %s%s%s\n' "$kb_label" "$kb_arrow" "$value" "${BU_TPUT_GREY}" "$kb_doc" "${BU_TPUT_RESET}"
-        else
-            printf '    %b %s %s\n' "$kb_label" "$kb_arrow" "$value"
-        fi
+        _kb_fn=${BU_KEY_BINDINGS[$_kb_key]}
+        _kb_label=$(__bu_cli_format_keybinding "$_kb_key")
+        _kb_doc=${BU_KEY_BINDING_DOCS[$_kb_key]:-}
+        _kb_jq_args+=(--arg "c$_kb_count" "$_kb_label")
+        _kb_jq_args+=(--arg "f$_kb_count" "$_kb_fn")
+        _kb_jq_args+=(--arg "d$_kb_count" "$_kb_doc")
+        ((_kb_count++))
     done
+    if ((_kb_count))
+    then
+        "$BU_OUT_JQ" -cn \
+            "${_kb_jq_args[@]}" \
+            'range(0; '"$_kb_count"') as $i |
+             {chord: $ARGS.named["c\($i)"],
+              "function": $ARGS.named["f\($i)"],
+              description: $ARGS.named["d\($i)"]}' \
+        | bu_format_table --columns chord:Chord,function:Function,description:Description
+    fi
 } >&2
 
 # ```

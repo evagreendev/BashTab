@@ -702,8 +702,10 @@ bu_out_distinct()
 # - ellipsize($w): truncate to width $w with a trailing ellipsis
 read -r -d '' __BU_OUT_JQ_PRELUDE <<'EOF' || :
 def cellstr: if . == null then "" elif type == "string" then . else tostring end;
-def pad($w): . + " " * ($w - length);
-def ellipsize($w): if length > $w then .[0:($w - ($ellipsis | length))] + $ellipsis else . end;
+def ansistrip: gsub("\u001b\\[[0-9;]*[a-zA-Z]"; "");
+def ansilen: ansistrip | length;
+def pad($w): . + " " * ($w - ansilen);
+def ellipsize($w): if ansilen > $w then .[0:($w - ($ellipsis | length))] + $ellipsis else . end;
 def rtrim: sub(" +$"; "");
 EOF
 
@@ -821,7 +823,7 @@ bu_format_table()
         | if ($rows | length) == 0 then empty
         else
         ($cols | if length == 0 then $rows[0] | keys_unsorted | map({key: ., header: .}) else . end) as $cols
-        | ($cols | map(. as $c | {key: $c.key, header: $c.header, width: ([($c.header | length)] + [$rows[] | .[$c.key] | cellstr | length] | max)})) as $init
+        | ($cols | map(. as $c | {key: $c.key, header: $c.header, width: ([($c.header | length)] + [$rows[] | .[$c.key] | cellstr | ansilen] | max)})) as $init
         | def fit($spec):
               if (($spec | map(.width) | add) + 2 * ($spec | length - 1)) <= $termw then $spec
               elif ($spec | all(.[]; .width <= $minw)) then $spec
