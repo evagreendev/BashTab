@@ -114,6 +114,19 @@ declare -A -g BU_KEY_BINDINGS=(
     ['\ez']="bu_autocomplete_toggle_tab"
 )
 
+# Human-readable descriptions for key bindings, keyed by the same
+# escape sequence.  Displayed in `bu` help.
+declare -A -g BU_KEY_BINDING_DOCS=(
+    ['\ee']='Edit the current command line in $EDITOR'
+    ['\eg']='Toggle gdb prefix on the current command line'
+    ['\ea']='Fuzzy-search command history'
+    ['\ex']='Trigger fzf autocomplete'
+    ['\C-x']='Trigger fzf autocomplete'
+    ['\C-@']='Trigger dynamic fzf autocomplete'
+    ['\ec']='Trigger dynamic fzf autocomplete'
+    ['\ez']='Toggle Tab between default and fzf completion'
+)
+
 # 1 metadata entry corresponds to 1 compreply entry
 # Meant for display in fzf completion mode
 declare -a -g BU_COMPREPLY_METADATA

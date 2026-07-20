@@ -17,16 +17,22 @@ fi
 # *Examples*:
 # ```bash
 # bu_preinit_register_user_defined_key_binding '\em' my_custom_command
+# bu_preinit_register_user_defined_key_binding '\em' my_custom_command "My description"
 # ```
 #
 # *Notes*:
 # - This adds the binding to the `${BU_KEY_BINDINGS[@]}` associative array, which is later passed to `bind -x`
+# - An optional third argument sets a human-readable description shown in `bu` help
 # ```
 bu_preinit_register_user_defined_key_binding()
 {
     local -r key=$1
     local -r binding=$2
     BU_KEY_BINDINGS[$key]=$binding
+    if (($# >= 3))
+    then
+        BU_KEY_BINDING_DOCS[$key]=$3
+    fi
 }
 
 # ```

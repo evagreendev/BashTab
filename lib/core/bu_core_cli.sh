@@ -250,12 +250,19 @@ __bu_cli_help()
     echo "The following ${BU_TPUT_UNDERLINE}key bindings${BU_TPUT_NO_UNDERLINE} are available"
     echo
 
-    local kb_label kb_arrow="${BU_TPUT_GREY}→${BU_TPUT_RESET}"
+    local kb_label kb_arrow="${BU_TPUT_GREY}→${BU_TPUT_RESET}" kb_doc
+    local -r kb_pad=14  # wide enough for "Ctrl-Space"
     for key in $(__bu_cli_sort_keys <<<"${!BU_KEY_BINDINGS[*]}")
     do
         value=${BU_KEY_BINDINGS[$key]}
         kb_label=$(__bu_cli_format_keybinding "$key")
-        printf '    %b %s %s\n' "$kb_label" "$kb_arrow" "$value"
+        kb_doc=${BU_KEY_BINDING_DOCS[$key]:-}
+        if [[ -n "$kb_doc" ]]
+        then
+            printf '    %b %s %s  %s%s%s\n' "$kb_label" "$kb_arrow" "$value" "${BU_TPUT_GREY}" "$kb_doc" "${BU_TPUT_RESET}"
+        else
+            printf '    %b %s %s\n' "$kb_label" "$kb_arrow" "$value"
+        fi
     done
 } >&2
 
