@@ -11,6 +11,7 @@ bu_run_log_command "$@"
 
 local project_path=.
 local is_help=false
+local format=auto
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -18,6 +19,11 @@ while (($#))
 do
     bu_parse_multiselect $# "$1"
     case "$1" in
+    --format)# FORMAT
+        # Output format
+        bu_parse_positional $# --enum $BU_OUT_FORMATS enum-- --hint "Output format"
+        format=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         # Print help
         is_help=true
@@ -84,7 +90,7 @@ fi
 
 # Flatten object keyed by package name into flat records.
 # { "chalk": { "current": "5.3.0", ... } } → { "name": "chalk", "current": "5.3.0", ... }
-jq -c 'to_entries[] | {name: .key} + .value' <<<"$npm_output" 2>/dev/null | bu_out
+jq -c 'to_entries[] | {name: .key} + .value' <<<"$npm_output" 2>/dev/null | bu_out --format "$format"
 
 bu_scope_pop_function
 }

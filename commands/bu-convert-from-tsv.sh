@@ -11,6 +11,7 @@ bu_run_log_command "$@"
 
 local columns=
 local is_help=false
+local format=auto
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -22,6 +23,11 @@ do
         # Column names assigned to TSV fields in order (comma-separated)
         bu_parse_positional $# --hint "Comma-separated columns (e.g. name,version,path)"
         columns=${!shift_by}
+        ;;
+    --format)# FORMAT
+        # Output format
+        bu_parse_positional $# --enum $BU_OUT_FORMATS enum-- --hint "Output format"
+        format=${!shift_by}
         ;;
     -h|--help)# _FLAG
         # Print help
@@ -71,7 +77,7 @@ then
 fi
 
 # Cmdlets implicitly end at Out-Default: a table on a terminal, JSONL when piped
-bu_out_from_tsv --columns "$columns" | bu_out
+bu_out_from_tsv --columns "$columns" | bu_out --format "$format"
 
 bu_scope_pop_function
 }

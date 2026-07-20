@@ -12,6 +12,7 @@ bu_run_log_command "$@"
 local parser=
 local is_discover=false
 local is_help=false
+local format=auto
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -19,6 +20,11 @@ while (($#))
 do
     bu_parse_multiselect $# "$1"
     case "$1" in
+    --format)# FORMAT
+        # Output format
+        bu_parse_positional $# --enum $BU_OUT_FORMATS enum-- --hint "Output format"
+        format=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         # Print help
         is_help=true
@@ -96,7 +102,7 @@ then
         bu_scope_pop_function
         return $?
     fi
-    jc --$parser | jq -c '.[]' 2>/dev/null | bu_out
+    jc --$parser | jq -c '.[]' 2>/dev/null | bu_out --format "$format"
 else
     # Magic mode: pass-through to jc with all remaining args.
     # jc auto-detects the parser from the command name.
@@ -108,7 +114,7 @@ else
         bu_scope_pop_function
         return 0
     fi
-    jc "$@" | jq -c '.[]' 2>/dev/null | bu_out
+    jc "$@" | jq -c '.[]' 2>/dev/null | bu_out --format "$format"
 fi
 
 bu_scope_pop_function

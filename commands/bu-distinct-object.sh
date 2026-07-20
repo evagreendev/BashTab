@@ -9,6 +9,7 @@ source "$BU_NULL"
 bu_scope_push_function
 bu_run_log_command "$@"
 
+local format=auto
 local is_help=false
 local error_msg=
 local autocompletion=()
@@ -17,6 +18,12 @@ while (($#))
 do
     bu_parse_multiselect $# "$1"
     case "$1" in
+    --format)# FORMAT
+        # Output format
+        bu_parse_positional $# --enum $BU_OUT_FORMATS enum-- --hint "Output format"
+        format=${!shift_by}
+        ;;
+
     -h|--help)# _FLAG
         # Print help
         is_help=true
@@ -58,7 +65,7 @@ compared with key-order canonicalization, so {\"a\":1,\"b\":2} equals
 fi
 
 # Cmdlets implicitly end at Out-Default: a table on a terminal, JSONL when piped
-bu_out_distinct | bu_out
+bu_out_distinct | bu_out --format "$format"
 
 bu_scope_pop_function
 }

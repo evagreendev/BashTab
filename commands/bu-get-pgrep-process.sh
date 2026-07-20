@@ -12,6 +12,7 @@ bu_run_log_command "$@"
 local pattern=
 local is_full=false
 local is_help=false
+local format=auto
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -19,6 +20,11 @@ while (($#))
 do
     bu_parse_multiselect $# "$1"
     case "$1" in
+    --format)# FORMAT
+        # Output format
+        bu_parse_positional $# --enum $BU_OUT_FORMATS enum-- --hint "Output format"
+        format=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         is_help=true
         ;;
@@ -96,7 +102,7 @@ while IFS= read -r line; do
     local pid=${line%%[[:space:]]*}
     local command=${line#*[[:space:]]}
     bu_out_record pid="$pid" command="$command"
-done <<<"$pgrep_output" | bu_out
+done <<<"$pgrep_output" | bu_out --format "$format"
 
 bu_scope_pop_function
 }

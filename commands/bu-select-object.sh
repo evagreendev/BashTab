@@ -10,6 +10,7 @@ bu_scope_push_function
 bu_run_log_command "$@"
 
 local fields=
+local format=auto
 local is_unique=false
 local is_help=false
 local error_msg=
@@ -26,6 +27,11 @@ do
     --unique)# _FLAG
         # Deduplicate records after projection (first occurrence wins)
         is_unique=true
+        ;;
+    --format)# FORMAT
+        # Output format
+        bu_parse_positional $# --enum $BU_OUT_FORMATS enum-- --hint "Output format"
+        format=${!shift_by}
         ;;
     *)
         if bu_env_is_in_autocomplete && [[ "$1" != -* ]]
@@ -70,7 +76,8 @@ Reads records from stdin. Fields are emitted in the specified order;
 " \
         --example "Keep two fields" "name,version" \
         --example "Rename a field" "name,ver=version" \
-        --example "Select unique values" "--unique verb"
+        --example "Select unique values" "--unique verb" \
+        --example "Output as JSON array" "name,version --format json"
     return 0
 fi
 
@@ -86,7 +93,7 @@ fi
 local -a select_args=()
 "$is_unique" && select_args+=(--unique)
 select_args+=("$fields")
-bu_out_select "${select_args[@]}" | bu_out
+bu_out_select "${select_args[@]}" | bu_out --format "$format"
 
 bu_scope_pop_function
 }

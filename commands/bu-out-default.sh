@@ -23,7 +23,7 @@ do
     case "$1" in
     --format)# FORMAT
         # Output format (auto resolves to table on a terminal, jsonl otherwise)
-        bu_parse_positional $# --enum auto table list json jsonl tsv enum-- --hint "Output format"
+        bu_parse_positional $# --enum $BU_OUT_FORMATS enum-- --hint "Output format"
         bu_validate_positional "${!shift_by}"
         format=${!shift_by}
         ;;

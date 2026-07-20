@@ -11,6 +11,7 @@ bu_run_log_command "$@"
 
 local is_all=false
 local is_help=false
+local format=auto
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -18,6 +19,11 @@ while (($#))
 do
     bu_parse_multiselect $# "$1"
     case "$1" in
+    --format)# FORMAT
+        # Output format
+        bu_parse_positional $# --enum $BU_OUT_FORMATS enum-- --hint "Output format"
+        format=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         is_help=true
         ;;
@@ -72,7 +78,7 @@ fi
 
 local -a docker_args=(ps --format json)
 "$is_all" && docker_args+=(-a)
-docker "${docker_args[@]}" 2>/dev/null | bu_format_jsonl | bu_out
+docker "${docker_args[@]}" 2>/dev/null | bu_format_jsonl | bu_out --format "$format"
 
 bu_scope_pop_function
 }

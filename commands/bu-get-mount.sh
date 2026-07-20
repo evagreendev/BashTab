@@ -10,6 +10,7 @@ bu_scope_push_function
 bu_run_log_command "$@"
 
 local is_help=false
+local format=auto
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -17,6 +18,11 @@ while (($#))
 do
     bu_parse_multiselect $# "$1"
     case "$1" in
+    --format)# FORMAT
+        # Output format
+        bu_parse_positional $# --enum $BU_OUT_FORMATS enum-- --hint "Output format"
+        format=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         is_help=true
         ;;
@@ -69,7 +75,7 @@ else
     cmd=(mount)
 fi
 
-"${cmd[@]}" 2>/dev/null | jc --mount 2>/dev/null | jq -c 'if type == "array" then .[] else . end' 2>/dev/null | bu_out
+"${cmd[@]}" 2>/dev/null | jc --mount 2>/dev/null | jq -c 'if type == "array" then .[] else . end' 2>/dev/null | bu_out --format "$format"
 
 bu_scope_pop_function
 }

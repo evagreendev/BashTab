@@ -10,6 +10,7 @@ bu_scope_push_function
 bu_run_log_command "$@"
 
 local key=
+local format=auto
 local is_desc=false
 local is_help=false
 local error_msg=
@@ -23,6 +24,12 @@ do
         # Sort descending
         is_desc=true
         ;;
+    --format)# FORMAT
+        # Output format
+        bu_parse_positional $# --enum $BU_OUT_FORMATS enum-- --hint "Output format"
+        format=${!shift_by}
+        ;;
+
     -h|--help)# _FLAG
         # Print help
         is_help=true
@@ -83,7 +90,7 @@ fi
 local -a sort_args=("$key")
 "$is_desc" && sort_args+=(--desc)
 # Cmdlets implicitly end at Out-Default: a table on a terminal, JSONL when piped
-bu_out_sort_by "${sort_args[@]}" | bu_out
+bu_out_sort_by "${sort_args[@]}" | bu_out --format "$format"
 
 bu_scope_pop_function
 }
