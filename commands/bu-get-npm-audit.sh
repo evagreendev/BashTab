@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+function __bu_bu_get_npm_audit_main()
+{
+local -r invocation_dir=$PWD
+
+# shellcheck source=./__bu_entrypoint_decl.sh
+source "$BU_NULL"
+
+bu_scope_push_function
+bu_run_log_command "$@"
+
+local project_path=.
+local is_help=false
+local error_msg=
+local autocompletion=()
+local shift_by=
+while (($#))
+do
+    bu_parse_multiselect $# "$1"
+    case "$1" in
+    -h|--help)# _FLAG
+        is_help=true
+        ;;
+    --cwd)# CWD
+        bu_parse_positional $# --hint "Project directory path"
+        project_path=${!shift_by}
+        ;;
+    *)
+        bu_parse_error_enum "$1"
+        ;;
+    esac
+    if "$is_help"
+    then
+        break
+    fi
+    if (( $# < shift_by ))
+    then
+        bu_parse_error_argn "$1" $#
+        break
+    fi
+    shift "$shift_by"
+done
+local remaining_options=("$@")
+if bu_env_is_in_autocomplete
+then
+    bu_autocomplete
+    return 0
+fi
+
+if "$is_help"
+then
+    bu_autohelp \
+        --description "
+List npm audit vulnerabilities as flat JSONL records (npm audit --json wrapper).
+Emits one record per vulnerable package. The via field is normalized: advisory
+objects are extracted from the via array and string references are resolved.
+
+Fields: name, severity, is_direct, title, url, range, fix_version, fix_is_breaking, via
+" \
+        --example "Current project" "" \
+        --example "Critical only" "| bu where-object '.severity == \"critical\"'" \
+        --example "Direct deps only" "| bu where-object '.is_direct'"
+    return 0
+fi
+
+if ! command -v npm &>/dev/null
+then
+    error_msg="npm is required. Install Node.js from https://nodejs.org"
+    bu_autohelp
+    bu_scope_pop_function
+    return 1
+fi
+
+# Run npm audit --json. npm exits non-zero when vulnerabilities are found,
+# which is expected. Capture stdout, ignore exit code.
+local npm_output
+npm_output=$(cd "$project_path" && npm audit --json 2>/dev/null) || true
+
+if [[ -z "$npm_output" ]]
+then
+    bu_scope_pop_function
+    return 0
+fi
+
+# Flatten the vulnerabilities map into records, normalizing the via field.
+# The via array can contain strings (refs to other vulns) or objects (advisories).
+# We extract the first advisory object for title/url, and join all via values
+# into a comma-separated dependency chain.
+jq -c '
+    .vulnerabilities // {} | to_entries[] | .value as $v |
+    {
+        name: $v.name,
+        severity: $v.severity,
+        is_direct: $v.isDirect,
+        range: $v.range,
+        fix_version: (if $v.fixAvailable and ($v.fixAvailable | type) == "object" then $v.fixAvailable.version else null end),
+        fix_is_breaking: (if $v.fixAvailable and ($v.fixAvailable | type) == "object" then $v.fixAvailable.isSemVerMajor else false end),
+        title: (
+            [$v.via[]? | select(type == "object") | .title][0] // null
+        ),
+        url: (
+            [$v.via[]? | select(type == "object") | .url][0] // null
+        ),
+        via: (
+            [$v.via[]? | if type == "string" then . elif type == "object" then .name // .title else empty end] | join(", ")
+        )
+    }
+' <<<"$npm_output" 2>/dev/null | bu_out
+
+bu_scope_pop_function
+}
+
+__bu_bu_get_npm_audit_main "$@"
