@@ -18,7 +18,7 @@ __bu_init_env_commands()
     do
         bu_env_append_path "$dir"
         convert_file_to_subcommand=${BU_COMMAND_SEARCH_DIRS[$dir]}
-        for file in $(find "$dir" -printf "%P\n")
+        for file in $(find "$dir" -type f -printf "%P\n")
         do
             case "$file" in
             *.txt|README|README.*|*.md) 
