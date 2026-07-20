@@ -97,10 +97,39 @@ __bu_impl()
         fi
     fi
 
-    local -r bu_command=$1
+    local -r bu_command_raw=$1
     shift
     local -r remaining_options=("$@")
-    local -r function_or_script_path=${BU_COMMANDS[$bu_command]}
+
+    # Resolve namespace-qualified commands: :<ns>:<verb-noun>
+    local bu_command=$bu_command_raw
+    local function_or_script_path=
+    if [[ "$bu_command_raw" == :*:* ]]
+    then
+        local ns_name=${bu_command_raw#:}
+        ns_name=${ns_name%%:*}
+        local ns_prefix=":$ns_name:"
+        local ns_cmd=${bu_command_raw#$ns_prefix}
+        local cmd
+        for cmd in "${!BU_COMMANDS[@]}"
+        do
+            if [[ "${BU_COMMAND_PROPERTIES[$cmd,namespace]}" == "$ns_name" ]] \
+               && [[ "$cmd" == "$ns_cmd" ]]
+            then
+                function_or_script_path=${BU_COMMANDS[$cmd]}
+                bu_command=$cmd
+                break
+            fi
+        done
+        if [[ -z "$function_or_script_path" ]]
+        then
+            bu_log_err "Command not found in namespace[$ns_name]: $ns_cmd"
+            __bu_cli_help
+            return 1
+        fi
+    else
+        function_or_script_path=${BU_COMMANDS[$bu_command_raw]}
+    fi
     __bu_cli_command_type "$bu_command"
     local -r type=$BU_RET
     local exit_code=0

@@ -20,6 +20,7 @@ local is_distinct=false
 local first=
 local format=auto
 local columns=
+local is_debug=false
 local is_help=false
 local error_msg=
 local autocompletion=()
@@ -95,6 +96,12 @@ do
     -h|--help)# _FLAG
         # Print help
         is_help=true
+        ;;
+    --debug)# _FLAG
+        # Output a JSON query plan describing what this query would do
+        # (clauses and output field names) without reading stdin.
+        # Used by the pipeline completion system for static analysis.
+        is_debug=true
         ;;
     *)
         bu_parse_error_enum "$1"
@@ -189,6 +196,78 @@ then
     do
         having_expr+=" and ($h)"
     done
+fi
+
+if "$is_debug"
+then
+    # --debug: emit a JSON query plan describing clauses and output fields.
+    # Used by the pipeline completion system for static field analysis.
+    # Does not read stdin.
+    local -a clauses=()
+    local -a output_fields=()
+
+    [[ -n "$where_expr" ]] && clauses+=(where)
+    [[ -n "$group_keys" ]] && clauses+=(group-by)
+    ((${#agg_specs[@]} > 0)) && clauses+=(agg)
+    [[ -n "$having_expr" ]] && clauses+=(having)
+    [[ -n "$select_fields" ]] && clauses+=(select)
+    "$is_distinct" && clauses+=(distinct)
+    [[ -n "$order_by" ]] && clauses+=(order-by)
+
+    # Compute output field names
+    if [[ -n "$select_fields" ]]
+    then
+        # SELECT projects: output fields are the select spec names (after rename)
+        local sel_spec sel_new
+        local ifs=$IFS
+        IFS=','
+        for sel_spec in $select_fields
+        do
+            [[ -z "$sel_spec" ]] && continue
+            case "$sel_spec" in
+            *=*) sel_new=${sel_spec%%=*} ;;
+            *)   sel_new=$sel_spec ;;
+            esac
+            output_fields+=("$sel_new")
+        done
+        IFS=$ifs
+    elif [[ -n "$group_keys" ]]
+    then
+        # GROUP BY without SELECT: output fields = group keys + aggregate names
+        local gk
+        local ifs=$IFS
+        IFS=','
+        for gk in $group_keys; do [[ -n "$gk" ]] && output_fields+=("$gk"); done
+        IFS=$ifs
+        local agg_spec agg_name agg_body agg_func agg_field
+        for agg_spec in "${agg_specs[@]}"
+        do
+            case "$agg_spec" in
+            *=*) agg_name=${agg_spec%%=*}; agg_body=${agg_spec#*=} ;;
+            *)   agg_name=; agg_body=$agg_spec ;;
+            esac
+            agg_func=${agg_body%%:*}
+            agg_field=${agg_body#*:}
+            [[ "$agg_field" == "$agg_body" ]] && agg_field=
+            [[ -z "$agg_name" ]] && agg_name=$agg_func${agg_field:+_$agg_field}
+            output_fields+=("$agg_name")
+        done
+    fi
+
+    local clauses_json
+    clauses_json=$("$BU_OUT_JQ" -cn --args '$ARGS.positional' -- "${clauses[@]}")
+    local fields_json
+    if ((${#output_fields[@]} > 0))
+    then
+        fields_json=$("$BU_OUT_JQ" -cn --args '$ARGS.positional' -- "${output_fields[@]}")
+    else
+        fields_json=null
+    fi
+
+    "$BU_OUT_JQ" -cn --argjson clauses "$clauses_json" --argjson fields "$fields_json" \
+        '{clauses: $clauses, outputFields: $fields}'
+    bu_scope_pop_function
+    return 0
 fi
 
 __bu_query_object_where()

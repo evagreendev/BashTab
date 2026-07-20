@@ -1837,7 +1837,49 @@ __bu_autocomplete_completion_func_cli()
     COMPREPLY=()
     if ((COMP_CWORD == 1))
     then
-        bu_compgen -W "${!BU_COMMANDS[*]}" -- "$cur_word"
+        if [[ "$cur_word" == :* ]]
+        then
+            # Namespace-qualified command syntax: :<ns>:<verb-noun>
+            # :<TAB>           → suggest namespaces
+            # :ns:<TAB>        → suggest commands in namespace `ns`
+            # :ns:get-<TAB>   → suggest commands in namespace `ns` starting with `get-`
+            local ns_part=${cur_word#:}
+            if [[ "$ns_part" == *:* ]]
+            then
+                # Namespace specified: complete commands within it
+                local ns_name=${ns_part%%:*}
+                local ns_prefix=":$ns_name:"
+                local cmd_prefix=${ns_part#$ns_name:}
+                local -a ns_commands=()
+                local cmd
+                for cmd in "${!BU_COMMANDS[@]}"
+                do
+                    [[ "${BU_COMMAND_PROPERTIES[$cmd,namespace]}" == "$ns_name" ]] && ns_commands+=("$cmd")
+                done
+                if ((${#ns_commands[@]} > 0))
+                then
+                    local ns_word=":$ns_name:$cmd_prefix"
+                    bu_compgen -W "${ns_commands[*]}" -- "$cmd_prefix"
+                    local i
+                    for (( i = 0; i < ${#COMPREPLY[@]}; i++ ))
+                    do
+                        COMPREPLY[i]=":$ns_name:${COMPREPLY[i]}"
+                    done
+                fi
+            else
+                # No namespace yet: complete namespace names
+                local -a namespaces=()
+                local ns
+                for ns in "${!BU_COMMAND_NAMESPACES[@]}"
+                do
+                    [[ -z "$ns" ]] && continue  # skip default/empty namespace
+                    namespaces+=(":$ns:")
+                done
+                bu_compgen -W "${namespaces[*]}" -- "$cur_word"
+            fi
+        else
+            bu_compgen -W "${!BU_COMMANDS[*]}" -- "$cur_word"
+        fi
         if "${BU_AUTOCOMPLETE_ACCEPT_ANSI_COLORS:-false}"
         then
             local i

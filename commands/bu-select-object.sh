@@ -10,6 +10,7 @@ bu_scope_push_function
 bu_run_log_command "$@"
 
 local fields=
+local is_unique=false
 local is_help=false
 local error_msg=
 local autocompletion=()
@@ -21,6 +22,10 @@ do
     -h|--help)# _FLAG
         # Print help
         is_help=true
+        ;;
+    --unique)# _FLAG
+        # Deduplicate records after projection (first occurrence wins)
+        is_unique=true
         ;;
     *)
         if bu_env_is_in_autocomplete && [[ "$1" != -* ]]
@@ -61,9 +66,11 @@ then
 Project a JSONL stream to a subset of fields (PowerShell Select-Object).
 Reads records from stdin. Fields are emitted in the specified order;
 'new=old' renames a field. Missing fields are emitted as null.
+--unique deduplicates records after projection (first occurrence wins).
 " \
         --example "Keep two fields" "name,version" \
-        --example "Rename a field" "name,ver=version"
+        --example "Rename a field" "name,ver=version" \
+        --example "Select unique values" "--unique verb"
     return 0
 fi
 
@@ -76,7 +83,10 @@ then
 fi
 
 # Cmdlets implicitly end at Out-Default: a table on a terminal, JSONL when piped
-bu_out_select "$fields" | bu_out
+local -a select_args=()
+"$is_unique" && select_args+=(--unique)
+select_args+=("$fields")
+bu_out_select "${select_args[@]}" | bu_out
 
 bu_scope_pop_function
 }

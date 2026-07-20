@@ -30,6 +30,60 @@ BU_OUT_JQ=$(command -v jq 2>/dev/null) || BU_OUT_JQ=
 declare -A -g BU_OUT_PRODUCER_FIELDS=(
     ["bu get-command"]="name verb noun namespace type"
     ["bu get-module"]="name version path"
+    # jc parser fields (registered by parser name for convert-from-jc)
+    ["bu convert-from-jc --parser ls"]="filename flags links owner group size date"
+    ["bu convert-from-jc --parser ps"]="user pid vsz rss tty stat start time command cpu_percent mem_percent"
+    ["bu convert-from-jc --parser df"]="filesystem 1k_blocks used available mounted_on use_percent"
+    ["bu convert-from-jc --parser dig"]="id opcode status flags query_num answer_num authority_num additional_num opt_pseudosection question answer query_time server when rcvd when_epoch when_epoch_utc"
+    ["bu convert-from-jc --parser free"]="type total used free shared buff_cache available"
+    ["bu convert-from-jc --parser mount"]="filesystem mount_point type options"
+    ["bu convert-from-jc --parser uptime"]="time uptime users load_1m load_5m load_15m time_hour time_minute time_second uptime_days uptime_hours uptime_minutes uptime_total_seconds"
+    ["bu convert-from-jc --parser uname"]="kernel_name node_name kernel_release operating_system processor hardware_platform machine kernel_version"
+    ["bu convert-from-jc --parser env"]="name value"
+    ["bu convert-from-jc --parser id"]="uid gid groups"
+    ["bu convert-from-jc --parser du"]="size name"
+    ["bu convert-from-jc --parser stat"]="file size blocks io_blocks type device inode links access flags uid user gid group access_time modify_time change_time birth_time access_time_epoch access_time_epoch_utc modify_time_epoch modify_time_epoch_utc change_time_epoch change_time_epoch_utc birth_time_epoch birth_time_epoch_utc"
+    ["bu convert-from-jc --parser ifconfig"]="name flags state mtu type mac_addr ipv4_addr ipv4_mask ipv4_bcast ipv6_addr ipv6_mask ipv6_scope ipv6_type metric rx_packets rx_errors rx_dropped rx_overruns rx_frame tx_packets tx_errors tx_dropped tx_overruns tx_carrier tx_collisions rx_bytes tx_bytes ipv4"
+    ["bu convert-from-jc --parser netstat"]="proto recv_q send_q local_address foreign_address state program_name kind local_port foreign_port transport_protocol network_protocol local_port_num"
+    ["bu convert-from-jc --parser arp"]="name address hwtype hwaddress iface"
+    ["bu convert-from-jc --parser dpkg-l"]="codes name version architecture description desired status"
+    ["bu convert-from-jc --parser iostat"]="percent_user percent_nice percent_system percent_iowait percent_steal percent_idle type"
+    ["bu convert-from-jc --parser vmstat"]="runnable_procs uninterruptible_sleeping_procs virtual_mem_used free_mem buffer_mem cache_mem inactive_mem active_mem swap_in swap_out blocks_in blocks_out interrupts context_switches user_time system_time idle_time io_wait_time stolen_time timestamp timezone"
+    ["bu convert-from-jc --parser lsof"]="command pid user fd type device size_off node name"
+    ["bu convert-from-jc --parser wc"]="filename lines words characters"
+    # npm wrappers
+    ["bu get-npm-package"]="name version resolved depth _path _parent_path"
+    ["bu get-npm-outdated"]="name current wanted latest dependent location"
+    ["bu get-pnpm-package"]="name version resolved from description license path depth _path _parent_path"
+    ["bu get-pgrep-process"]="pid command"
+    ["bu get-npm-audit"]="name severity is_direct title url range fix_version fix_is_breaking via"
+    ["bu get-pnpm-outdated"]="name current wanted latest is_deprecated dependency_type"
+    ["bu get-docker-container"]="ID Image Command CreatedAt RunningFor Ports Status Size Names Labels Mounts Networks"
+    ["bu get-docker-image"]="ID Repository Tag CreatedAt CreatedSince Size"
+    ["bu get-docker-volume"]="Driver Labels Links Mountpoint Name Scope Size"
+    ["bu get-docker-network"]="ID Name Driver Scope"
+    # Dedicated jc-wrapper cmdlets (field aliases for convert-from-jc parsers)
+    ["bu get-file"]="filename flags links owner group size date"
+    ["bu get-process"]="user pid vsz rss tty stat start time command cpu_percent mem_percent"
+    ["bu get-disk"]="filesystem 1k_blocks used available mounted_on use_percent"
+    ["bu get-dns"]="id opcode status flags query_num answer_num authority_num additional_num opt_pseudosection question answer query_time server when rcvd when_epoch when_epoch_utc"
+    ["bu get-memory"]="type total used free shared buff_cache available"
+    ["bu get-mount"]="filesystem mount_point type options"
+    ["bu get-uptime"]="time uptime users load_1m load_5m load_15m time_hour time_minute time_second uptime_days uptime_hours uptime_minutes uptime_total_seconds"
+    ["bu get-system"]="kernel_name node_name kernel_release operating_system processor hardware_platform machine kernel_version"
+    ["bu get-environment"]="name value"
+    ["bu get-identity"]="uid gid groups"
+    ["bu get-file-usage"]="size name"
+    ["bu get-file-stat"]="file size blocks io_blocks type device inode links access flags uid user gid group access_time modify_time change_time birth_time access_time_epoch access_time_epoch_utc modify_time_epoch modify_time_epoch_utc change_time_epoch change_time_epoch_utc birth_time_epoch birth_time_epoch_utc"
+    ["bu get-interface"]="name flags state mtu type mac_addr ipv4_addr ipv4_mask ipv4_bcast ipv6_addr ipv6_mask ipv6_scope ipv6_type metric rx_packets rx_errors rx_dropped rx_overruns rx_frame tx_packets tx_errors tx_dropped tx_overruns tx_carrier tx_collisions rx_bytes tx_bytes ipv4"
+    ["bu get-network"]="proto recv_q send_q local_address foreign_address state program_name kind local_port foreign_port transport_protocol network_protocol local_port_num"
+    ["bu get-socket"]="proto recv_q send_q local_address foreign_address state program_name kind local_port foreign_port transport_protocol network_protocol local_port_num"
+    ["bu get-arp-entry"]="name address hwtype hwaddress iface"
+    ["bu get-cpu-stat"]="percent_user percent_nice percent_system percent_iowait percent_steal percent_idle type"
+    ["bu get-memory-stat"]="runnable_procs uninterruptible_sleeping_procs virtual_mem_used free_mem buffer_mem cache_mem inactive_mem active_mem swap_in swap_out blocks_in blocks_out interrupts context_switches user_time system_time idle_time io_wait_time stolen_time timestamp timezone"
+    ["bu get-open-file"]="command pid user fd type device size_off node name"
+    ["bu get-count"]="filename lines words characters"
+    ["bu get-dpkg-package"]="codes name version architecture description desired status"
 )
 
 # Allowlist of producer head commands that may be executed ("probed") during
@@ -458,6 +512,9 @@ bu_out_where()
 # *Params*:
 # - `$1`: Comma-separated field specs. `name` keeps the field as-is;
 #         `new=old` renames field `old` to `new`.
+# - `--unique` (optional): Deduplicate records after projection (first
+#         occurrence wins, order preserved). Equivalent to piping through
+#         `bu_out_distinct` after the select.
 # - stdin: JSONL stream
 #
 # *Returns*:
@@ -467,6 +524,7 @@ bu_out_where()
 # ```bash
 # bu get-command | bu_out_select name,type
 # bu get-module | bu_out_select name,ver=version
+# bu get-command | bu_out_select verb --unique
 # ```
 #
 # *Notes*:
@@ -476,7 +534,27 @@ bu_out_where()
 bu_out_select()
 {
     __bu_out_assert_jq || return 1
-    if (($# != 1))
+
+    local is_unique=false
+    local field_spec=
+    while (($#))
+    do
+        case "$1" in
+        --unique)
+            is_unique=true
+            ;;
+        *)
+            if [[ -n "$field_spec" ]]
+            then
+                bu_log_err "bu_out_select got an unexpected extra argument[$1]"
+                return 1
+            fi
+            field_spec=$1
+            ;;
+        esac
+        shift
+    done
+    if [[ -z "$field_spec" ]]
     then
         bu_log_err "bu_out_select expects a comma-separated field spec (e.g. 'name,ver=version')"
         return 1
@@ -486,7 +564,7 @@ bu_out_select()
     local ifs=$IFS
     IFS=','
     # shellcheck disable=SC2206 # Intentional word splitting on commas
-    specs=($1)
+    specs=($field_spec)
     IFS=$ifs
 
     local prog= sep=
@@ -515,7 +593,13 @@ bu_out_select()
         bu_log_err "bu_out_select got an empty field spec"
         return 1
     fi
-    "$BU_OUT_JQ" -c "{$prog}"
+
+    if "$is_unique"
+    then
+        "$BU_OUT_JQ" -c "{$prog}" | bu_out_distinct
+    else
+        "$BU_OUT_JQ" -c "{$prog}"
+    fi
 }
 
 # ```
@@ -1143,7 +1227,15 @@ __bu_out_complete_pipeline_fields()
 
     local -a fields=()
 
-    # 1. Static registry, longest matching producer prefix wins
+    # 1. Multi-stage pipeline static analysis: walk all stages, track field
+    #    propagation through transforms (select-object, query-object, etc.)
+    if __bu_out_analyze_pipeline "$producer_str" fields && ((${#fields[@]} > 0))
+    then
+        : # fields populated by the analyzer
+    else
+    # 2. Static registry fallback: longest matching producer prefix wins.
+    #    This handles pipelines where static analysis bailed (unknown commands)
+    #    or where no multi-stage transforms exist.
     local key best_key=
     for key in "${!BU_OUT_PRODUCER_FIELDS[@]}"
     do
@@ -1158,7 +1250,7 @@ __bu_out_complete_pipeline_fields()
         fields=(${BU_OUT_PRODUCER_FIELDS[$best_key]})
     elif "$BU_OUT_PROBE_PIPELINE" && [[ -n "${BU_OUT_PROBE_COMMANDS[$producer_head]:-}" && -n "$BU_OUT_JQ" ]]
     then
-        # 2. Opt-in probing: execute the producer as typed, read the keys of
+        # 3. Opt-in probing: execute the producer as typed, read the keys of
         # the first record. Auto-dispatch makes piped bu commands emit JSONL.
         local first_line
         first_line=$(eval "$producer_eval" 2>/dev/null | head -1)
@@ -1168,6 +1260,7 @@ __bu_out_complete_pipeline_fields()
             keys=$("$BU_OUT_JQ" -r 'if type == "object" then keys_unsorted[] else empty end' <<<"$first_line" 2>/dev/null)
             [[ -n "$keys" ]] && mapfile -t fields <<<"$keys"
         fi
+    fi
     fi
     ((${#fields[@]} == 0)) && return 1
 
@@ -1196,6 +1289,465 @@ __bu_out_complete_pipeline_fields()
         "$is_dot" && candidate=.$field
         BU_RET+=("${prefix}${candidate}")
     done
+}
+
+# MARK: Multi-stage pipeline static analysis
+
+# Maps command names to how they transform record fields in a pipeline.
+# Values:
+#   producer           - emits initial fields (looked up in BU_OUT_PRODUCER_FIELDS)
+#   passthrough        - output fields = input fields (where, sort, distinct, format-*, etc.)
+#   project            - output fields = parsed from positional field-spec argument (select-object)
+#   query              - output fields determined by running the stage with --debug (query-object)
+#   recordify_tsv      - output fields = parsed from --columns (convert-from-tsv)
+#   recordify_lines    - output field = parsed from --column (convert-from-lines)
+#   recordify_new      - output fields = keys from key=value pairs (new-record)
+declare -A -g BU_OUT_STAGE_EFFECT=(
+    ["bu get-command"]=producer
+    ["bu get-module"]=producer
+    ["bu where-object"]=passthrough
+    ["bu sort-object"]=passthrough
+    ["bu distinct-object"]=passthrough
+    ["bu format-table"]=passthrough
+    ["bu format-list"]=passthrough
+    ["bu convert-to-json"]=passthrough
+    ["bu convert-to-jsonl"]=passthrough
+    ["bu convert-to-tsv"]=passthrough
+    ["bu out-default"]=passthrough
+    ["bu select-object"]=project
+    ["bu query-object"]=query
+    ["bu convert-from-tsv"]=recordify_tsv
+    ["bu convert-from-lines"]=recordify_lines
+    ["bu new-record"]=recordify_new
+    ["bu convert-from-jc"]=recordify_jc
+    ["bu get-npm-package"]=producer
+    ["bu get-npm-outdated"]=producer
+    ["bu get-pnpm-package"]=producer
+    ["bu get-pgrep-process"]=producer
+    ["bu get-npm-audit"]=producer
+    ["bu get-pnpm-outdated"]=producer
+    ["bu get-docker-container"]=producer
+    ["bu get-docker-image"]=producer
+    ["bu get-docker-volume"]=producer
+    ["bu get-docker-network"]=producer
+    ["bu get-file"]=producer
+    ["bu get-process"]=producer
+    ["bu get-disk"]=producer
+    ["bu get-dns"]=producer
+    ["bu get-memory"]=producer
+    ["bu get-mount"]=producer
+    ["bu get-uptime"]=producer
+    ["bu get-system"]=producer
+    ["bu get-environment"]=producer
+    ["bu get-identity"]=producer
+    ["bu get-file-usage"]=producer
+    ["bu get-file-stat"]=producer
+    ["bu get-interface"]=producer
+    ["bu get-socket"]=producer
+    ["bu get-network"]=producer
+    ["bu get-arp-entry"]=producer
+    ["bu get-cpu-stat"]=producer
+    ["bu get-memory-stat"]=producer
+    ["bu get-open-file"]=producer
+    ["bu get-count"]=producer
+    ["bu get-dpkg-package"]=producer
+)
+
+# ```
+# *Description*:
+# Register a command's pipeline stage effect for static field analysis.
+#
+# *Params*:
+# - `$1`: Command name (e.g. `bu get-command`, `bu select-object`)
+# - `$2`: Effect type: producer, passthrough, project, query, recordify_tsv,
+#         recordify_lines, recordify_new
+#
+# *Examples*:
+# ```bash
+# bu_register_stage_effect "bu get-command" producer
+# bu_register_stage_effect "bu where-object" passthrough
+# bu_register_stage_effect "bu select-object" project
+# ```
+# ```
+bu_register_stage_effect()
+{
+    local -r cmd=$1
+    local -r effect=$2
+    if [[ -z "$cmd" || -z "$effect" ]]
+    then
+        bu_log_err "Usage: bu_register_stage_effect <command> <effect>"
+        return 1
+    fi
+    BU_OUT_STAGE_EFFECT[$cmd]=$effect
+}
+
+# ```
+# *Description*:
+# Split a pipeline text (everything before the cursor's pipe) into individual
+# stage texts. Uses `|` as the delimiter. The text comes from tree-sitter's
+# pipeBefore, which is already CST-accurate — pipes inside strings or
+# subshells are excluded.
+#
+# *Params*:
+# - `$1`: Pipeline text (e.g. "bu get-command | bu select-object name")
+# - nameref `$2`: Output array of trimmed stage texts
+# ```
+__bu_out_split_pipeline()
+{
+    local pipeline_text=$1
+    local -n out_stages=$2
+    out_stages=()
+
+    [[ -z "$pipeline_text" ]] && return 0
+
+    local -a raw=()
+    local ifs=$IFS
+    IFS='|'
+    # shellcheck disable=SC2206 # Intentional word splitting on pipe
+    raw=($pipeline_text)
+    IFS=$ifs
+
+    local stage
+    for stage in "${raw[@]}"
+    do
+        # Trim leading/trailing whitespace
+        stage=${stage#"${stage%%[![:space:]]*}"}
+        stage=${stage%"${stage##*[![:space:]]}"}
+        [[ -n "$stage" ]] && out_stages+=("$stage")
+    done
+}
+
+# ```
+# *Description*:
+# Extract the command name from a pipeline stage text. Handles multi-word
+# verbs (BU_MULTI_WORD_VERBS) so "bu convert-from-tsv --columns a,b" returns
+# "bu convert-from-tsv".
+#
+# *Params*:
+# - `$1`: Stage text
+#
+# *Returns*:
+# - stdout: The resolved command name
+# ```
+__bu_out_extract_command()
+{
+    local stage_text=$1
+    [[ -z "$stage_text" ]] && return 1
+
+    # Split into words
+    local -a words=()
+    # shellcheck disable=SC2206 # Intentional word splitting
+    words=($stage_text)
+    ((${#words[@]} == 0)) && return 1
+
+    local cmd_name=${words[0]}
+
+    # bu commands are always "bu <verb-noun>" (two words).
+    # Multi-word verbs like "convert-from" make the noun start later,
+    # but the command is still exactly two words.
+    if [[ "$cmd_name" == bu ]] && ((${#words[@]} >= 2))
+    then
+        cmd_name="$cmd_name ${words[1]}"
+    fi
+
+    printf '%s' "$cmd_name"
+}
+
+# ```
+# *Description*:
+# Parse the output field names from a select-object stage's field spec.
+# Handles "new=old" rename syntax — keeps the "new" (left-hand) names.
+#
+# *Params*:
+# - `$1`: Stage text (e.g. "bu select-object name,ver=version --unique")
+# - nameref `$2`: Output array of field names
+# ```
+__bu_out_parse_select_fields()
+{
+    local stage_text=$1
+    local -n out_fields=$2
+    out_fields=()
+
+    local -a words=()
+    # shellcheck disable=SC2206
+    words=($stage_text)
+    ((${#words[@]} < 2)) && return 1
+
+    # Determine how many leading words form the command name.
+    # bu commands are always two words (bu + verb-noun); others are one word.
+    local cmd_word_count=1
+    if [[ "${words[0]}" == bu ]] && ((${#words[@]} >= 2))
+    then
+        cmd_word_count=2
+    fi
+
+    # Find the first non-flag word after the command name — that's the field spec
+    local i word field_spec=
+    for (( i = cmd_word_count; i < ${#words[@]}; i++ ))
+    do
+        word=${words[i]}
+        [[ "$word" == -* ]] && continue
+        field_spec=$word
+        break
+    done
+
+    [[ -z "$field_spec" ]] && return 1
+
+    # Parse comma-separated specs: "new=old" → "new", "field" → "field"
+    local spec new_name
+    local ifs=$IFS
+    IFS=','
+    for spec in $field_spec
+    do
+        [[ -z "$spec" ]] && continue
+        case "$spec" in
+        *=*) new_name=${spec%%=*} ;;
+        *)   new_name=$spec ;;
+        esac
+        out_fields+=("$new_name")
+    done
+    IFS=$ifs
+}
+
+# ```
+# *Description*:
+# Analyze a single pipeline stage: given its text and the input field names,
+# compute the output field names after this stage executes.
+#
+# *Params*:
+# - `$1`: Stage text
+# - nameref `$2`: Input field names array
+# - nameref `$3`: Output field names array (set by this function)
+#
+# *Returns*:
+# - 0 on success, 1 if the stage effect is unknown and analysis should bail
+# ```
+__bu_out_analyze_stage()
+{
+    local stage_text=$1
+    local -n _in_fields=$2
+    local -n _out_fields=$3
+    _out_fields=()
+
+    local cmd_name
+    cmd_name=$(__bu_out_extract_command "$stage_text") || return 1
+
+    # Look up effect: longest prefix match on stage text so flags don't break it
+    local effect=
+    local key best_key=
+    for key in "${!BU_OUT_STAGE_EFFECT[@]}"
+    do
+        if [[ "$stage_text" == "$key" || "$stage_text" == "$key "* ]] && (( ${#key} > ${#best_key} ))
+        then
+            best_key=$key
+        fi
+    done
+    if [[ -n "$best_key" ]]
+    then
+        effect=${BU_OUT_STAGE_EFFECT[$best_key]}
+    fi
+    if [[ -z "$effect" ]]
+    then
+        return 1
+    fi
+
+    case "$effect" in
+    producer)
+        # Look up static field registry
+        local best_producer=
+        for key in "${!BU_OUT_PRODUCER_FIELDS[@]}"
+        do
+            if [[ "$stage_text" == "$key" || "$stage_text" == "$key "* ]] && (( ${#key} > ${#best_producer} ))
+            then
+                best_producer=$key
+            fi
+        done
+        if [[ -n "$best_producer" ]]
+        then
+            # shellcheck disable=SC2206
+            _out_fields=(${BU_OUT_PRODUCER_FIELDS[$best_producer]})
+        fi
+        ;;
+    passthrough)
+        _out_fields=("${_in_fields[@]}")
+        ;;
+    project)
+        __bu_out_parse_select_fields "$stage_text" _out_fields || _out_fields=("${_in_fields[@]}")
+        ;;
+    query)
+        # Run the stage with --debug appended to get the query plan.
+        # This is safe: --debug only parses arguments, doesn't read stdin or
+        # execute jq expressions. Uses eval on CST-vetted text (same trust
+        # boundary as the existing probing system).
+        if [[ -n "$BU_OUT_JQ" ]]
+        then
+            local debug_out
+            debug_out=$(eval "$stage_text --debug" 2>/dev/null) || true
+            if [[ -n "$debug_out" ]]
+            then
+                local output_fields_json
+                output_fields_json=$("$BU_OUT_JQ" -r '.outputFields // empty' <<<"$debug_out" 2>/dev/null) || true
+                if [[ -n "$output_fields_json" && "$output_fields_json" != null ]]
+                then
+                    local parsed
+                    parsed=$("$BU_OUT_JQ" -r '.[]' <<<"$output_fields_json" 2>/dev/null) || true
+                    [[ -n "$parsed" ]] && mapfile -t _out_fields <<<"$parsed"
+                fi
+            fi
+        fi
+        # If we couldn't determine output fields (passthrough query), inherit input
+        if ((${#_out_fields[@]} == 0))
+        then
+            _out_fields=("${_in_fields[@]}")
+        fi
+        ;;
+    recordify_tsv)
+        # Parse --columns from stage text
+        local cols=
+        if [[ "$stage_text" =~ --columns[[:space:]]+([^[:space:]]+) ]]
+        then
+            cols=${BASH_REMATCH[1]}
+            cols=${cols%,}  # strip trailing comma if present
+            local c new_name
+            local ifs=$IFS
+            IFS=','
+            for c in $cols
+            do
+                [[ -z "$c" ]] && continue
+                case "$c" in
+                *:*) new_name=${c%%:*} ;;  # key:Label → key
+                *)   new_name=$c ;;
+                esac
+                _out_fields+=("$new_name")
+            done
+            IFS=$ifs
+        fi
+        ;;
+    recordify_lines)
+        # Parse --column from stage text
+        if [[ "$stage_text" =~ --column[[:space:]]+([^[:space:]]+) ]]
+        then
+            _out_fields=("${BASH_REMATCH[1]}")
+        fi
+        ;;
+    recordify_new)
+        # Parse key=value pairs: keys become output fields
+        local -a rwords=()
+        # shellcheck disable=SC2206
+        rwords=($stage_text)
+        local rword rkey
+        for rword in "${rwords[@]}"
+        do
+            [[ "$rword" == -* ]] && continue
+            [[ "$rword" == "${rwords[0]}" ]] && continue  # skip cmd name
+            if [[ "$rword" == *=* && "$rword" != *:=* ]]
+            then
+                rkey=${rword%%=*}
+                _out_fields+=("$rkey")
+            elif [[ "$rword" == *:=* ]]
+            then
+                rkey=${rword%%:=*}
+                _out_fields+=("$rkey")
+            fi
+        done
+        ;;
+    recordify_jc)
+        # bu convert-from-jc: extract the parser name and look up the static
+        # field map. Falls back to --discover if not found statically.
+        local jc_parser=
+        if [[ "$stage_text" =~ --parser[[:space:]]+([^[:space:]]+) ]]
+        then
+            jc_parser=${BASH_REMATCH[1]}
+        fi
+        if [[ -n "$jc_parser" ]]
+        then
+            # Look up in the static field map (registered with prefix matching)
+            local jc_key="bu convert-from-jc --parser $jc_parser"
+            local -a jc_fields=()
+            # shellcheck disable=SC2206
+            jc_fields=(${BU_OUT_PRODUCER_FIELDS[$jc_key]:-})
+            if ((${#jc_fields[@]} > 0))
+            then
+                _out_fields=("${jc_fields[@]}")
+            elif [[ -n "$BU_OUT_JQ" ]]
+            then
+                # Fall back to --discover (runs a sample invocation)
+                local debug_out
+                debug_out=$(eval "$stage_text --discover" 2>/dev/null) || true
+                if [[ -n "$debug_out" ]]
+                then
+                    local output_fields_json
+                    output_fields_json=$("$BU_OUT_JQ" -r '.outputFields // empty' <<<"$debug_out" 2>/dev/null) || true
+                    if [[ -n "$output_fields_json" && "$output_fields_json" != null ]]
+                    then
+                        local parsed
+                        parsed=$("$BU_OUT_JQ" -r '.[]' <<<"$output_fields_json" 2>/dev/null) || true
+                        [[ -n "$parsed" ]] && mapfile -t _out_fields <<<"$parsed"
+                    fi
+                fi
+            fi
+        fi
+        ;;
+    *)
+        # Unknown command — bail out, can't statically analyze
+        return 1
+        ;;
+    esac
+
+    return 0
+}
+
+# ```
+# *Description*:
+# Analyze a full pipeline (everything before the cursor's pipe) and compute
+# the record fields available at the current stage. Walks each stage in
+# order, tracking field propagation through transforms.
+#
+# *Params*:
+# - `$1`: Pipeline text (pipe_before, with or without trailing pipe)
+# - nameref `$2`: Output array of field names
+#
+# *Returns*:
+# - 0 if analysis succeeded (fields populated), 1 if the pipeline contains
+#   unknown/unsupported commands and static analysis must bail
+#
+# *Notes*:
+# - The first stage must be a producer (has entry in BU_OUT_PRODUCER_FIELDS)
+#   or the pipeline can't be statically analyzed.
+# - If any stage returns unknown, the whole analysis bails.
+# ```
+__bu_out_analyze_pipeline()
+{
+    local pipeline_text=$1
+    local -n _final_fields=$2
+    _final_fields=()
+
+    # Trim trailing pipe character and whitespace
+    pipeline_text=${pipeline_text%"${pipeline_text##*[![:space:]]}"}
+    pipeline_text=${pipeline_text%|}
+    pipeline_text=${pipeline_text%"${pipeline_text##*[![:space:]]}"}
+
+    [[ -z "$pipeline_text" ]] && return 1
+
+    local -a stages=()
+    __bu_out_split_pipeline "$pipeline_text" stages
+    ((${#stages[@]} == 0)) && return 1
+
+    local -a current_fields=()
+    local -a next_fields=()
+    local stage
+    for stage in "${stages[@]}"
+    do
+        if ! __bu_out_analyze_stage "$stage" current_fields next_fields
+        then
+            return 1
+        fi
+        current_fields=("${next_fields[@]}")
+    done
+
+    ((${#current_fields[@]} == 0)) && return 1
+    _final_fields=("${current_fields[@]}")
+    return 0
 }
 
 # MARK: Dispatcher (Out-Default)
