@@ -928,3 +928,60 @@ function test_e2e_query_object_group_by_completion { #@test
     bu_autocomplete_get_autocompletions bu query-object group-by ""
     assert_equal "${COMPREPLY[*]}" "name verb noun namespace type"
 }
+
+# ===========================================================================
+# bu_out_distinct / query-object distinct / bu distinct-object
+# ===========================================================================
+
+function test_bu_out_distinct_order_preserved { #@test
+    # First occurrence wins, original order kept (unlike group-by, which sorts)
+    local out
+    out=$(printf '%s\n' '{"a":3}' '{"a":1}' '{"a":3}' | bu_out_distinct)
+    assert_equal "$out" '{"a":3}
+{"a":1}'
+}
+
+function test_bu_out_distinct_key_order_canonicalized { #@test
+    # {"a":1,"b":2} equals {"b":2,"a":1}
+    local out
+    out=$(printf '%s\n' '{"a":1,"b":2}' '{"b":2,"a":1}' '{"a":3}' | bu_out_distinct)
+    assert_equal "$out" '{"a":1,"b":2}
+{"a":3}'
+}
+
+function test_bu_out_distinct_empty_input { #@test
+    local out
+    out=$(printf '' | bu_out_distinct)
+    assert_equal "$out" ''
+}
+
+function test_bu_query_object_select_distinct { #@test
+    # SELECT DISTINCT: project then dedupe whole records
+    local out
+    out=$(BU_MODULE_LIST="a:1.0.0:/x;b:2.0.0:/y;c:1.0.0:/z" bu get-module \
+        | bu query-object select version distinct)
+    assert_equal "$out" '{"version":"1.0.0"}
+{"version":"2.0.0"}'
+}
+
+function test_bu_query_object_distinct_order_by { #@test
+    local out
+    out=$(BU_MODULE_LIST="b:2.0.0:/y;a:1.0.0:/x;c:1.0.0:/z" bu get-module \
+        | bu query-object select version distinct order-by version desc)
+    assert_equal "$out" '{"version":"2.0.0"}
+{"version":"1.0.0"}'
+}
+
+function test_bu_distinct_object_cmdlet { #@test
+    local out
+    out=$(BU_MODULE_LIST="a:1.0.0:/x;b:2.0.0:/y;c:1.0.0:/z" bu get-module \
+        | bu select-object version | bu distinct-object)
+    assert_equal "$out" '{"version":"1.0.0"}
+{"version":"2.0.0"}'
+}
+
+function test_bu_distinct_object_metadata { #@test
+    local out
+    out=$(bu get-command | jq -c 'select(.name == "distinct-object")')
+    assert_equal "$out" '{"name":"distinct-object","verb":"distinct","noun":"object","namespace":"bu","type":"source"}'
+}

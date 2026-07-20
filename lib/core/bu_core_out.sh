@@ -574,6 +574,38 @@ bu_out_sort_by()
     fi
 }
 
+# ```
+# *Description*:
+# Remove duplicate records from a JSONL stream (SELECT DISTINCT /
+# Select-Object -Unique). The first occurrence wins; original order is
+# preserved (unlike group-by, which sorts by key). Records are compared
+# with key-order canonicalization, so {"a":1,"b":2} equals {"b":2,"a":1}.
+# Streams emission (first occurrences appear with O(1) latency); memory
+# grows with the number of distinct records seen, which is inherent to dedupe.
+#
+# *Params*:
+# - stdin: JSONL stream
+#
+# *Returns*:
+# - stdout: JSONL stream without duplicate records
+#
+# *Examples*:
+# ```bash
+# bu get-command | bu_out_select verb | bu_out_distinct
+# ```
+bu_out_distinct()
+{
+    __bu_out_assert_jq || return 1
+    "$BU_OUT_JQ" -cn '
+        def canon: if type == "object" then to_entries | sort_by(.key) | map({key: .key, value: (.value | canon)}) | from_entries
+                   elif type == "array" then map(canon) else . end;
+        foreach inputs as $r ({seen: {}};
+            ($r | canon | tostring) as $k
+            | if .seen[$k] then . + {emit: false} else (.seen[$k] = 1) + {emit: true} end;
+            select(.emit) | $r)
+    '
+}
+
 # MARK: Sinks (JSONL -> display)
 
 # Shared jq prelude for the display formatters.

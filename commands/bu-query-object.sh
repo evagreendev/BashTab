@@ -16,6 +16,7 @@ local -a agg_specs=()
 local -a having_exprs=()
 local order_by=
 local is_desc=false
+local is_distinct=false
 local first=
 local format=auto
 local columns=
@@ -69,6 +70,11 @@ do
     --desc|desc)# _FLAG
         # Sort descending
         is_desc=true
+        ;;
+    --distinct|distinct)# _FLAG
+        # Remove duplicate records (SELECT DISTINCT). Runs after select:
+        # records are deduped as a whole, first occurrence wins.
+        is_distinct=true
         ;;
     --first|first)# FIRST
         # Take only the first N records (after sorting)
@@ -127,6 +133,7 @@ order: WHERE -> GROUP BY -> HAVING -> SELECT -> ORDER BY -> FIRST.
             comma-separated. funcs: count, sum, avg, min, max, first, last, collect
   having    filters groups, uses group/aggregate field names
   select    projects/reorders/renames fields (new=old)
+  distinct  removes duplicate records after projection (SELECT DISTINCT)
   order-by  uses output field names  (after renames, like SQL aliases)
   first     takes the first N records (SQL LIMIT)
 
@@ -137,6 +144,7 @@ Output ends at Out-Default: a table on a terminal, JSONL when piped.
         --example "Any clause order" "order-by noun select name,noun where '.namespace == \"bu\"'" \
         --example "Rename then order by the alias" "select name,ver=version order-by ver" \
         --example "Top 3" "order-by name first 3" \
+        --example "Distinct projected fields" "select verb distinct" \
         --example "Group and count" "group-by verb agg count" \
         --example "Group with aggregates and having" "group-by verb agg count,avg:len having '.count > 1' order-by count desc" \
         --example "Dashed forms work too" "--where '.type == \"source\"' --select name"
@@ -229,6 +237,16 @@ __bu_query_object_select()
     fi
 }
 
+__bu_query_object_distinct()
+{
+    if "$is_distinct"
+    then
+        bu_out_distinct
+    else
+        cat
+    fi
+}
+
 __bu_query_object_sort()
 {
     if [[ -n "$order_by" ]]
@@ -255,7 +273,7 @@ local -a out_args=(--format "$format")
 [[ -n "$columns" ]] && out_args+=(--columns "$columns")
 
 # Cmdlets implicitly end at Out-Default: a table on a terminal, JSONL when piped
-__bu_query_object_where | __bu_query_object_group | __bu_query_object_having | __bu_query_object_select | __bu_query_object_sort | __bu_query_object_first | bu_out "${out_args[@]}"
+__bu_query_object_where | __bu_query_object_group | __bu_query_object_having | __bu_query_object_select | __bu_query_object_distinct | __bu_query_object_sort | __bu_query_object_first | bu_out "${out_args[@]}"
 
 bu_scope_pop_function
 }

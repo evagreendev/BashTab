@@ -229,6 +229,8 @@ bu get-command | bu query-object group-by verb agg count
 bu get-command | bu query-object group-by verb agg count,collect:noun having '.count > 1' order-by count desc
 ```
 
+**Distinct** (`bu_out_distinct` / `distinct` / `bu distinct-object`): SELECT DISTINCT — dedupes whole records after projection, first occurrence wins, original order preserved (unlike `group-by`, which sorts by key). Records compare key-order-canonicalized. `select version distinct` ≡ `group-by version` once sorted.
+
 **Multi-word verbs**: command name parsing honors `BU_MULTI_WORD_VERBS` (default: `convert-to`, `convert-from`), so `bu-convert-to-jsonl.sh` registers verb=`convert-to`, noun=`jsonl`. Longest match wins; extend the array from user-defined configs for custom multi-word verbs.
 
 ### Pipeline-aware field completion
