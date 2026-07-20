@@ -855,7 +855,6 @@ bu_format_table()
         --argjson colors "$colors_json" \
         --argjson rainbow "$rainbow_json" \
         --argjson termw "$termw" \
-        --argjson minw 4 \
         --arg bold "$bold" --arg reset "$reset" --arg ellipsis "…" \
         "$__BU_OUT_JQ_PRELUDE"'
         . as $rows
@@ -866,12 +865,17 @@ bu_format_table()
              reduce range(0; $cols | length) as $i ({};
                  .[$cols[$i].key] = $rainbow[$i % ($rainbow | length)])
            else $colors end) as $colors
+        | ([4, (if ($cols | length) > 10 then 6 elif ($cols | length) > 6 then 5 else 4 end)] | max) as $minw
         | ($cols | map(. as $c | {key: $c.key, header: $c.header, width: ([($c.header | length)] + [$rows[] | .[$c.key] | cellstr | ansilen] | max)})) as $init
         | def fit($spec):
-              if (($spec | map(.width) | add) + 2 * ($spec | length - 1)) <= $termw then $spec
-              elif ($spec | all(.[]; .width <= $minw)) then $spec
+              if ($spec | length) <= 1 then $spec
+              elif (($spec | map(.width) | add) + 2 * ($spec | length - 1)) <= $termw then $spec
+              elif ($spec | all(.[]; .width <= $minw)) then
+                  # Even at min widths the table overflows — drop rightmost columns
+                  fit($spec[:-1])
               else
-                  ($spec | max_by(.width) | .key) as $mk
+                  # Shrink the widest column that is above the minimum
+                  ($spec | map(select(.width > $minw)) | max_by(.width) | .key) as $mk
                   | fit($spec | map(if .key == $mk then .width -= 1 else . end))
               end;
         fit($init) as $spec
