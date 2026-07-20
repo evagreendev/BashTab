@@ -197,87 +197,65 @@ __bu_cli_help()
         esac
     done
 
-    # Helper: emit a JSONL stream from a command array, then pipe through
-    # bu_format_table.  The name field carries ANSI verb/noun colors.
+    # Helper: emit tab-separated rows from a command array, then pipe
+    # through bu_out_from_tsv -> bu_format_table for auto-width rendering.
     __bu_cli_emit_command_table()
     {
         local -n _arr=$1
-        local _key _path _name
-        local -a _jq_args=()
-        local _count=0
+        local _key _name _path _first=1
         for _key in $(__bu_cli_sort_keys <<<"${!_arr[*]}")
         do
             _path=${_arr[$_key]}
             _name=$(__bu_cli_colorize_command_name "$_key" 0)
             _name=${_name%"${_name##*[! ]}"}
             [[ -z "$_name" ]] && _name=$_key
-            _jq_args+=(--arg "n$_count" "$_name")
-            _jq_args+=(--arg "p$_count" "$_path")
-            ((_count++))
+            printf '%s	%s\n' "$_name" "$_path"
         done
-        if ((_count == 0))
-        then
-            return 0
-        fi
-        "$BU_OUT_JQ" -cn \
-            "${_jq_args[@]}" \
-            'range(0; '"$_count"') as $i |
-             {name: $ARGS.named["n\($i)"],
-              path: $ARGS.named["p\($i)"]}' \
+    }
+
+    # Helper: run a section header + sorted TSV through the table pipeline.
+    __bu_cli_emit_command_section()
+    {
+        local -n _arr=$1
+        local _header=$2
+        ((${#_arr[@]})) || return 0
+        echo
+        echo "$_header"
+        echo
+        __bu_cli_emit_command_table "$1" \
+        | bu_out_from_tsv --columns name,path \
         | bu_format_table --columns name,path
     }
 
-    echo
-    echo "The following commands using a ${BU_TPUT_UNDERLINE}new${BU_TPUT_RESET} shell context are available"
-    echo
-    __bu_cli_emit_command_table executable_scripts
+    __bu_cli_emit_command_section executable_scripts \
+        "The following commands using a ${BU_TPUT_UNDERLINE}new${BU_TPUT_RESET} shell context are available"
 
-    echo
-    echo "The following commands using the ${BU_TPUT_UNDERLINE}current${BU_TPUT_RESET} shell context are available"
-    echo
-    __bu_cli_emit_command_table source_scripts
+    __bu_cli_emit_command_section source_scripts \
+        "The following commands using the ${BU_TPUT_UNDERLINE}current${BU_TPUT_RESET} shell context are available"
 
-    if ((${#functions[@]}))
-    then
-        echo
-        echo "The following functions are available"
-        echo
-        __bu_cli_emit_command_table functions
-    fi
+    __bu_cli_emit_command_section functions \
+        "The following functions are available"
 
-    if ((${#aliases[@]}))
-    then
-        echo
-        echo "The following aliases are available"
-        echo
-        __bu_cli_emit_command_table aliases
-    fi
+    __bu_cli_emit_command_section aliases \
+        "The following aliases are available"
 
     # --- Key bindings ---
-    echo
-    echo "The following ${BU_TPUT_UNDERLINE}key bindings${BU_TPUT_NO_UNDERLINE} are available"
-    echo
-
-    local _kb_key _kb_fn _kb_label _kb_doc _kb_jq_args=() _kb_count=0
-    for _kb_key in $(__bu_cli_sort_keys <<<"${!BU_KEY_BINDINGS[*]}")
-    do
-        _kb_fn=${BU_KEY_BINDINGS[$_kb_key]}
-        _kb_label=$(__bu_cli_format_keybinding "$_kb_key")
-        _kb_doc=${BU_KEY_BINDING_DOCS[$_kb_key]:-}
-        _kb_jq_args+=(--arg "c$_kb_count" "$_kb_label")
-        _kb_jq_args+=(--arg "f$_kb_count" "$_kb_fn")
-        _kb_jq_args+=(--arg "d$_kb_count" "$_kb_doc")
-        ((_kb_count++))
-    done
-    if ((_kb_count))
+    if ((${#BU_KEY_BINDINGS[@]}))
     then
-        "$BU_OUT_JQ" -cn \
-            "${_kb_jq_args[@]}" \
-            'range(0; '"$_kb_count"') as $i |
-             {chord: $ARGS.named["c\($i)"],
-              "function": $ARGS.named["f\($i)"],
-              description: $ARGS.named["d\($i)"]}' \
-        | bu_format_table --columns chord:Chord,function:Function,description:Description
+        echo
+        echo "The following ${BU_TPUT_UNDERLINE}key bindings${BU_TPUT_NO_UNDERLINE} are available"
+        echo
+        {
+            local _kb_key
+            for _kb_key in $(__bu_cli_sort_keys <<<"${!BU_KEY_BINDINGS[*]}")
+            do
+                printf '%s	%s	%s\n' \
+                    "$(__bu_cli_format_keybinding "$_kb_key")" \
+                    "${BU_KEY_BINDINGS[$_kb_key]}" \
+                    "${BU_KEY_BINDING_DOCS[$_kb_key]:-}"
+            done
+        } | bu_out_from_tsv --columns chord,function,description \
+          | bu_format_table --columns chord:Chord,function:Function,description:Description
     fi
 } >&2
 
