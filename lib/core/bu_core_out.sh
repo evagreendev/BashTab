@@ -843,7 +843,7 @@ bu_format_table()
                   | ($r[$s.key] | cellstr | ellipsize($s.width) | pad($s.width)) as $cell
                   | ($colors[$s.key] // "") + $cell + (if $colors[$s.key] then $reset else "" end)
               ) | join("  ");
-            ($spec | map(. as $s | $bold + ($s.header | pad($s.width)) + $reset) | join("  ") | rtrim),
+            ($spec | map(. as $s | $bold + ($s.header | ellipsize($s.width) | pad($s.width)) + $reset) | join("  ") | rtrim),
             ($spec | map("-" * .width) | join("  ") | rtrim),
             (inputs | rowline(.) | rtrim)
             '
@@ -882,7 +882,7 @@ bu_format_table()
         | (if ($spec | length) < ($cols | length) then
               debug("showing \($spec | length) of \($cols | length) columns (use --columns or --format list)")
            else . end)
-        | ($spec | map(. as $s | $bold + ($s.header | pad($s.width)) + $reset) | join("  ") | rtrim),
+        | ($spec | map(. as $s | $bold + ($s.header | ellipsize($s.width) | pad($s.width)) + $reset) | join("  ") | rtrim),
           ($spec | map("-" * .width) | join("  ") | rtrim),
           ($rows[] | . as $r | $spec | map(
               . as $s
