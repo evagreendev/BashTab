@@ -61,7 +61,8 @@ per record.
     return 0
 fi
 
-bu_out_record "${pairs[@]}"
+# Cmdlets implicitly end at Out-Default: a table on a terminal, JSONL when piped
+bu_out_record "${pairs[@]}" | bu_out
 
 bu_scope_pop_function
 }

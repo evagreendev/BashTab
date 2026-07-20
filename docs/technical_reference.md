@@ -206,6 +206,13 @@ bu get-command | bu format-table
 bu get-command | bu where-object '.verb == "get"' | bu sort-object name | bu out-default
 ```
 
+**Cmdlets end at Out-Default**: every cmdlet pipes its records through `bu_out`, so a transform at the end of a terminal pipeline renders a table automatically — no explicit formatter needed. Intermediate stages see a pipe and stay JSONL. The core functions (`bu_out_select` etc.) remain pure JSONL for scripting; only the cmdlets append Out-Default.
+
+```bash
+bu get-command | bu select-object name,verb        # table on a terminal
+bu get-command | bu select-object name,verb | jq . # JSONL when piped
+```
+
 **Multi-word verbs**: command name parsing honors `BU_MULTI_WORD_VERBS` (default: `convert-to`, `convert-from`), so `bu-convert-to-jsonl.sh` registers verb=`convert-to`, noun=`jsonl`. Longest match wins; extend the array from user-defined configs for custom multi-word verbs.
 
 ### Pipeline-aware field completion

@@ -237,7 +237,7 @@ Command pattern (zero forks in the loop):
 } | bu_out_from_tsv --columns name,version,path | bu_out --format "$format"
 ```
 
-Commands expose `--format` (enum: auto table list json jsonl tsv) and `--columns` (supports `key:Label` display labels). Cmdlet wrappers usable in any pipeline: `bu new-record`, `bu convert-from-tsv`, `bu convert-from-lines`, `bu where-object`, `bu select-object`, `bu sort-object`, `bu format-table`, `bu format-list`, `bu convert-to-json`, `bu convert-to-jsonl`, `bu convert-to-tsv`, `bu out-default`.
+Commands expose `--format` (enum: auto table list json jsonl tsv) and `--columns` (supports `key:Label` display labels). Cmdlet wrappers usable in any pipeline: `bu new-record`, `bu convert-from-tsv`, `bu convert-from-lines`, `bu where-object`, `bu select-object`, `bu sort-object`, `bu format-table`, `bu format-list`, `bu convert-to-json`, `bu convert-to-jsonl`, `bu convert-to-tsv`, `bu out-default`. Cmdlets implicitly end at Out-Default (pipe through `bu_out`): a table on a terminal, JSONL when piped. The underlying functions stay pure JSONL.
 
 Command names support multi-word verbs via `BU_MULTI_WORD_VERBS` (default: `convert-to`, `convert-from`), so `convert-to-jsonl` parses as verb=`convert-to`, noun=`jsonl`.
 

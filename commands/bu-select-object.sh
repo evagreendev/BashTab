@@ -75,7 +75,8 @@ then
     return 1
 fi
 
-bu_out_select "$fields"
+# Cmdlets implicitly end at Out-Default: a table on a terminal, JSONL when piped
+bu_out_select "$fields" | bu_out
 
 bu_scope_pop_function
 }

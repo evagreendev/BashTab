@@ -631,3 +631,50 @@ function test_e2e_no_pipeline_shows_hint_only { #@test
     bu_autocomplete_get_autocompletions bu select-object na
     assert_equal "${COMPREPLY[0]}" "Hint: field (from pipeline producer)"
 }
+
+# ===========================================================================
+# Cmdlets end at Out-Default: table on a terminal, JSONL when piped
+# ===========================================================================
+
+function test_cmdlets_jsonl_when_piped { #@test
+    # $( ) capture is not a terminal, so transforms stay JSONL (already covered
+    # by the cmdlet tests above); assert explicitly for select-object
+    local out
+    out=$(BU_MODULE_LIST="a:1.0.0:/x" bu get-module | bu select-object name,version)
+    assert_equal "$out" '{"name":"a","version":"1.0.0"}'
+}
+
+function test_cmdlets_table_when_terminal { #@test
+    # script(1) allocates a pty, so the pipeline terminus sees a terminal and
+    # Out-Default renders a table (bold header ANSI stripped)
+    local helper=$BATS_TEST_TMPDIR/pty_select.sh
+    cat > "$helper" <<EOF
+source "$DIR/../bu_entrypoint.sh" >/dev/null 2>&1
+BU_MODULE_LIST="a:1.0.0:/x" bu get-module | bu select-object name,version
+EOF
+    local out
+    out=$(script -qec "bash $helper" /dev/null | tr -d '\r' | sed 's/\x1b\[[0-9;]*m//g;s/\x1b(B//g')
+    assert_equal "$out" 'name  version
+----  -------
+a     1.0.0'
+}
+
+function test_cmdlets_env_format_override { #@test
+    # BU_OUTPUT_FORMAT flows through the transform's implicit bu_out
+    local out
+    out=$(BU_MODULE_LIST="a:1.0.0:/x" bu get-module | BU_OUTPUT_FORMAT=tsv bu select-object name)
+    assert_equal "$out" 'a'
+}
+
+function test_cmdlets_intermediate_stays_jsonl { #@test
+    # Even on a terminal, a non-terminus transform must emit JSONL: here
+    # where-object is mid-pipeline, convert-to-tsv is the terminus
+    local helper=$BATS_TEST_TMPDIR/pty_chain.sh
+    cat > "$helper" <<EOF
+source "$DIR/../bu_entrypoint.sh" >/dev/null 2>&1
+BU_MODULE_LIST="a:1.0.0:/x;b:2.0.0:/y" bu get-module | bu where-object '.name == "b"' | bu convert-to-tsv --columns name
+EOF
+    local out
+    out=$(script -qec "bash $helper" /dev/null | tr -d '\r')
+    assert_equal "$out" 'b'
+}

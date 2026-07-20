@@ -75,7 +75,8 @@ then
     return 1
 fi
 
-bu_out_where "$expression"
+# Cmdlets implicitly end at Out-Default: a table on a terminal, JSONL when piped
+bu_out_where "$expression" | bu_out
 
 bu_scope_pop_function
 }

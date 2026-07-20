@@ -82,7 +82,8 @@ fi
 
 local -a sort_args=("$key")
 "$is_desc" && sort_args+=(--desc)
-bu_out_sort_by "${sort_args[@]}"
+# Cmdlets implicitly end at Out-Default: a table on a terminal, JSONL when piped
+bu_out_sort_by "${sort_args[@]}" | bu_out
 
 bu_scope_pop_function
 }
