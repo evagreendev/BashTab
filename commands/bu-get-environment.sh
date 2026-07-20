@@ -21,7 +21,6 @@ do
         is_help=true
         ;;
     *)
-        # Any unrecognized arg: pass through to the underlying command, replacing the default
         break
         ;;
     esac
@@ -46,9 +45,9 @@ fi
 if "$is_help"
 then
     bu_autohelp \
-        --description "Show environment variables (jc env parser wrapper)." \
+        --description "Show environment variables (jc env parser wrapper). ANSI escape sequences are stripped from values." \
         --example "Default" "" \
-        --example "With extra flags" "-- -la /var/log"
+        --example "With extra flags" "-u /usr/bin/env"
     return 0
 fi
 
@@ -60,7 +59,6 @@ then
     return 1
 fi
 
-# Build the command: use provided args if any, otherwise the default
 local -a cmd=()
 if ((${#remaining_options[@]} > 0))
 then
@@ -69,7 +67,14 @@ else
     cmd=(env)
 fi
 
-"${cmd[@]}" 2>/dev/null | jc --env 2>/dev/null | jq -c 'if type == "array" then .[] else . end' 2>/dev/null | bu_out
+# jc env parser emits an array of {name, value} records.
+# Strip ANSI escape sequences from values (CSI: ESC[params letter,
+# charset: ESC( or ESC) + single char) to prevent display corruption.
+"${cmd[@]}" 2>/dev/null | jc --env 2>/dev/null | jq -c '
+    if type == "array" then .[] else . end
+    | .value |= gsub("\u001b\\[[0-9;?]*[a-zA-Z]"; "")
+    | .value |= gsub("\u001b[()]."; "")
+' 2>/dev/null | bu_out
 
 bu_scope_pop_function
 }
