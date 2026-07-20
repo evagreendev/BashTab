@@ -1877,6 +1877,12 @@ bu_out()
         fi
     fi
 
+    # Auto-colour table columns on a terminal when no explicit --colors given
+    if [[ -z "$colors" && "$format" == table && -t 1 ]]
+    then
+        colors=auto
+    fi
+
     local -a formatter_args=()
     case "$format" in
     table)
