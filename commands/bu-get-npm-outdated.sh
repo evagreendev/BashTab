@@ -21,7 +21,7 @@ do
     case "$1" in
     --format)# FORMAT
         # Output format
-        bu_parse_positional $# --enum $BU_OUT_FORMATS enum-- --hint "Output format"
+        bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
     -h|--help)# _FLAG

@@ -24,7 +24,7 @@ BU_OUT_JQ=$(command -v jq 2>/dev/null) || BU_OUT_JQ=
 
 # Standard output formats for structured commands.
 # Used by --format flags and Out-Default auto-detection.
-BU_OUT_FORMATS="auto table list json jsonl tsv"
+BU_OUT_FORMATS=(auto table list json jsonl tsv)
 
 # Static field registry: producer command-line prefix -> space-separated
 # record fields. Consulted first by __bu_out_complete_pipeline_fields when

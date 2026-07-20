@@ -80,7 +80,7 @@ do
         ;;
     --format)# FORMAT
         # Output format
-        bu_parse_positional $# --enum $BU_OUT_FORMATS enum-- --hint "Output format"
+        bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         bu_validate_positional "${!shift_by}"
         format=${!shift_by}
         ;;
