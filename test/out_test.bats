@@ -824,3 +824,107 @@ function test_alias_non_alias_pairs_not_merged { #@test
     assert_equal "$has_short" true
     assert_equal "$has_long" true
 }
+
+# ===========================================================================
+# bu_out_group_by / query-object group-by, agg, having
+# ===========================================================================
+
+function test_bu_out_group_by_basic_count { #@test
+    local out
+    out=$(printf '%s\n' '{"v":"a"}' '{"v":"b"}' '{"v":"a"}' | bu_out_group_by --keys v --agg count)
+    assert_equal "$out" '{"v":"a","count":2}
+{"v":"b","count":1}'
+}
+
+function test_bu_out_group_by_numeric_aggregates { #@test
+    local out
+    out=$(printf '%s\n' '{"t":"a","x":10}' '{"t":"a","x":20}' '{"t":"b","x":5}' \
+        | bu_out_group_by --keys t --agg avg_x=avg:x,total=sum:x,min:x,max:x)
+    assert_equal "$out" '{"t":"a","avg_x":15,"total":30,"min_x":10,"max_x":20}
+{"t":"b","avg_x":5,"total":5,"min_x":5,"max_x":5}'
+}
+
+function test_bu_out_group_by_first_last_collect { #@test
+    local out
+    out=$(printf '%s\n' '{"t":"a","x":1}' '{"t":"a","x":2}' | bu_out_group_by --keys t --agg first:x,last:x,collect:x)
+    assert_equal "$out" '{"t":"a","first_x":1,"last_x":2,"collect_x":[1,2]}'
+}
+
+function test_bu_out_group_by_multi_key { #@test
+    local out
+    out=$(printf '%s\n' '{"a":1,"b":1}' '{"a":1,"b":2}' '{"a":1,"b":1}' | bu_out_group_by --keys a,b --agg count)
+    assert_equal "$out" '{"a":1,"b":1,"count":2}
+{"a":1,"b":2,"count":1}'
+}
+
+function test_bu_out_group_by_distinct { #@test
+    # No agg: emits distinct key combinations
+    local out
+    out=$(printf '%s\n' '{"v":"a"}' '{"v":"a"}' '{"v":"b"}' | bu_out_group_by --keys v)
+    assert_equal "$out" '{"v":"a"}
+{"v":"b"}'
+}
+
+function test_bu_out_group_by_missing_key_null_group { #@test
+    # Records missing the key field group together under null
+    local out
+    out=$(printf '%s\n' '{"v":"a"}' '{"w":1}' | bu_out_group_by --keys v --agg count)
+    assert_equal "$out" '{"v":null,"count":1}
+{"v":"a","count":1}'
+}
+
+function test_bu_out_group_by_empty_input { #@test
+    local out
+    out=$(printf '' | bu_out_group_by --keys v --agg count)
+    assert_equal "$out" ''
+}
+
+function test_bu_out_group_by_unknown_func { #@test
+    run bu_out_group_by --keys v --agg bogus:x </dev/null
+    assert_failure
+}
+
+function test_bu_out_group_by_missing_field { #@test
+    run bu_out_group_by --keys v --agg avg </dev/null
+    assert_failure
+}
+
+function test_bu_out_group_by_requires_keys { #@test
+    run bu_out_group_by --agg count </dev/null
+    assert_failure
+}
+
+function test_bu_query_object_group_by { #@test
+    local out
+    out=$(BU_MODULE_LIST="a:1.0.0:/x;b:2.0.0:/y;c:1.0.0:/z" bu get-module \
+        | bu query-object group-by version agg count)
+    assert_equal "$out" '{"version":"1.0.0","count":2}
+{"version":"2.0.0","count":1}'
+}
+
+function test_bu_query_object_having { #@test
+    local out
+    out=$(BU_MODULE_LIST="a:1.0.0:/x;b:2.0.0:/y;c:1.0.0:/z" bu get-module \
+        | bu query-object group-by version agg count having '.count > 1')
+    assert_equal "$out" '{"version":"1.0.0","count":2}'
+}
+
+function test_bu_query_object_group_rename_order_alias { #@test
+    # Full arc: group -> agg -> select renames -> order-by alias desc
+    local out
+    out=$(BU_MODULE_LIST="a:1.0.0:/x;b:2.0.0:/y;c:1.0.0:/z" bu get-module \
+        | bu query-object group-by version agg count select ver=version,c=count order-by c desc)
+    assert_equal "$out" '{"ver":"1.0.0","c":2}
+{"ver":"2.0.0","c":1}'
+}
+
+function test_bu_query_object_agg_requires_group_by { #@test
+    run bu query-object agg count </dev/null
+    assert_failure
+}
+
+function test_e2e_query_object_group_by_completion { #@test
+    local command_line_front_before_pipe="bu get-command | "
+    bu_autocomplete_get_autocompletions bu query-object group-by ""
+    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type"
+}

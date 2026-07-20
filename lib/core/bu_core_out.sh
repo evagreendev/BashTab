@@ -865,6 +865,131 @@ bu_format_tsv()
         '
 }
 
+# ```
+# *Description*:
+# Group a JSONL stream by one or more key fields, emitting one flat record
+# per group (SQL GROUP BY with aggregates). Buffers all input (jq slurp).
+#
+# *Params*:
+# - `--keys a[,b]`: Group key fields (comma-separated; composite key)
+# - `--agg spec`:   Aggregate spec, repeatable AND comma-separated:
+#                   `[name=]func[:field]`
+#                   - `count`          group size
+#                   - `sum:f`/`avg:f`  numeric only (non-numbers ignored)
+#                   - `min:f`/`max:f`  non-null values, jq total ordering
+#                   - `first:f`/`last:f`  by pipeline order
+#                   - `collect:f`      array of the field's values
+#                   Default output name: `count`, or `func_field` (e.g. `avg_hp`)
+# - stdin: JSONL stream
+#
+# *Returns*:
+# - stdout: One JSON record per group: key fields + aggregate fields.
+#           Records missing a key field form a null-key group.
+#           Empty input produces no output.
+#
+# *Examples*:
+# ```bash
+# bu get-command --format jsonl | bu_out_group_by --keys verb --agg count
+# bu get-pokemon --format jsonl | bu_out_group_by --keys type --agg count,avg:hp,total=sum:hp
+# # No --agg: emits distinct key combinations (SQL SELECT DISTINCT)
+# ```
+bu_out_group_by()
+{
+    __bu_out_assert_jq || return 1
+
+    local keys=
+    local -a agg_specs=()
+    local shift_by=1
+    while (($#))
+    do
+        case "$1" in
+        --keys)
+            keys=$2
+            shift_by=2
+            ;;
+        --agg)
+            local spec ifs=$IFS
+            IFS=','
+            # shellcheck disable=SC2206 # Intentional word splitting on commas
+            for spec in $2; do [[ -n "$spec" ]] && agg_specs+=("$spec"); done
+            IFS=$ifs
+            shift_by=2
+            ;;
+        *)
+            bu_log_err "Unrecognized option[$1] for bu_out_group_by"
+            return 1
+            ;;
+        esac
+        if (( $# < shift_by ))
+        then
+            bu_log_err "Expected $((shift_by - 1)) arguments for option $1"
+            return 1
+        fi
+        shift "$shift_by"
+    done
+    if [[ -z "$keys" ]]
+    then
+        bu_log_err "bu_out_group_by requires --keys"
+        return 1
+    fi
+    __bu_out_cols_to_json "$keys" || return 1
+    local keys_json=$BU_RET
+
+    # Generate one jq fragment per aggregate spec
+    local fragments= sep=
+    local name body func field fragment
+    for spec in "${agg_specs[@]}"
+    do
+        case "$spec" in
+        *=*) name=${spec%%=*}; body=${spec#*=} ;;
+        *)   name=; body=$spec ;;
+        esac
+        func=${body%%:*}
+        field=${body#*:}
+        [[ "$field" == "$body" ]] && field=
+        [[ -z "$name" ]] && name=$func${field:+_$field}
+        __bu_out_validate_key "$name" || return 1
+        case "$func" in
+        count|sum|avg|min|max|first|last|collect) ;;
+        *)
+            bu_log_err "Unknown aggregate func[$func] in spec[$spec]. Expected one of: count, sum, avg, min, max, first, last, collect"
+            return 1
+            ;;
+        esac
+        if [[ "$func" != count ]]
+        then
+            if [[ -z "$field" ]]
+            then
+                bu_log_err "Aggregate[$spec] requires a field (e.g. $func:hp)"
+                return 1
+            fi
+            __bu_out_validate_key "$field" || return 1
+        fi
+        # Note: \$g and \$v are jq variables, they must not be expanded by bash
+        case "$func" in
+        count)   fragment="(\$g | length)" ;;
+        sum)     fragment="(\$g | map(.[\"$field\"]) | map(select(type == \"number\")) | add // 0)" ;;
+        avg)     fragment="((\$g | map(.[\"$field\"]) | map(select(type == \"number\"))) as \$v | if (\$v | length) > 0 then (\$v | add) / (\$v | length) else null end)" ;;
+        min)     fragment="(\$g | map(.[\"$field\"]) | map(select(. != null)) | min)" ;;
+        max)     fragment="(\$g | map(.[\"$field\"]) | map(select(. != null)) | max)" ;;
+        first)   fragment="(\$g[0][\"$field\"])" ;;
+        last)    fragment="(\$g[-1][\"$field\"])" ;;
+        collect) fragment="(\$g | map(.[\"$field\"]))" ;;
+        esac
+        fragments+="$sep\"$name\": $fragment"
+        sep=,
+    done
+
+    "$BU_OUT_JQ" -sc --argjson keys "$keys_json" '
+        group_by([.[$keys[]]])
+        | map( . as $g
+            | (reduce ($keys | to_entries[]) as $e ({}; .[$e.value] = $g[0][$e.value]))
+            + {'"$fragments"'}
+        )
+        | .[]
+    '
+}
+
 # MARK: Pipeline field completion
 
 # ```
