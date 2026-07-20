@@ -208,6 +208,35 @@ bu get-command | bu where-object '.verb == "get"' | bu sort-object name | bu out
 
 **Multi-word verbs**: command name parsing honors `BU_MULTI_WORD_VERBS` (default: `convert-to`, `convert-from`), so `bu-convert-to-jsonl.sh` registers verb=`convert-to`, noun=`jsonl`. Longest match wins; extend the array from user-defined configs for custom multi-word verbs.
 
+### Pipeline-aware field completion
+
+PowerShell-style: when completing after a pipe, `bu select-object`, `bu where-object`, `bu sort-object` and the `--columns` flags of the sink cmdlets suggest the **record fields of the pipeline producer**.
+
+```
+bu get-command | bu select-object <TAB>   # name verb noun namespace type
+bu get-command | bu select-object name,<TAB>   # comma-aware: offers the rest
+bu get-command | bu where-object <TAB>    # .name .verb .noun .namespace .type
+```
+
+Field sources, in order:
+
+1. **Static registry** `BU_OUT_PRODUCER_FIELDS` (assoc: producer prefix → fields).
+   Longest prefix match, so producer flags and later pipeline stages don't break
+   the match. Seeded with the builtins; register your own producers from a module
+   preinit script:
+   ```bash
+   bu_register_output_fields "bu get-pokemon" name id type hp attack
+   ```
+2. **Opt-in probing**: with `BU_OUT_PROBE_PIPELINE=true` and the producer head in
+   `BU_OUT_PROBE_COMMANDS`, the producer is executed as typed and the keys of its
+   first JSONL record become the candidates (piped bu commands auto-emit JSONL).
+   Off by default — probing runs user-typed text, so both switches are explicit.
+
+Producer text comes from the completion bindings via dynamic scope:
+`command_line_front_before_pipe` (legacy parser), `pipe_before` (tree-sitter),
+with a `COMP_WORDS` pipe-walk as fallback. Inaccurate by design for exotic
+pipelines — for simple cases it just works.
+
 ### Code Documentation Standards
 
 This project follows a consistent documentation format for functions and variables, designed to work with [bash-language-server](https://github.com/bash-lsp/bash-language-server).

@@ -22,6 +22,23 @@ fi
 # Resolved once at source time. Empty means jq is unavailable.
 BU_OUT_JQ=$(command -v jq 2>/dev/null) || BU_OUT_JQ=
 
+# Static field registry: producer command-line prefix -> space-separated
+# record fields. Consulted first by __bu_out_complete_pipeline_fields when
+# completing after a pipe. Longest prefix match wins, so fields stay correct
+# even when the producer carries flags or later pipeline stages.
+# Extend via bu_register_output_fields (e.g. from a module preinit script).
+declare -A -g BU_OUT_PRODUCER_FIELDS=(
+    ["bu get-command"]="name verb noun namespace type"
+    ["bu get-module"]="name version path"
+)
+
+# Allowlist of producer head commands that may be executed ("probed") during
+# autocompletion to discover fields from live output. Probing runs the
+# user-typed pipeline prefix, so both this allowlist and the master switch
+# BU_OUT_PROBE_PIPELINE are opt-in. Example:
+#     BU_OUT_PROBE_COMMANDS[kubectl]=1
+declare -A -g BU_OUT_PROBE_COMMANDS=()
+
 # ```
 # *Description*:
 # Assert that jq is available for structured output
@@ -846,6 +863,182 @@ bu_format_tsv()
         | ($cols | if length == 0 then $r | keys_unsorted else . end) as $cs
         | [$cs[] as $c | $r[$c] | cellstr] | @tsv
         '
+}
+
+# MARK: Pipeline field completion
+
+# ```
+# *Description*:
+# Register the record fields that a producer command emits, enabling
+# pipeline-aware field completion after a pipe (e.g. in bu select-object).
+#
+# *Params*:
+# - `$1`: Producer command-line prefix (e.g. `bu get-pokemon`, `kubectl get pods`)
+# - `...`: Field names in record order
+#
+# *Examples*:
+# ```bash
+# bu_register_output_fields "bu get-pokemon" name id type hp attack
+# ```
+# ```
+bu_register_output_fields()
+{
+    local -r producer=$1
+    shift
+    if [[ -z "$producer" || $# == 0 ]]
+    then
+        bu_log_err "Usage: bu_register_output_fields <producer-prefix> <field...>"
+        return 1
+    fi
+    local field
+    for field
+    do
+        __bu_out_validate_key "$field" || return 1
+    done
+    BU_OUT_PRODUCER_FIELDS[$producer]="$*"
+}
+
+# ```
+# *Description*:
+# Autocomplete helper (used via the `--ret` DSL): suggest record fields based
+# on the pipeline preceding the cursor (PowerShell-style pipeline awareness).
+#
+# Field sources, in order:
+# 1. Static registry `BU_OUT_PRODUCER_FIELDS` (longest prefix match on the
+#    producer pipeline, so flags and later stages don't break the match)
+# 2. Opt-in probing: when `BU_OUT_PROBE_PIPELINE=true` and the producer head
+#    is in `BU_OUT_PROBE_COMMANDS`, the producer is executed as typed and the
+#    keys of its first JSONL record are used
+#
+# *Params*:
+# - `--dot` (optional): Prefix suggestions with `.` for jq-style expressions
+#           (e.g. `.name`), used by bu where-object
+# - `$1`: Current word being completed (appended by the --ret DSL)
+#
+# *Returns*:
+# - `$BU_RET`: Candidate completions. Comma-aware: completing `name,ve`
+#              yields `name,version`, ... excluding already-used fields.
+#
+# *Notes*:
+# - Producer resolution order: `command_line_front_before_pipe` (fzf binding),
+#   then `pipe_before` (tree-sitter binding), then a `COMP_WORDS` walk.
+#   All are read via dynamic scope from the completion machinery.
+# - The COMP_WORDS fallback requires the pipe as a standalone word (`a | b`).
+# ```
+__bu_out_complete_pipeline_fields()
+{
+    local is_dot=false
+    if [[ "$1" == --dot ]]
+    then
+        is_dot=true
+        shift
+    fi
+    local -r cur_word=${1:-}
+    BU_RET=()
+
+    # Resolve the producer pipeline text, most accurate source first:
+    # - command_line_front_before_pipe: set by the fzf binding (legacy parser)
+    # - pipe_before: set by the tree-sitter binding (BU_TS_RESULT[pipeBefore])
+    # Both are locals of the completion bindings, visible via dynamic scope.
+    local producer_str=${command_line_front_before_pipe:-${pipe_before:-}}
+    local producer_eval=
+    if [[ -n "$producer_str" ]]
+    then
+        # Strip trailing whitespace, the pipe character, then whitespace again
+        producer_str=${producer_str%"${producer_str##*[![:space:]]}"}
+        producer_str=${producer_str%|}
+        producer_str=${producer_str%"${producer_str##*[![:space:]]}"}
+        producer_eval=$producer_str
+    else
+        # Fallback: walk COMP_WORDS (dynamically scoped from the completion
+        # driver) for the pipe that starts the current command segment
+        [[ -z "$COMP_CWORD" ]] && return 1
+        local i pipe_idx=
+        for (( i = COMP_CWORD - 1; i >= 0; i-- ))
+        do
+            if [[ "${COMP_WORDS[i]}" == '|' ]]
+            then
+                pipe_idx=$i
+                break
+            fi
+        done
+        # Not in a pipeline: no producer to infer fields from
+        [[ -z "$pipe_idx" ]] && return 1
+
+        # The producer segment starts after the previous control operator
+        local seg_start=0
+        for (( i = pipe_idx - 1; i >= 0; i-- ))
+        do
+            case "${COMP_WORDS[i]}" in
+            '|'|';'|'&&'|'||'|'('|')')
+                seg_start=$((i + 1))
+                break
+                ;;
+            esac
+        done
+        local -a producer_words=("${COMP_WORDS[@]:seg_start:pipe_idx-seg_start}")
+        ((${#producer_words[@]} == 0)) && return 1
+        producer_str="${producer_words[*]}"
+        printf -v producer_eval '%q ' "${producer_words[@]}"
+    fi
+    [[ -z "$producer_str" ]] && return 1
+    local -r producer_head=${producer_str%%[[:space:]]*}
+
+    local -a fields=()
+
+    # 1. Static registry, longest matching producer prefix wins
+    local key best_key=
+    for key in "${!BU_OUT_PRODUCER_FIELDS[@]}"
+    do
+        if [[ "$producer_str" == "$key" || "$producer_str" == "$key "* ]] && (( ${#key} > ${#best_key} ))
+        then
+            best_key=$key
+        fi
+    done
+    if [[ -n "$best_key" ]]
+    then
+        # shellcheck disable=SC2206 # Intentional word splitting of the field list
+        fields=(${BU_OUT_PRODUCER_FIELDS[$best_key]})
+    elif "$BU_OUT_PROBE_PIPELINE" && [[ -n "${BU_OUT_PROBE_COMMANDS[$producer_head]:-}" && -n "$BU_OUT_JQ" ]]
+    then
+        # 2. Opt-in probing: execute the producer as typed, read the keys of
+        # the first record. Auto-dispatch makes piped bu commands emit JSONL.
+        local first_line
+        first_line=$(eval "$producer_eval" 2>/dev/null | head -1)
+        if [[ -n "$first_line" ]]
+        then
+            local keys
+            keys=$("$BU_OUT_JQ" -r 'if type == "object" then keys_unsorted[] else empty end' <<<"$first_line" 2>/dev/null)
+            [[ -n "$keys" ]] && mapfile -t fields <<<"$keys"
+        fi
+    fi
+    ((${#fields[@]} == 0)) && return 1
+
+    # Comma-aware emission: completing "name,ve" suggests "name,version" etc.,
+    # excluding fields already present before the last comma
+    local prefix=
+    local -A used=()
+    if [[ "$cur_word" == *,* ]]
+    then
+        prefix=${cur_word%,*},
+        local used_field
+        local ifs=$IFS
+        IFS=','
+        for used_field in ${cur_word%,*}
+        do
+            used[$used_field]=1
+        done
+        IFS=$ifs
+    fi
+
+    local field candidate
+    for field in "${fields[@]}"
+    do
+        [[ -n "${used[$field]:-}" ]] && continue
+        candidate=$field
+        "$is_dot" && candidate=.$field
+        BU_RET+=("${prefix}${candidate}")
+    done
 }
 
 # MARK: Dispatcher (Out-Default)

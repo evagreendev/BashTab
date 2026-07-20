@@ -23,6 +23,11 @@ do
         is_help=true
         ;;
     *)
+        if bu_env_is_in_autocomplete && [[ "$1" != -* ]]
+        then
+            # Bare positional: suggest jq-style fields of the pipeline producer's records
+            autocompletion=(--ret __bu_out_complete_pipeline_fields --dot ret-- --hint "jq field (from pipeline producer)")
+        fi
         if [[ -z "$expression" ]]
         then
             expression=$1

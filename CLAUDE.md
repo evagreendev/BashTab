@@ -241,6 +241,8 @@ Commands expose `--format` (enum: auto table list json jsonl tsv) and `--columns
 
 Command names support multi-word verbs via `BU_MULTI_WORD_VERBS` (default: `convert-to`, `convert-from`), so `convert-to-jsonl` parses as verb=`convert-to`, noun=`jsonl`.
 
+After a pipe, field-aware completion suggests producer record fields for `select-object`/`where-object`/`sort-object` and sink `--columns`: static registry `BU_OUT_PRODUCER_FIELDS` (extend with `bu_register_output_fields`), opt-in live probing via `BU_OUT_PROBE_PIPELINE` + `BU_OUT_PROBE_COMMANDS`.
+
 See `docs/technical_reference.md` for details.
 
 ## Extension Mechanisms

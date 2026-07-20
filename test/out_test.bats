@@ -508,3 +508,126 @@ convert-to-json
 convert-to-jsonl
 convert-to-tsv'
 }
+
+# ===========================================================================
+# Pipeline field completion (__bu_out_complete_pipeline_fields)
+# ===========================================================================
+
+function test_pipeline_fields_registry_binding_style { #@test
+    # The fzf binding exposes the producer text as command_line_front_before_pipe
+    local command_line_front_before_pipe="bu get-command | "
+    __bu_out_complete_pipeline_fields ""
+    assert_equal "${BU_RET[*]}" "name verb noun namespace type"
+}
+
+function test_pipeline_fields_registry_prefix_with_flags { #@test
+    # Producer carries flags: longest-prefix registry match still applies
+    local command_line_front_before_pipe="bu get-command --verb get | "
+    __bu_out_complete_pipeline_fields ""
+    assert_equal "${BU_RET[*]}" "name verb noun namespace type"
+}
+
+function test_pipeline_fields_ts_pipe_before { #@test
+    # The tree-sitter binding exposes the producer text as pipe_before
+    local pipe_before="bu get-module | "
+    __bu_out_complete_pipeline_fields ""
+    assert_equal "${BU_RET[*]}" "name version path"
+}
+
+function test_pipeline_fields_comp_words_fallback { #@test
+    # No binding locals: walk COMP_WORDS for the last standalone pipe
+    local command_line_front_before_pipe= pipe_before=
+    COMP_WORDS=(bu get-command \| bu select-object "")
+    COMP_CWORD=4
+    __bu_out_complete_pipeline_fields ""
+    assert_equal "${BU_RET[*]}" "name verb noun namespace type"
+}
+
+function test_pipeline_fields_no_pipe_empty { #@test
+    local command_line_front_before_pipe= pipe_before=
+    COMP_WORDS=(bu select-object na)
+    COMP_CWORD=2
+    run __bu_out_complete_pipeline_fields "na"
+    assert_failure
+}
+
+function test_pipeline_fields_comma_excludes_used { #@test
+    local command_line_front_before_pipe="bu get-command | "
+    __bu_out_complete_pipeline_fields "name,ve"
+    assert_equal "${BU_RET[*]}" "name,verb name,noun name,namespace name,type"
+}
+
+function test_pipeline_fields_dot_mode { #@test
+    local command_line_front_before_pipe="bu get-command | "
+    __bu_out_complete_pipeline_fields --dot ""
+    assert_equal "${BU_RET[*]}" ".name .verb .noun .namespace .type"
+}
+
+function test_pipeline_fields_register_custom_producer { #@test
+    bu_register_output_fields "bu get-pokemon" name id type hp attack
+    local command_line_front_before_pipe="bu get-pokemon --type fire | "
+    __bu_out_complete_pipeline_fields ""
+    assert_equal "${BU_RET[*]}" "name id type hp attack"
+}
+
+function test_pipeline_fields_probe_opt_in { #@test
+    print_record() { printf '%s\n' '{"alpha":1,"beta":2}'; }
+    local command_line_front_before_pipe="print_record | "
+    BU_OUT_PROBE_PIPELINE=true
+    BU_OUT_PROBE_COMMANDS[print_record]=1
+    __bu_out_complete_pipeline_fields ""
+    assert_equal "${BU_RET[*]}" "alpha beta"
+}
+
+function test_pipeline_fields_probe_disabled_by_default { #@test
+    print_record() { printf '%s\n' '{"alpha":1,"beta":2}'; }
+    local command_line_front_before_pipe="print_record | "
+    BU_OUT_PROBE_PIPELINE=false
+    BU_OUT_PROBE_COMMANDS[print_record]=1
+    run __bu_out_complete_pipeline_fields ""
+    assert_failure
+}
+
+function test_pipeline_fields_probe_requires_allowlist { #@test
+    print_record() { printf '%s\n' '{"alpha":1,"beta":2}'; }
+    local command_line_front_before_pipe="print_record | "
+    BU_OUT_PROBE_PIPELINE=true
+    run __bu_out_complete_pipeline_fields ""
+    assert_failure
+}
+
+function test_e2e_select_object_pipeline_fields { #@test
+    # Full completion driver: bu get-command | bu select-object <TAB>
+    local command_line_front_before_pipe="bu get-command | "
+    bu_autocomplete_get_autocompletions bu select-object ""
+    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type"
+}
+
+function test_e2e_select_object_comma_continuation { #@test
+    local command_line_front_before_pipe="bu get-command | "
+    bu_autocomplete_get_autocompletions bu select-object name,ve
+    assert_equal "${COMPREPLY[*]}" "name,verb"
+}
+
+function test_e2e_where_object_dot_fields { #@test
+    local command_line_front_before_pipe="bu get-command | "
+    bu_autocomplete_get_autocompletions bu where-object ""
+    assert_equal "${COMPREPLY[*]}" ".name .verb .noun .namespace .type"
+}
+
+function test_e2e_sort_object_pipeline_fields { #@test
+    local pipe_before="bu get-module | "
+    bu_autocomplete_get_autocompletions bu sort-object ""
+    assert_equal "${COMPREPLY[*]}" "name version path"
+}
+
+function test_e2e_format_table_columns_pipeline_fields { #@test
+    local command_line_front_before_pipe="bu get-command | "
+    bu_autocomplete_get_autocompletions bu format-table --columns ""
+    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type"
+}
+
+function test_e2e_no_pipeline_shows_hint_only { #@test
+    bu_autocomplete_get_autocompletions bu select-object na
+    assert_equal "${COMPREPLY[0]}" "Hint: field (from pipeline producer)"
+}

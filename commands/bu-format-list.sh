@@ -20,7 +20,7 @@ do
     case "$1" in
     --columns)# COLUMNS
         # Fields to display, in order (comma-separated). Default: keys of each record.
-        bu_parse_positional $# --hint "Comma-separated columns (e.g. name,version,path)"
+        bu_parse_positional $# --ret __bu_out_complete_pipeline_fields ret-- --hint "Comma-separated columns (from pipeline producer)"
         columns=${!shift_by}
         ;;
     -h|--help)# _FLAG

@@ -28,6 +28,11 @@ do
         is_help=true
         ;;
     *)
+        if bu_env_is_in_autocomplete && [[ "$1" != -* ]]
+        then
+            # Bare positional: suggest fields of the pipeline producer's records
+            autocompletion=(--ret __bu_out_complete_pipeline_fields ret-- --hint "field (from pipeline producer)")
+        fi
         if [[ -z "$key" ]]
         then
             key=$1

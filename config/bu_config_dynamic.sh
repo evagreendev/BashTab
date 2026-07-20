@@ -32,3 +32,8 @@ BU_AUTOCOMPLETE_USE_TREE_SITTER=${BU_AUTOCOMPLETE_USE_TREE_SITTER:-false}
 # not a terminal can be overridden here. One of: table, list, json, jsonl, tsv
 # Empty means: table on a terminal, jsonl otherwise.
 BU_OUTPUT_FORMAT=${BU_OUTPUT_FORMAT:-}
+
+# Allow pipeline field completion to execute the pipeline prefix being typed
+# ("probing") to discover record fields from live output. Off by default:
+# only producers in BU_OUT_PROBE_COMMANDS are ever executed.
+BU_OUT_PROBE_PIPELINE=${BU_OUT_PROBE_PIPELINE:-false}
