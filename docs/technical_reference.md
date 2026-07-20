@@ -188,11 +188,22 @@ TSV mode requires values without tabs/newlines; use `bu_out_record` per record f
 
 **Column labels**: `--columns name:Module,version` renames display headers in table/list; lookups and `--colors name=green` still use the record key. tsv recordifiers strip labels.
 
-**Cmdlet commands** (usable in any pipeline): `bu format-table`, `bu format-list`, `bu convert-to-json`, `bu convert-to-jsonl`, `bu convert-to-tsv`, `bu out-default`.
+**Cmdlet commands** (usable in any pipeline):
+
+| PowerShell | bu command |
+|---|---|
+| `[PSCustomObject]@{...}` | `bu new-record k=v ...` |
+| ConvertFrom-Csv | `bu convert-from-tsv --columns`, `bu convert-from-lines --column` |
+| Where-Object | `bu where-object '<jq expr>'` |
+| Select-Object | `bu select-object name,ver=version` |
+| Sort-Object | `bu sort-object key [--desc]` |
+| Format-Table / Format-List | `bu format-table`, `bu format-list` |
+| ConvertTo-Json | `bu convert-to-json`, `bu convert-to-jsonl`, `bu convert-to-tsv` |
+| Out-Default | `bu out-default` |
 
 ```bash
 bu get-command | bu format-table
-bu get-command | jq -c 'select(.verb == "get")' | bu out-default   # jq = Where-Object
+bu get-command | bu where-object '.verb == "get"' | bu sort-object name | bu out-default
 ```
 
 **Multi-word verbs**: command name parsing honors `BU_MULTI_WORD_VERBS` (default: `convert-to`, `convert-from`), so `bu-convert-to-jsonl.sh` registers verb=`convert-to`, noun=`jsonl`. Longest match wins; extend the array from user-defined configs for custom multi-word verbs.

@@ -424,6 +424,87 @@ function test_bu_pipeline_where_select_sort_table { #@test
     local out
     out=$(bu get-command | bu_out_where '.namespace == "bu"' | bu_out_select name,verb | bu_out_sort_by name | bu_format_table | head -3)
     assert_equal "$out" 'name                     verb
------------------------  ----------
-convert-to-json          convert-to'
+-----------------------  ------------
+convert-from-lines       convert-from'
+}
+
+# ===========================================================================
+# Cmdlet wrappers: where-object / select-object / sort-object /
+# convert-from-* / new-record
+# ===========================================================================
+
+function test_bu_where_object_cmdlet { #@test
+    local out
+    out=$(bu get-command | bu where-object '.verb == "get" and .namespace == "bu"' | jq -r .name | tr '\n' ' ')
+    assert_equal "$out" 'get-command get-module '
+}
+
+function test_bu_where_object_missing_expression { #@test
+    run bu where-object </dev/null
+    assert_failure
+}
+
+function test_bu_select_object_cmdlet { #@test
+    local out
+    out=$(BU_MODULE_LIST="alpha:1.0.0:/a" bu get-module | bu select-object name,ver=version)
+    assert_equal "$out" '{"name":"alpha","ver":"1.0.0"}'
+}
+
+function test_bu_sort_object_cmdlet { #@test
+    local out
+    out=$(printf '%s\n' '{"n":3}' '{"n":1}' | bu sort-object n | jq -r .n | tr '\n' ' ')
+    assert_equal "$out" '1 3 '
+}
+
+function test_bu_sort_object_cmdlet_desc { #@test
+    local out
+    out=$(printf '%s\n' '{"n":3}' '{"n":1}' | bu sort-object n --desc | jq -r .n | tr '\n' ' ')
+    assert_equal "$out" '3 1 '
+}
+
+function test_bu_sort_object_missing_key { #@test
+    run bu sort-object </dev/null
+    assert_failure
+}
+
+function test_bu_convert_from_tsv_roundtrip { #@test
+    # convert-to-tsv | convert-from-tsv is a lossless round trip for plain values
+    local out
+    out=$(BU_MODULE_LIST="alpha:1.0.0:/a" bu get-module | bu convert-to-tsv --columns name,version | bu convert-from-tsv --columns name,version)
+    assert_equal "$out" '{"name":"alpha","version":"1.0.0"}'
+}
+
+function test_bu_convert_from_lines_cmdlet { #@test
+    local out
+    out=$(printf 'a.txt\nb.txt\n' | bu convert-from-lines --column file)
+    assert_equal "$out" '{"file":"a.txt"}
+{"file":"b.txt"}'
+}
+
+function test_bu_new_record_cmdlet { #@test
+    run bu new-record name=bashtab alive:=true retries:=3
+    assert_success
+    assert_output '{"name":"bashtab","alive":true,"retries":3}'
+}
+
+function test_bu_get_command_convert_from_multi_word_verb { #@test
+    # convert-from is a multi-word verb: noun is tsv, not from-tsv
+    local out
+    out=$(bu get-command | jq -c 'select(.name == "convert-from-tsv")')
+    assert_equal "$out" '{"name":"convert-from-tsv","verb":"convert-from","noun":"tsv","namespace":"bu","type":"source"}'
+}
+
+function test_bu_full_powershell_pipeline { #@test
+    # The whole story in one pipeline: produce | Where | Select | Sort | Format
+    local out
+    out=$(bu get-command \
+        | bu where-object '.namespace == "bu" and .verb == "convert-to"' \
+        | bu select-object name \
+        | bu sort-object name \
+        | bu format-table)
+    assert_equal "$out" 'name
+----------------
+convert-to-json
+convert-to-jsonl
+convert-to-tsv'
 }
