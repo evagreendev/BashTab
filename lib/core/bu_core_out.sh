@@ -1467,6 +1467,36 @@ bu_complete_from_fig()
 
 # ```
 # *Description*:
+# Bash completion function backed by a Fig spec.  Conforms to the standard
+# bash completion interface (command, cur_word, prev_word) and populates
+# COMPREPLY.  Used as a fallback when no native bash completion exists.
+#
+# *Params*:
+# - `$1`: Command name (used to locate the Fig spec JSON file)
+# - `$2`: Current word being completed
+# - `$3`: Previous word (unused, but required by the completion interface)
+#
+# *Globals*:
+# - Reads `command_line` (dynamically scoped from fzf bindings) or
+#   `COMP_WORDS` / `COMP_CWORD` to reconstruct the full token list.
+# - Sets `COMPREPLY` directly for bash'\''s completion machinery.
+#
+# *Spec lookup*: `$BU_FIG_SPEC_DIR/<command>.json`
+# ```
+__bu_autocomplete_fig_completion_func()
+{
+    local cmd=$1 cur_word=$2
+    local spec_path="${BU_FIG_SPEC_DIR:-${BU_BASH_TAB_HOME:-.}/fig_specs/build}/${cmd}.json"
+    [[ -f "$spec_path" ]] || return 1
+
+    local -a results
+    bu_complete_from_fig --spec "$spec_path" -- "$cur_word" || return 1
+    COMPREPLY=("${BU_RET[@]}")
+    return 0
+}
+
+# ```
+# *Description*:
 # Autocompletion helper for pipeline producer fields.
 # Resolves the field names emitted by the upstream producer in a pipeline
 # and emits comma-aware completions suitable for --columns, --select, etc.

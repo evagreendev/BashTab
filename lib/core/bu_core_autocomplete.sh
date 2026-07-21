@@ -1020,6 +1020,14 @@ bu_autocomplete_get_autocompletions()
     case "$?" in
     0);;
     1)
+        # Try Fig spec first, then fall back to default completion
+        if __bu_autocomplete_fig_completion_func "$1" "${command_line[-1]}" ""
+        then
+            # Fig handled it — skip the completion-func call below
+            has_ansi_colors=false
+            BU_RET_MAP=([has_ansi_colors]=$has_ansi_colors)
+            return 0
+        fi
         __bu_autocomplete_completion_func_default "$1"
         if ! bu_autocomplete_get_completion_func "$1"
         then
