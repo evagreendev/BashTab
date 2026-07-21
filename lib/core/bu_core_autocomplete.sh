@@ -3413,7 +3413,8 @@ __bu_bind_fzf_autocomplete_impl_ts()
             back_no_op=${back_no_op%%|*}
             command_line_back=${command_line_back:${#back_no_op}}
             command_line_back=${command_line_back# }
-            if ! "$is_nospace" && [[ "${readline_line:${#readline_line}-1}" != ' ' && "${command_line_back:0:1}" != ' ' ]]; then
+            if ! { "$is_filenames" && [[ "${readline_line:${#readline_line}-1}" = / ]]; } && \
+               ! "$is_nospace" && [[ "${readline_line:${#readline_line}-1}" != ' ' && "${command_line_back:0:1}" != ' ' ]]; then
                 readline_line+=' '
             fi
             readline_line=${pipe_before}${readline_line}
