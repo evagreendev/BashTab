@@ -1405,9 +1405,9 @@ bu_complete_from_fig()
         return 0
     fi
 
-    # 1. Subcommands
+    # 1. Subcommands (handle array names like ["autoremove","auto-remove"])
     local sub_names
-    sub_names=$("$BU_OUT_JQ" -r '.subcommands[]?.name // empty' <<<"$node_json" 2>/dev/null)
+    sub_names=$("$BU_OUT_JQ" -r '.subcommands[]?.name | if type == "array" then .[] else . end // empty' <<<"$node_json" 2>/dev/null)
     if [[ -n "$sub_names" ]]
     then
         while IFS= read -r name
