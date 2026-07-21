@@ -75,7 +75,10 @@ then
     return 0
 fi
 
-local spec_dir="${BU_FIG_SPEC_DIR:-${BU_BASH_TAB_HOME:-$PWD}/fig_specs/build}"
+# Derive BashTab root from this script'\''s location
+local -r script_dir=${BASH_SOURCE%/*}
+local -r bu_root=$(realpath -- "$script_dir/../..")
+local spec_dir="${BU_FIG_SPEC_DIR:-${bu_root}/fig_specs/build}"
 [[ -d "$spec_dir" ]] || {
     bu_log_err "Fig specs directory not found: $spec_dir"
     bu_scope_pop_function

@@ -1483,10 +1483,15 @@ bu_complete_from_fig()
 #
 # *Spec lookup*: `$BU_FIG_SPEC_DIR/<command>.json`
 # ```
+
+# BashTab root directory, captured at definition time for Fig spec lookups
+__BU_FIG_ROOT=$(realpath -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." 2>/dev/null)
+
 __bu_autocomplete_fig_completion_func()
 {
     local cmd=$1 cur_word=$2
-    local spec_path="${BU_FIG_SPEC_DIR:-${BU_BASH_TAB_HOME:-.}/fig_specs/build}/${cmd}.json"
+    local root="${BU_BASH_TAB_HOME:-${__BU_FIG_ROOT}}"
+    local spec_path="${BU_FIG_SPEC_DIR:-${root}/fig_specs/build}/${cmd}.json"
     [[ -f "$spec_path" ]] || return 1
 
     local -a results
