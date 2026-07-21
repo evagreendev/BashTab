@@ -86,7 +86,7 @@ do
         ;;
     --columns)# COLUMNS
         # Fields to display, in order (comma-separated)
-        bu_parse_positional $# --enum name verb noun namespace type enum-- --hint "Comma-separated fields"
+        bu_parse_positional $# --ret bu_complete_delimited --options name verb noun namespace type -- ret-- --hint "Comma-separated fields"
         columns=${!shift_by}
         ;;
     -h|--help)# _FLAG

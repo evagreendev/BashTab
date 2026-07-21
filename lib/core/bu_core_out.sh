@@ -1222,6 +1222,88 @@ bu_register_output_fields()
 #   All are read via dynamic scope from the completion machinery.
 # - The COMP_WORDS fallback requires the pipe as a standalone word (`a | b`).
 # ```
+bu_complete_delimited()
+{
+    local delim=,
+    local -a options=()
+
+    while (($#))
+    do
+        case "$1" in
+        --delimiter)
+            delim=$2
+            shift 2
+            ;;
+        --options)
+            shift
+            while (($#)) && [[ "$1" != --* ]]
+            do
+                options+=("$1")
+                shift
+            done
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            break
+            ;;
+        esac
+    done
+
+    local cur_word=${1:-}
+    BU_RET=()
+    ((${#options[@]})) || return 1
+
+    local prefix=
+    local -A used=()
+    local last_seg=$cur_word
+    if [[ "$cur_word" == *"$delim"* ]]
+    then
+        prefix=${cur_word%"$delim"*}${delim}
+        last_seg=${cur_word##*"$delim"}
+        local used_token
+        local ifs=$IFS
+        IFS="$delim"
+        for used_token in ${cur_word%"$delim"*}
+        do
+            [[ -n "$used_token" ]] && used[$used_token]=1
+        done
+        IFS=$ifs
+    fi
+
+    local opt
+    for opt in "${options[@]}"
+    do
+        [[ -n "${used[$opt]:-}" ]] && continue
+        [[ "$opt" == "$last_seg"* ]] && \
+            BU_RET+=("${prefix}${opt}")
+    done
+
+    ((${#BU_RET[@]})) && return 0 || return 1
+}
+
+# ```
+# *Description*:
+# Autocompletion helper for pipeline producer fields.
+# Resolves the field names emitted by the upstream producer in a pipeline
+# and emits comma-aware completions suitable for --columns, --select, etc.
+#
+# *Params*:
+# - `--dot` (optional flag): Prefix each field with a dot (for jq expressions)
+# - `$1`: The current word being completed
+#
+# *Returns*:
+# - `$BU_RET`: Array of completions
+# - exit 0 on success, 1 if no producer could be resolved
+#
+# *Notes*:
+# - Producer resolution order: `command_line_front_before_pipe` (fzf binding),
+#   then `pipe_before` (tree-sitter binding), then a `COMP_WORDS` walk.
+#   All are read via dynamic scope from the completion machinery.
+# - The COMP_WORDS fallback requires the pipe as a standalone word (`a | b`).
+# ```
 __bu_out_complete_pipeline_fields()
 {
     local is_dot=false
