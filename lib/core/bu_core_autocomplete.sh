@@ -803,6 +803,13 @@ bu_autocomplete_get_completion_func()
     bu_stdout_to_ret complete -p "$completion_for" 2>/dev/null
     if [[ -z "$BU_RET" ]]
     then
+        # Trigger lazy loading (bash-completion v2) — only for dedicated completion files,
+        # NOT _completion_loader which registers a generic fallback for everything
+        { declare -F __load_completion &>/dev/null && __load_completion "$completion_for" </dev/null 2>/dev/null; } || true
+        bu_stdout_to_ret complete -p "$completion_for" 2>/dev/null
+    fi
+    if [[ -z "$BU_RET" ]]
+    then
         return 1
     fi
     case "$BU_RET" in

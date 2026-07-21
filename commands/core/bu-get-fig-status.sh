@@ -96,7 +96,13 @@ do
     [[ "$spec_name" == [-.]* ]] && continue
     [[ "$spec_name" == [0-9]* ]] && continue
 
-    # Check bash completion
+    # Check bash completion (lazy-load first if needed)
+    if ! complete -p "$spec_name" &>/dev/null
+    then
+        # Trigger lazy loading — only __load_completion (loads dedicated completion files),
+        # NOT _completion_loader (which registers a generic fallback for everything)
+        { declare -F __load_completion &>/dev/null && __load_completion "$spec_name" </dev/null 2>/dev/null; } || true
+    fi
     if complete -p "$spec_name" &>/dev/null
     then
         has_completion=yes
