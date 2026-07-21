@@ -49,6 +49,25 @@ bu new-module --name myapp    # scaffold a module
 - Custom `source` with `--__bu-once` prevents redundant re-sourcing
 - `bu_exit_handler_setup` catches unexpected exits
 
+### 🔌 Fig spec integration
+BashTab can use [Fig completion specs](https://github.com/withfig/autocomplete) as a fallback when no native bash completion exists (715+ CLIs).
+
+**One-time setup:**
+```sh
+git submodule update --init fig_specs
+cd fig_specs && pnpm install && pnpm build && node ../fig_convert_to_json.mjs
+```
+
+**What you get:**
+- `bu get-fig-status` — see which commands on your PATH are covered
+- `bu get-fig-status --useful` — commands on PATH that lack bash completions
+- Automatic fallback: pressing `<TAB>` on an unknown command checks the Fig specs
+
+**After updating the submodule** (e.g. `git pull`):
+```sh
+cd fig_specs && pnpm build && node ../fig_convert_to_json.mjs
+```
+
 ### 🎯 Everything is a script
 Every built-in command — `bu new-command`, `bu import-environment`, `bu get-command` — is a Bash script generated from the same template you use. The framework eats its own dogfood.
 
