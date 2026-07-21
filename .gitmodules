@@ -7,3 +7,6 @@
 [submodule "test/test_helper/bats-assert"]
 	path = test/test_helper/bats-assert
 	url = https://github.com/bats-core/bats-assert.git
+[submodule "fig_specs"]
+	path = fig_specs
+	url = https://github.com/withfig/autocomplete.git
