@@ -1286,6 +1286,187 @@ bu_complete_delimited()
 
 # ```
 # *Description*:
+# Generate completions from a Fig spec JSON file.  Walks the spec tree
+# matching the command-line tokens against subcommands and options, then
+# emits completions for what can come next: subcommands, options, or
+# templated arguments (filepaths, folders).
+#
+# Designed for use with `bu_parse_positional --ret`.
+#
+# *Params*:
+# - `--spec <path>`: Path to a Fig .json spec file
+# - remaining arg: the current word (injected by `--ret`)
+# - The full command line is read from `COMP_WORDS` / `COMP_CWORD` or
+#   from the dynamically-scoped `command_line` array.
+#
+# *Returns*:
+# - `$BU_RET`: Array of completions
+# - exit 0 on success, 1 otherwise
+#
+# *Examples*:
+# ```bash
+# # In a command script that wraps a Fig-spec'd tool:
+# bu_parse_positional $# --ret bu_complete_from_fig --spec "$HOME/.fig/act.json" -- ret-- \
+#     --hint "arg"
+# ```
+# ```
+bu_complete_from_fig()
+{
+    local spec_path=
+
+    while (($#))
+    do
+        case "$1" in
+        --spec)
+            spec_path=$2
+            shift 2
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            break
+            ;;
+        esac
+    done
+
+    [[ -f "$spec_path" ]] || return 1
+    local cur_word=${1:-}
+    BU_RET=()
+
+    # Build the token list from the command line.  Prefer the dynamically-
+    # scoped `command_line` array (set by the fzf completion bindings),
+    # otherwise fall back to COMP_WORDS / COMP_CWORD.
+    local -a tokens=()
+    local token_idx=0
+    local i
+    if [[ -n "${command_line[*]:-}" ]]
+    then
+        tokens=("${command_line[@]}")
+        # Remove the command name (first token)
+        tokens=("${tokens[@]:1}")
+        # The last token is the current word; we already have cur_word
+        ((${#tokens[@]})) && unset 'tokens[-1]'
+    elif [[ -n "${COMP_WORDS[*]:-}" ]]
+    then
+        tokens=("${COMP_WORDS[@]:1:$COMP_CWORD-1}")
+    fi
+
+    # Walk the spec tree: find the deepest matching subcommand node
+    local node_json
+    node_json=$("$BU_OUT_JQ" -c --argjson tokens "$("$BU_OUT_JQ" -cn --args '$ARGS.positional' -- "${tokens[@]}")" '
+    def walk($node; $tokens):
+        if ($tokens | length) == 0 then $node
+        else
+            ($node.subcommands // []) as $subs
+            | ($subs | map(select(.name == $tokens[0]))) as $matches
+            | if ($matches | length) > 0 then
+                walk($matches[0]; $tokens[1:])
+              else $node end
+        end;
+    walk(.; $tokens)
+    ' "$spec_path" 2>/dev/null) || return 1
+
+    # Now generate completions from the matched node
+    local -a completions=()
+
+    # Check if the previous token is an option that takes arguments with a
+    # template; if so, complete files/dirs for that template only.
+    local prev_token=
+    local prev_has_template=
+    if ((${#tokens[@]}))
+    then
+        prev_token=${tokens[-1]}
+        # Find the option in the node where name matches prev_token
+        prev_has_template=$("$BU_OUT_JQ" -r --arg pt "$prev_token" '
+            [.options[]? | select((.name | if type == "array" then .[] else . end) == $pt)]
+            | .[0].args.template? | if type == "array" then .[] else . end // empty
+        ' <<<"$node_json" 2>/dev/null)
+    fi
+
+    if [[ -n "$prev_has_template" ]]
+    then
+        # Complete files/dirs for the previous option'\''s template
+        local tpl
+        for tpl in $prev_has_template
+        do
+            case "$tpl" in
+            filepaths)
+                mapfile -t completions < <(compgen -f -- "$cur_word" 2>/dev/null)
+                ;;
+            folders)
+                mapfile -t completions < <(compgen -d -- "$cur_word" 2>/dev/null)
+                ;;
+            esac
+        done
+        ((${#completions[@]})) || return 1
+        BU_RET=("${completions[@]}")
+        return 0
+    fi
+
+    # 1. Subcommands
+    local sub_names
+    sub_names=$("$BU_OUT_JQ" -r '.subcommands[]?.name // empty' <<<"$node_json" 2>/dev/null)
+    if [[ -n "$sub_names" ]]
+    then
+        while IFS= read -r name
+        do
+            [[ "$name" == "$cur_word"* ]] && completions+=("$name")
+        done <<<"$sub_names"
+    fi
+
+    # 2. Options (always show alongside subcommands, or alone if cur starts with -)
+    local opt_entries
+    opt_entries=$("$BU_OUT_JQ" -c '.options[]? // empty' <<<"$node_json" 2>/dev/null)
+    if [[ -n "$opt_entries" ]]
+    then
+        while IFS= read -r opt
+        do
+            local opt_names
+            opt_names=$("$BU_OUT_JQ" -r '.name | if type == "array" then .[] else . end' <<<"$opt" 2>/dev/null)
+            while IFS= read -r oname
+            do
+                [[ -z "$oname" ]] && continue
+                [[ "$oname" == "$cur_word"* ]] && completions+=("$oname")
+            done <<<"$opt_names"
+        done <<<"$opt_entries"
+    fi
+
+    # 3. Positional argument templates (only when no subcommand/option match
+    #    and we have at least one token, or explicitly when cur starts without -)
+    if ((${#completions[@]} == 0)) && [[ ! "$cur_word" == -* ]]
+    then
+        local arg_templates
+        arg_templates=$("$BU_OUT_JQ" -r '.args[]?.template? | if type == "array" then .[] else . end // empty' <<<"$node_json" 2>/dev/null)
+        if [[ -n "$arg_templates" ]]
+        then
+            local tpl
+            for tpl in $arg_templates
+            do
+                case "$tpl" in
+                filepaths)
+                    local -a files
+                    mapfile -t files < <(compgen -f -- "$cur_word" 2>/dev/null)
+                    completions+=("${files[@]}")
+                    ;;
+                folders)
+                    local -a dirs
+                    mapfile -t dirs < <(compgen -d -- "$cur_word" 2>/dev/null)
+                    completions+=("${dirs[@]}")
+                    ;;
+                esac
+            done
+        fi
+    fi
+
+    ((${#completions[@]})) || return 1
+    BU_RET=("${completions[@]}")
+    return 0
+}
+
+# ```
+# *Description*:
 # Autocompletion helper for pipeline producer fields.
 # Resolves the field names emitted by the upstream producer in a pipeline
 # and emits comma-aware completions suitable for --columns, --select, etc.
