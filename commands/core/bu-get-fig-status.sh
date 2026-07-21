@@ -10,6 +10,8 @@ bu_scope_push_function
 bu_run_log_command "$@"
 
 local format=auto
+local filter_on_path=false
+local filter_no_bash=false
 local is_help=false
 local error_msg=
 local autocompletion=()
@@ -21,6 +23,19 @@ do
     --format)# FORMAT
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
+        ;;
+    --on-path)# _FLAG
+        # Only show commands found on PATH
+        filter_on_path=true
+        ;;
+    --no-bash)# _FLAG
+        # Only show commands without a bash completion function
+        filter_no_bash=true
+        ;;
+    --useful)# _FLAG
+        # Shortcut for --on-path --no-bash
+        filter_on_path=true
+        filter_no_bash=true
         ;;
     -h|--help)# _FLAG
         is_help=true
@@ -52,8 +67,11 @@ if "$is_help"
 then
     bu_autohelp \
         --description "Show Fig spec coverage: which CLIs have bash completions and which are on PATH." \
-        --example "Default (table)" "" \
-        --example "JSON output" "--format json"
+        --example "Default (all specs)" "" \
+        --example "Only commands on PATH" "--on-path" \
+        --example "Only commands without bash completion" "--no-bash" \
+        --example "Useful gaps (on PATH, no bash)" "--useful" \
+        --example "Useful gaps as JSON" "--useful --format json"
     return 0
 fi
 
@@ -92,6 +110,10 @@ do
         is_on_path=no
         path_location=-
     fi
+
+    # Apply filters
+    "$filter_on_path" && [[ "$is_on_path" == no ]] && continue
+    "$filter_no_bash" && [[ "$has_completion" == yes ]] && continue
 
     results_name+=("$spec_name")
     results_completion+=("$has_completion")
