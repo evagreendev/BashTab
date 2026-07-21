@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Resolve the BashTab root directory
+case "${BASH_SOURCE}" in
+*/*) BASH_TAB_ROOT="$(realpath -- "$(dirname -- "${BASH_SOURCE}")")" ;;
+*)   BASH_TAB_ROOT="$(realpath -- .)" ;;
+esac
+
+cd "$BASH_TAB_ROOT"
+
+echo "=== BashTab setup ==="
+echo ""
+
+# ── Fig specs (optional, requires Node.js + pnpm) ──
+if command -v node &>/dev/null && command -v pnpm &>/dev/null; then
+    if [[ -f fig_specs/build/act.json ]]; then
+        echo "[fig] Specs already built (fig_specs/build/).  Skipping."
+        echo "       Run 'cd fig_specs && pnpm build && node ../fig_convert_to_json.mjs' to rebuild."
+    else
+        echo "[fig] Initialising submodule…"
+        git submodule update --init fig_specs 2>/dev/null || {
+            echo "       WARNING: could not initialise fig_specs submodule."
+            echo "       Fig-powered completions will not be available."
+        }
+        if [[ -f fig_specs/package.json ]]; then
+            echo "[fig] Installing dependencies (pnpm install)…"
+            (cd fig_specs && pnpm install --no-frozen-lockfile) || {
+                echo "       WARNING: pnpm install failed."
+            }
+            echo "[fig] Building specs (pnpm build)…"
+            (cd fig_specs && pnpm build) || {
+                echo "       WARNING: pnpm build failed."
+            }
+            echo "[fig] Converting specs to JSON…"
+            node fig_convert_to_json.mjs || {
+                echo "       WARNING: JSON conversion failed."
+            }
+        fi
+    fi
+else
+    echo "[fig] Node.js or pnpm not found — skipping Fig specs."
+    echo "       Install Node.js and pnpm, then run:"
+    echo "         git submodule update --init fig_specs"
+    echo "         cd fig_specs && pnpm install && pnpm build && node ../fig_convert_to_json.mjs"
+fi
+
+echo ""
+echo "=== Setup complete ==="
+echo ""
+echo "Add this to your ~/.bashrc:"
+echo "  source ${BASH_TAB_ROOT}/activate"
+echo ""
+echo "Then open a new shell and type 'bu <TAB>' to get started."
