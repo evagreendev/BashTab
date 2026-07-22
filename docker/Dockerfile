@@ -3,8 +3,9 @@ FROM docker.io/i386/alpine:3.21.0
 ENV KERNEL=virt
 
 # BashTab dependencies: bash, fzf, git (for cloning), ncurses (for fzf/tput)
+# coretuils, findutils, grep, bash-completion for the usual Linux experience
 RUN apk add --no-cache openrc alpine-base agetty alpine-conf linux-${KERNEL} linux-firmware-none \
-    bash fzf git ncurses ncurses-terminfo-base
+    bash fzf git ncurses ncurses-terminfo-base coreutils findutils grep bash-completion
 
 # Set up autologin on tty1 (VGA) and ttyS0 (serial)
 RUN sed -i 's/getty 38400 tty1/agetty --autologin root tty1 linux/' /etc/inittab
