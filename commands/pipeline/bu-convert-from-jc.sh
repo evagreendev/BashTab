@@ -31,7 +31,7 @@ do
         ;;
     --parser)# PARSER
         # jc parser name for pipe mode (e.g. ls, ps, df)
-        bu_parse_positional $# --enum ls ps df dig free mount uptime uname env id du stat ifconfig netstat arp dpkg-l iostat vmstat lsof wc enum-- --hint "jc parser name"
+        bu_parse_positional $# --enum ls ps df dig free mount uptime uname env id du stat ifconfig netstat arp dpkg-l iostat vmstat lsof wc rpm-qi pacman systemctl systemctl-luf iptables pip-list enum-- --hint "jc parser name"
         parser=${!shift_by}
         ;;
     --discover)# _FLAG
@@ -156,6 +156,12 @@ __bu_convert_from_jc_discover()
         vmstat)   sample_cmd="vmstat" ;;
         lsof)     sample_cmd="lsof -c bash 2>/dev/null | head -20" ;;
         wc)       sample_cmd="wc /etc/hosts" ;;
+        rpm-qi)   sample_cmd="rpm -qi bash 2>/dev/null || rpm -qia 2>/dev/null | head -80" ;;
+        pacman)   sample_cmd="pacman -Qi bash 2>/dev/null || pacman -Qi 2>/dev/null | head -80" ;;
+        systemctl) sample_cmd="systemctl list-units --all 2>/dev/null | head -60" ;;
+        systemctl-luf) sample_cmd="systemctl list-unit-files 2>/dev/null | head -40" ;;
+        iptables) sample_cmd="iptables -L -v -n 2>/dev/null | head -40" ;;
+        pip-list) sample_cmd="pip list --format=columns 2>/dev/null" ;;
     esac
 
     if [[ -z "$sample_cmd" ]]

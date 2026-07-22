@@ -88,6 +88,15 @@ declare -A -g BU_OUT_PRODUCER_FIELDS=(
     ["bu get-open-file"]="command pid user fd type device size_off node name"
     ["bu get-count"]="filename lines words characters"
     ["bu get-dpkg-package"]="codes name version architecture description desired status"
+    ["bu get-rpm-package"]="name version release arch summary"
+    ["bu get-pacman-package"]="name version description architecture url licenses groups provides depends_on optional_deps required_by optional_for conflicts replaces installed_size packager build_date install_date"
+    ["bu get-apk-package"]="name version"
+    ["bu get-systemd-unit"]="unit load active sub description"
+    ["bu get-systemd-service"]="unit_file state"
+    ["bu get-openrc-service"]="service status"
+    ["bu get-openrc-boot-service"]="service runlevel"
+    ["bu get-iptables-rule"]="chain num pkts bytes target prot opt in out source destination"
+    ["bu get-pip-package"]="package version"
 )
 
 # Allowlist of producer head commands that may be executed ("probed") during
