@@ -1444,7 +1444,9 @@ __bu_autocomplete_completion_func_master_helper()
 
                     COMPREPLY+=("${current_ansi_color}${display_option}${reset_ansi_color}")
                     local _syn=${bu_script_option_synopsis[i]}
-                    local _desc=${bu_script_option_docs[i]//$'\n'/"\n"}
+                    local _desc=${bu_script_option_docs[i]}
+                    _desc=${_desc%"${_desc##*[![:space:]]}"} # rtrim: extracted docs carry a trailing newline
+                    _desc=${_desc//$'\n'/"\n"}
                     _desc=${_desc//$'\t'/}
                     # Short type tag, color-coded: flag=green, enum=blue, str=yellow
                     local _tag=$(__bu_synopsis_color "$_syn")
@@ -1481,7 +1483,9 @@ __bu_autocomplete_completion_func_master_helper()
                     '') 
                         COMPREPLY+=("${current_ansi_color}${option}${reset_ansi_color}")
                         local _syn=${bu_script_option_synopsis[i]}
-                        local _desc=${bu_script_option_docs[i]//$'\n'/"\n"}
+                        local _desc=${bu_script_option_docs[i]}
+                        _desc=${_desc%"${_desc##*[![:space:]]}"} # rtrim: extracted docs carry a trailing newline
+                        _desc=${_desc//$'\n'/"\n"}
                         _desc=${_desc//$'\t'/}
                         # Short type tag, color-coded: flag=green, enum=blue, str=yellow
                         local _tag=$(__bu_synopsis_color "$_syn")
