@@ -35,5 +35,4 @@ mkdir "$IMAGES_DIR"/alpine-bashtab-rootfs-flat
 python3 v86/tools/fs2json.py --zstd --out "$IMAGES_DIR"/alpine-bashtab-fs.json "$IMAGES_DIR"/alpine-bashtab-rootfs.tar
 python3 v86/tools/copy-to-sha256.py --zstd "$IMAGES_DIR"/alpine-bashtab-rootfs.tar "$IMAGES_DIR"/alpine-bashtab-rootfs-flat
 
-
-
+rm "$IMAGES_DIR"/alpine-bashtab-rootfs.tar
