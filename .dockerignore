@@ -1,0 +1,12 @@
+.git
+.pnpm-store
+docs
+node_modules
+notes
+.shellcheckrc
+*.md
+test
+fig_specs
+docker
+images
+

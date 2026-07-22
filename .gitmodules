@@ -10,3 +10,6 @@
 [submodule "fig_specs"]
 	path = fig_specs
 	url = https://github.com/withfig/autocomplete.git
+[submodule "v86"]
+	path = v86
+	url = git@github.com:copy/v86.git
