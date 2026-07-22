@@ -33,6 +33,7 @@ BU_OUT_FORMATS=(auto table list json jsonl tsv)
 # Extend via bu_register_output_fields (e.g. from a module preinit script).
 declare -A -g BU_OUT_PRODUCER_FIELDS=(
     ["bu get-command"]="name verb noun namespace type"
+    ["bu get-config"]="name value default allowed description"
     ["bu get-module"]="name version path"
     # jc parser fields (registered by parser name for convert-from-jc)
     ["bu convert-from-jc --parser ls"]="filename flags links owner group size date"

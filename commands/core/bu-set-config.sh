@@ -15,7 +15,6 @@ local file=${BU_CONFIG_LOCAL_FILE:-"$BU_DIR"/config/bu_config_local.sh}
 local var=
 local value=
 local is_unset=false
-local is_list=false
 local is_help=false
 local error_msg=
 local autocompletion=()
@@ -27,10 +26,6 @@ do
     -u|--unset)# _FLAG
         # Remove VAR's assignments from the settings file (registered default restored)
         is_unset=true
-        ;;
-    -l|--list)# _FLAG
-        # Show all registered settings with current values, then the overrides file
-        is_list=true
         ;;
     -h|--help)# _FLAG
         # Print help
@@ -117,46 +112,11 @@ __bu_set_config_strip_var()
     fi
 }
 
-if "$is_list"
-then
-    {
-        local key name current allowed
-        for key in "${!BU_CONFIG_PROPERTIES[@]}"
-        do
-            [[ "$key" == *,registered ]] || continue
-            name=${key%,registered}
-            current=${!name:-}
-            [[ -z "$current" ]] && current='(unset)'
-            if [[ "${BU_CONFIG_PROPERTIES[$name,bool]:-}" == true ]]
-            then
-                allowed='true|false'
-            else
-                allowed=${BU_CONFIG_PROPERTIES[$name,enum]:-}
-            fi
-            printf '%s\t%s\t%s\t%s\t%s\n' \
-                "$name" \
-                "$current" \
-                "${BU_CONFIG_PROPERTIES[$name,default]:-}" \
-                "$allowed" \
-                "${BU_CONFIG_PROPERTIES[$name,hint]:-}"
-        done
-    } | bu_out_from_tsv --columns name,current,default,allowed,description | bu_out --format table
-    printf '\nOverrides file (%s):\n' "$file"
-    if [[ -s "$file" ]]
-    then
-        cat -- "$file"
-    else
-        printf '(no overrides yet — create one with: bu set-config VAR VALUE)\n'
-    fi
-    bu_scope_pop_function
-    return 0
-fi
-
 # ── Validate VAR ────────────────────────────────────────────
 if [[ ! "$var" =~ ^BU_[A-Z0-9_]+$ ]]
 then
     bu_log_err "Setting name must match BU_[A-Z0-9_]+ (got: '${var:-<empty>}')"
-    bu_log_err "Usage: bu set-config BU_SOME_SETTING value | --unset BU_SOME_SETTING | --list"
+    bu_log_err "Usage: bu set-config BU_SOME_SETTING value | --unset BU_SOME_SETTING"
     bu_scope_pop_function
     return 1
 fi
@@ -181,7 +141,7 @@ fi
 
 if [[ -z "$value" ]]
 then
-    bu_log_err "Missing value. Usage: bu set-config $var VALUE"
+    bu_log_err "Missing value. Usage: bu set-config $var VALUE (see also: bu get-config)"
     bu_scope_pop_function
     return 1
 fi
