@@ -3255,9 +3255,9 @@ bu_vscode_find_latest_server()
 {
     if "$BU_ENV_IS_WSL"
     then
-        ls -dt "$HOME"/.vscode-server/bin/* | head -n 1
+        ls -dt "$HOME"/.vscode-server/bin/* 2>/dev/null | head -n 1
     else
-        ls -dt "$HOME"/.vscode-server/cli/servers/Stable-* | head -n 1
+        ls -dt "$HOME"/.vscode-server/cli/servers/Stable-* 2>/dev/null | head -n 1
     fi
 }
 
@@ -3265,9 +3265,9 @@ bu_vscode_find_latest_socket()
 {
     if "$BU_ENV_IS_WSL"
     then
-        ls -t /tmp/vscode-ipc* | head -n 1
+        ls -t /tmp/vscode-ipc* 2>/dev/null | head -n 1
     else
-        ls -t /run/user/"$UID"/vscode-ipc* | head -n 1
+        ls -t /run/user/"$UID"/vscode-ipc* 2>/dev/null | head -n 1
     fi
 }
 
