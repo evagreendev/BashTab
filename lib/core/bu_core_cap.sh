@@ -216,16 +216,30 @@ declare -A -g BU_COMMAND_UNAVAILABLE=()
 # ── Compatibility cache ───────────────────────────────────────────────
 # Caches --is-compatible probe results across shell sessions.
 # Avoids forking 30+ bash processes on every `source ./activate`.
-# Cache lives at $BU_CACHE_DIR/compat.cache and is invalidated when:
-#   - Platform / bash version / PATH changes
-#   - Any command script is added, removed, or modified
+#
+# Each unique environment (system + available binaries) gets its own cache
+# file: $BU_CACHE_DIR/compat-<hash>.cache
+#
+# The cache is invalidated when:
+#   - Platform / bash version changes
+#   - A probed binary is installed, removed, or moves
+#
+# NOT invalidated by PATH changes or script edits (use bu_cap_cache_invalidate
+# to force a re-probe after changing command dependencies).
 
-BU_COMPAT_CACHE_FILE=$BU_CACHE_DIR/compat.cache
+# Active cache hash (empty until fingerprint is computed at init)
+BU_COMPAT_CACHE_HASH=
+# Active cache file (set after fingerprint is computed)
+BU_COMPAT_CACHE_FILE=
 
 # ```
-# Generate a fingerprint of everything that affects --is-compatible results:
-# kernel, distro, bash version, PATH, and all command scripts (paths + mtimes).
-# When this changes, the cache must be rebuilt.
+# Generate a fingerprint of the environment: kernel, distro, bash version,
+# and the actual paths of all probed capabilities (from BU_CAP).
+#
+# This is deliberately stable: PATH can change without affecting the hash
+# as long as the same binaries are reachable.  Script edits do not affect
+# the hash — use bu_cap_cache_invalidate to force a re-probe after
+# changing a command's --is-compatible dependencies.
 #
 # Returns: BU_RET = md5 hash string (empty if md5sum unavailable)
 # ```
@@ -240,71 +254,82 @@ bu_cap_cache_fingerprint()
         uname -srm
         cat /etc/os-release 2>/dev/null
         echo "BASH=$BASH_VERSION"
-        echo "PATH=$PATH"
-        local dir
-        for dir in "${!BU_COMMAND_SEARCH_DIRS[@]}"; do
-            find "$dir" -type f -printf '%p %T@\n' 2>/dev/null | sort
+        # Hash the actual binary paths, not PATH itself.
+        # This is stable across PATH changes (venvs, nix shells, etc.)
+        # as long as the same tools are reachable.
+        local cap
+        for cap in $(printf '%s\n' "${!BU_CAP[@]}" | sort); do
+            printf 'CAP:%s=%s\n' "$cap" "${BU_CAP[$cap]:-}"
         done
     )
     BU_RET=$(echo "$hash_input" | md5sum | cut -d' ' -f1)
 }
 
 # ```
-# Load the cached --is-compatible results.  Reads the cache file and
-# populates BU_COMMAND_UNAVAILABLE from it.  Registered commands are
-# unaffected — this only restores the "skip" list.
+# Resolve the cache file path for a given fingerprint hash.
 #
 # Params:
-# - $1: current fingerprint to validate against the cached one
+# - $1: fingerprint hash
 #
-# Returns: 0 if cache was loaded and fingerprint matched, 1 otherwise
+# Returns: BU_RET = cache file path
+# ```
+bu_cap_cache_file_for()
+{
+    BU_RET=$BU_CACHE_DIR/compat-$1.cache
+}
+
+# ```
+# Load the cached --is-compatible results from a per-hash cache file.
+# Populates BU_COMMAND_UNAVAILABLE.  The hash is in the filename so no
+# header validation is needed — file existence is the cache hit.
+#
+# Params:
+# - $1: fingerprint hash that identifies the cache file
+#
+# Returns: 0 if cache was loaded, 1 if the file doesn't exist
 # ```
 bu_cap_cache_load()
 {
-    local current_fp=$1
-    if [[ ! -f "$BU_COMPAT_CACHE_FILE" ]]; then
+    local fp=$1
+    bu_cap_cache_file_for "$fp"
+    local cache_file=$BU_RET
+
+    if [[ ! -f "$cache_file" ]]; then
         return 1
     fi
 
-    # Read the cached fingerprint (first line: #:fp:<hash>)
-    local cached_fp
-    read -r cached_fp < "$BU_COMPAT_CACHE_FILE"
-    cached_fp=${cached_fp###:fp:}
-
-    if [[ "$cached_fp" != "$current_fp" ]]; then
-        bu_log_info "Compat cache fingerprint mismatch — will re-probe"
-        return 1
-    fi
-
-    # Fingerprint matches — load entries
-    local line command exit_code reason
+    # Load entries (format: command\texit_code\treason)
+    local command exit_code reason
     while IFS=$'\t' read -r command exit_code reason; do
-        # Skip header / empty lines
         [[ -z "$command" || "$command" == \#* ]] && continue
         if [[ "$exit_code" != "0" ]]; then
             BU_COMMAND_UNAVAILABLE[$command]=$reason
         fi
-    done < "$BU_COMPAT_CACHE_FILE"
+    done < "$cache_file"
 
-    bu_log_info "Compat cache loaded (${#BU_COMMAND_UNAVAILABLE[@]} unavailable)"
+    BU_COMPAT_CACHE_HASH=$fp
+    BU_COMPAT_CACHE_FILE=$cache_file
+    bu_log_info "Compat cache loaded from ${cache_file##*/} (${#BU_COMMAND_UNAVAILABLE[@]} unavailable)"
     return 0
 }
 
 # ```
-# Save the current --is-compatible results and fingerprint to the cache file.
+# Save the current --is-compatible results to a per-hash cache file.
 # Reads BU_COMMAND_UNAVAILABLE (populated by the registration loop) and
-# writes tab-separated entries.
+# writes tab-separated entries.  Also cleans up the legacy compat.cache.
 #
 # Params:
-# - $1: fingerprint to embed in the cache header
+# - $1: fingerprint hash for the cache file name
 # ```
 bu_cap_cache_save()
 {
     local fp=$1
-    bu_mkdir "$(dirname "$BU_COMPAT_CACHE_FILE")"
+    bu_cap_cache_file_for "$fp"
+    local cache_file=$BU_RET
+    bu_mkdir "$(dirname "$cache_file")"
 
     {
-        printf '#:fp:%s\n' "$fp"
+        printf '# BashTab compat cache — environment %s\n' "$fp"
         local cmd reason
         # Write unavailable commands
         for cmd in "${!BU_COMMAND_UNAVAILABLE[@]}"; do
@@ -319,18 +344,57 @@ bu_cap_cache_save()
                 printf '%s\t0\t\n' "$cmd"
             fi
         done
-    } > "$BU_COMPAT_CACHE_FILE"
+    } > "$cache_file"
 
-    bu_log_info "Compat cache saved ($(grep -cv '^#' "$BU_COMPAT_CACHE_FILE" || true) entries)"
+    BU_COMPAT_CACHE_HASH=$fp
+    BU_COMPAT_CACHE_FILE=$cache_file
+
+    # Clean up legacy single-cache file if it exists
+    local legacy_file=$BU_CACHE_DIR/compat.cache
+    if [[ -f "$legacy_file" ]]; then
+        rm -f "$legacy_file"
+    fi
+
+    bu_log_info "Compat cache saved to ${cache_file##*/} ($(grep -cv '^#' "$cache_file" || true) entries)"
 }
 
 # ```
-# Force-invalidate the compat cache so the next activation re-probes.
+# Force-invalidate ALL compat caches so the next activation re-probes.
+# Safe to run anytime — just deletes the per-hash cache files.
+#
+# Usage:
+#   bu_cap_cache_invalidate          # clear all cached environments
+#   bu_cap_cache_invalidate --stale  # clear only caches older than 7 days
 # ```
 bu_cap_cache_invalidate()
 {
-    rm -f "$BU_COMPAT_CACHE_FILE"
-    bu_log_info "Compat cache invalidated"
+    local mode=${1:-all}
+    case "$mode" in
+        --stale)
+            local cache_file deleted=0
+            for cache_file in "$BU_CACHE_DIR"/compat-*.cache; do
+                [[ -f "$cache_file" ]] || continue
+                # Delete if older than 7 days (604800 seconds)
+                if [[ $(date +%s) -gt $(($(stat -c %Y "$cache_file" 2>/dev/null || echo 0) + 604800)) ]]; then
+                    rm -f "$cache_file"
+                    ((deleted++))
+                fi
+            done
+            bu_log_info "Compat cache: cleaned $deleted stale file(s)"
+            ;;
+        *)
+            local count=0
+            for cache_file in "$BU_CACHE_DIR"/compat-*.cache; do
+                [[ -f "$cache_file" ]] || continue
+                rm -f "$cache_file"
+                ((count++))
+            done
+            rm -f "$BU_CACHE_DIR/compat.cache"  # legacy
+            BU_COMPAT_CACHE_HASH=
+            BU_COMPAT_CACHE_FILE=
+            bu_log_info "Compat cache invalidated ($count file(s) removed)"
+            ;;
+    esac
 }
 
 # ── Initialization ────────────────────────────────────────────────────
