@@ -3,3 +3,5 @@ tmp
 node_modules/
 .pnpm-store
 images
+# Machine-local settings managed by `bu set-config` (uncommitted by design)
+config/bu_config_local.sh

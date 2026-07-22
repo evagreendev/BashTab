@@ -24,6 +24,15 @@ then
 fi
 
 source ./bu_custom_source.sh --__bu-once
+
+# Machine-local settings (uncommitted, managed by `bu set-config`). Sourced
+# early so BU_BOOTSTRAP_VERBOSE applies to the sourcing logs below, and before
+# bu_config_dynamic.sh, whose ${VAR:-default} assignments yield to these.
+# Intentionally NOT --__bu-once: re-activation should re-read edited settings.
+if [[ -f ./config/bu_config_local.sh ]]; then
+    source ./config/bu_config_local.sh
+fi
+
 source ./lib/core/bu_core_user_defined.sh --__bu-once
 
 # The BU_MODULE_PATH is the only variable that should be needed to get all external "libraries"

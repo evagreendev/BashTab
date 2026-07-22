@@ -69,6 +69,10 @@ __bu_basic_log()
 # ```
 bu_basic_log_debug()
 {
+    # Bootstrap debug logs (e.g. "sourcing(--__bu-once) ...") fire before the
+    # repo configs are loaded, so they gate on a dedicated boolean rather than
+    # BU_LOG_LVL. Enable via `bu set-config BU_BOOTSTRAP_VERBOSE true`.
+    [[ "${BU_BOOTSTRAP_VERBOSE:-false}" == true ]] || return 0
     __bu_basic_log DEBUG "$*"
 }
 
@@ -106,6 +110,167 @@ bu_basic_log_warn()
 bu_basic_log_err()
 {
     __bu_basic_log ERR "$*"
+}
+
+# MARK: Config registry
+
+# Declarative settings registry — the config equivalent of the autocompletion
+# DSL specifiers. One `bu_config_register` call declares everything about a
+# setting; `bu set-config` (validation, value mapping, --unset default restore,
+# --list, completion) consumes the registry. Modules can register their own
+# settings the same way.
+#
+# Storage mirrors BU_COMMAND_PROPERTIES: keys are "$name,field".
+declare -A -g BU_CONFIG_PROPERTIES=()
+
+# ```
+# *Description*:
+# Register a runtime setting with metadata.
+#
+# *Params*:
+# - `$1`: Setting name (must match BU_[A-Z0-9_]*)
+# - `...`: DSL specifiers, processed left to right:
+#   - `--default VALUE`: value restored by `bu set-config --unset`
+#   - `--bool`: value must be `true` or `false`
+#   - `--enum a b:2 c enum--`: allowed values; optional `name:mapped` form
+#     accepts `name` but stores `mapped` (e.g. warn:2)
+#   - `--hint "text"`: description shown by `bu set-config --list`
+#
+# *Examples*:
+# ```bash
+# bu_config_register BU_LOG_LVL --default 2 \
+#     --enum debug:0 info:1 warn:2 err:3 silence:99 enum-- \
+#     --hint "Log level when running commands"
+# ```
+# ```
+bu_config_register()
+{
+    local name=$1
+    shift
+    if [[ ! "$name" =~ ^BU_[A-Z0-9_]*$ ]]
+    then
+        bu_basic_log_err "bu_config_register: invalid setting name[$name], must match BU_[A-Z0-9_]*"
+        return 1
+    fi
+    local default= enum= hint=
+    local is_bool=false
+    while (($#))
+    do
+        case "$1" in
+        --default)
+            default=$2
+            shift 2
+            ;;
+        --bool)
+            is_bool=true
+            shift
+            ;;
+        --enum)
+            shift
+            local -a enum_values=()
+            while (($#)) && [[ "$1" != enum-- ]]
+            do
+                enum_values+=("$1")
+                shift
+            done
+            if (($# == 0))
+            then
+                bu_basic_log_err "bu_config_register: --enum missing terminator enum--"
+                return 1
+            fi
+            shift
+            enum="${enum_values[*]}"
+            ;;
+        --hint)
+            hint=$2
+            shift 2
+            ;;
+        *)
+            bu_basic_log_err "bu_config_register: unrecognized specifier[$1]"
+            return 1
+            ;;
+        esac
+    done
+    BU_CONFIG_PROPERTIES[$name,registered]=true
+    [[ -n "$default" ]] && BU_CONFIG_PROPERTIES[$name,default]=$default
+    [[ -n "$enum" ]] && BU_CONFIG_PROPERTIES[$name,enum]=$enum
+    [[ -n "$hint" ]] && BU_CONFIG_PROPERTIES[$name,hint]=$hint
+    "$is_bool" && BU_CONFIG_PROPERTIES[$name,bool]=true
+    return 0
+}
+
+# ```
+# *Description*:
+# Validate a value against a registered setting and map it to its stored form.
+# Unregistered settings (or registered ones without --bool/--enum) pass through.
+#
+# *Params*:
+# - `$1`: Setting name
+# - `$2`: Candidate value
+#
+# *Returns*:
+# - `BU_RET`: the value to store (mapped form for name:mapped enum entries)
+# - Exit code: 0 if valid, 1 if rejected
+# ```
+bu_config_validate_value()
+{
+    local name=$1 value=$2
+    if [[ "${BU_CONFIG_PROPERTIES[$name,bool]:-}" == true ]]
+    then
+        case "$value" in
+        true|false) BU_RET=$value; return 0 ;;
+        *) BU_RET="expected true|false"; return 1 ;;
+        esac
+    fi
+    local enum=${BU_CONFIG_PROPERTIES[$name,enum]:-}
+    if [[ -n "$enum" ]]
+    then
+        local entry entry_name
+        for entry in $enum
+        do
+            entry_name=${entry%%:*}
+            if [[ "$value" == "$entry_name" ]]
+            then
+                # name:mapped stores the mapped form; bare name stores itself
+                BU_RET=${entry#*:}
+                return 0
+            fi
+        done
+        BU_RET="expected one of: $enum"
+        return 1
+    fi
+    BU_RET=$value
+    return 0
+}
+
+# Completion helpers (consumed by `bu set-config` via the --ret DSL specifier).
+__bu_config_completion_names()
+{
+    local key
+    BU_RET=()
+    for key in "${!BU_CONFIG_PROPERTIES[@]}"
+    do
+        if [[ "$key" == *,registered ]]
+        then
+            BU_RET+=("${key%,registered}")
+        fi
+    done
+}
+
+__bu_config_completion_values()
+{
+    local name=$1
+    BU_RET=()
+    local entry
+    if [[ "${BU_CONFIG_PROPERTIES[$name,bool]:-}" == true ]]
+    then
+        BU_RET=(true false)
+        return 0
+    fi
+    for entry in ${BU_CONFIG_PROPERTIES[$name,enum]:-}
+    do
+        BU_RET+=("${entry%%:*}")
+    done
 }
 
 # ```
