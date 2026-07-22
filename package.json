@@ -14,7 +14,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "ssh://local/evagreendev/BashTab.git"
+    "url": "git+https://github.com/evagreendev/BashTab.git"
   },
   "keywords": [],
   "author": "",
