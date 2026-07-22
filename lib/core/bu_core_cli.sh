@@ -130,6 +130,117 @@ __bu_cli_format_keybinding()
 
 # ```
 # *Description*:
+# Render the environment diagnostics section for the top-level help.
+# Shows platform, bash version, key capability status, and a summary
+# of any commands that are unavailable due to missing dependencies.
+#
+# *Params*: None
+#
+# *Returns*: None
+# ```
+__bu_cli_environment_section()
+{
+    local -r dim="${BU_TPUT_GREY}"
+    local -r rst="${BU_TPUT_RESET}"
+    local -r em="${BU_TPUT_BOLD}"
+    local -r green="${BU_TPUT_GREEN}"
+    local -r red="${BU_TPUT_RED}"
+    local -r yellow="${BU_TPUT_YELLOW}"
+
+    echo
+    echo "${em}Environment${rst}"
+    echo
+
+    # Platform line
+    local platform_display
+    if [[ -n "${BU_PLATFORM_NAME:-}" ]]; then
+        platform_display="${BU_PLATFORM_NAME}"
+        if [[ -n "${BU_PLATFORM_ID:-}" ]]; then
+            platform_display+=" ${dim}(${BU_PLATFORM_ID}"
+            [[ -n "${BU_PLATFORM_FAMILY:-}" && "${BU_PLATFORM_FAMILY}" != "${BU_PLATFORM_ID}" ]] && \
+                platform_display+=", ${BU_PLATFORM_FAMILY}"
+            platform_display+=")${rst}"
+        fi
+    else
+        platform_display="${dim}unknown${rst}"
+    fi
+    printf '  %-13s %b\n' 'Platform' "$platform_display"
+
+    # Bash version
+    printf '  %-13s %s\n' 'Bash' "${BASH_VERSION:-unknown}"
+
+    # Capability table — key capabilities with check/cross
+    local caps=(fzf jq node jc docker dpkg pacman)
+    local cap label hint version_str
+
+    for cap in "${caps[@]}"; do
+        if [[ -n "${BU_CAP[$cap]:-}" ]]; then
+            # Try to get a version string
+            version_str=
+            case "$cap" in
+                fzf)    version_str=$(fzf --version 2>/dev/null | head -1) ;;
+                jq)     version_str=$(jq --version 2>/dev/null | head -1) ;;
+                node)   version_str=$(node --version 2>/dev/null | head -1) ;;
+                jc)     version_str=$(jc --version 2>/dev/null | head -1) ;;
+                docker) version_str=$(docker --version 2>/dev/null | head -1 | sed 's/Docker version //') ;;
+                dpkg)   version_str=$(dpkg --version 2>/dev/null | head -1 | grep -oP '[0-9.]+' | head -1) ;;
+                pacman) version_str=$(pacman --version 2>/dev/null | head -1 | grep -oP '[0-9.]+' | head -1) ;;
+            esac
+            local check="${green}✓${rst}"
+            [[ -n "$version_str" ]] && check+=" ${dim}${version_str}${rst}"
+            printf '  %-13s %b\n' "$cap" "$check"
+        else
+            bu_install_hint "$cap" 2>/dev/null || true
+            local cross="${red}✗${rst}"
+            if [[ -n "${BU_RET:-}" ]]; then
+                cross+=" ${dim}— ${BU_RET}${rst}"
+            fi
+            printf '  %-13s %b\n' "$cap" "$cross"
+        fi
+    done
+
+    # Tree-sitter status (derived, not a cap)
+    if [[ -n "${BU_CAP[node]:-}" ]]; then
+        if "${BU_AUTOCOMPLETE_USE_TREE_SITTER:-false}"; then
+            printf '  %-13s %b\n' 'tree-sitter' "${green}✓${rst} ${dim}enabled${rst}"
+        else
+            printf '  %-13s %b\n' 'tree-sitter' "${dim}disabled${rst}"
+        fi
+    else
+        printf '  %-13s %b\n' 'tree-sitter' "${red}✗${rst} ${dim}node not found${rst}"
+    fi
+
+    # Command availability summary
+    local total=$((${#BU_COMMANDS[@]} + ${#BU_COMMAND_UNAVAILABLE[@]}))
+    local available=${#BU_COMMANDS[@]}
+    local -a unavailable_entries=()
+    local cmd reason
+    for cmd in "${!BU_COMMAND_UNAVAILABLE[@]}"; do
+        reason=${BU_COMMAND_UNAVAILABLE[$cmd]}
+        unavailable_entries+=("$cmd — $reason")
+    done
+
+    echo
+    if ((total == available)); then
+        printf '  %-13s %s/%s commands available\n' 'Commands' "$available" "$total"
+    elif ((available == 0)); then
+        printf '  %-13s %s/%s commands available\n' 'Commands' "${red}$available${rst}" "$total"
+    else
+        printf '  %-13s %s/%s commands available\n' 'Commands' "${yellow}$available${rst}" "$total"
+        if ((${#unavailable_entries[@]} <= 5)); then
+            local u
+            for u in "${unavailable_entries[@]}"; do
+                printf '  %-13s   %b\n' '' "${dim}— ${u}${rst}"
+            done
+        else
+            printf '  %-13s   %b\n' '' "${dim}— ${#unavailable_entries[@]} commands unavailable${rst}"
+        fi
+    fi
+    echo
+}
+
+# ```
+# *Description*:
 # Displays help information for the master command
 #
 # *Params*: None
@@ -166,6 +277,9 @@ __bu_cli_help()
     echo "${em}Key bindings${rst} (see bottom of this page for the full list)"
     printf '  %b  Trigger fzf autocomplete\n' "$ctrl_label"
     printf '  %b        Edit the current command line in $EDITOR\n' "$alt_label"
+
+    # ── Environment diagnostics ──────────────────────────────────
+    __bu_cli_environment_section
 
     local key value properties
 

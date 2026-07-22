@@ -29,6 +29,16 @@ bu_scope_push_function
 bu_scope_add_cleanup bu_popd_silent
 bu_run_log_command "$@"
 
+# --is-compatible: magic flag checked by the framework at registration time.
+# Override this block to declare your command's requirements.
+# Exit 0 if this command can run on the current system, non-zero otherwise.
+# stderr becomes the reason shown in `bu` help.
+if [[ "$1" == "--is-compatible" ]]; then
+    # Example checks (uncomment and customize):
+    # command -v mytool &>/dev/null || { echo "mytool is required" >&2; exit 1; }
+    exit 0
+fi
+
 local is_help=false
 local error_msg=
 local options_finished=false

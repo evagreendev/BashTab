@@ -1,13 +1,25 @@
 #!/usr/bin/env bash
 function __bu_bu_get_dpkg_package_main()
 {
+# --is-compatible: magic flag checked by the framework at registration time.
+# Exit 0 if this command can run on the current system, non-zero otherwise.
+# stderr becomes the reason shown in `bu` help.
+if [[ "$1" == "--is-compatible" ]]; then
+    command -v dpkg &>/dev/null || { echo "dpkg is required" >&2; exit 1; }
+    command -v jc &>/dev/null   || { echo "jc is required" >&2; exit 1; }
+    if [[ -f /etc/os-release ]]; then
+        local _id _id_like
+        _id=$(grep -oP '^ID=\K.*' /etc/os-release | tr -d '"')
+        _id_like=$(grep -oP '^ID_LIKE=\K.*' /etc/os-release | tr -d '"')
+        case " $_id $_id_like " in
+            *" debian "*|*" ubuntu "*) : ;;
+            *) echo "requires Debian-based system" >&2; exit 1 ;;
+        esac
+    fi
+    exit 0
+fi
+
 local -r invocation_dir=$PWD
-
-# shellcheck source=./__bu_entrypoint_decl.sh
-source "$BU_NULL"
-
-bu_scope_push_function
-bu_run_log_command "$@"
 
 local is_help=false
 local format=auto

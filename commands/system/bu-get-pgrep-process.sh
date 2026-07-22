@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 function __bu_bu_get_pgrep_process_main()
 {
+# --is-compatible: magic flag checked by the framework at registration time.
+# Exit 0 if this command can run on the current system, non-zero otherwise.
+# stderr becomes the reason shown in `bu` help.
+if [[ "$1" == "--is-compatible" ]]; then
+    command -v pgrep &>/dev/null || { echo "pgrep is required" >&2; exit 1; }
+    exit 0
+fi
 local -r invocation_dir=$PWD
 
 # shellcheck source=./__bu_entrypoint_decl.sh

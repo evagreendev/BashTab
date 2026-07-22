@@ -10,6 +10,16 @@ source ./bu_core_autocomplete.sh
 fi
 __bu_init_env_commands()
 {
+    # ── Try to load the compat cache ──
+    local cache_valid=false
+    local fingerprint
+    if bu_cap_cache_fingerprint; then
+        fingerprint=$BU_RET
+        if bu_cap_cache_load "$fingerprint"; then
+            cache_valid=true
+        fi
+    fi
+
     local dir
     local file
     local convert_file_to_subcommand
@@ -30,6 +40,7 @@ __bu_init_env_commands()
                 ;;
             esac
 
+            local script_path=$dir/$file
             command=${file%.sh}
             if [[ -n "$convert_file_to_subcommand" ]]
             then
@@ -39,9 +50,33 @@ __bu_init_env_commands()
                 fi
             fi
 
-            BU_COMMANDS[$command]=$dir/$file
+            # If the script declares --is-compatible, run it to check.
+            # Scripts without it are assumed compatible (backward compat).
+            # Matches both case-style (--is-compatible)) and if-style (--is-compatible").
+            if grep -qE -- '--is-compatible[)"]' "$script_path" 2>/dev/null; then
+                if $cache_valid; then
+                    # Cache hit — check if this command was marked unavailable
+                    if [[ -n "${BU_COMMAND_UNAVAILABLE[$command]:-}" ]]; then
+                        continue
+                    fi
+                else
+                    # Cache miss — probe
+                    local reason
+                    if ! reason=$(bash "$script_path" --is-compatible 2>&1); then
+                        BU_COMMAND_UNAVAILABLE[$command]=$reason
+                        continue
+                    fi
+                fi
+            fi
+
+            BU_COMMANDS[$command]=$script_path
         done
     done
+
+    # Save cache if we probed fresh
+    if ! $cache_valid && [[ -n "$fingerprint" ]]; then
+        bu_cap_cache_save "$fingerprint"
+    fi
 }
 
 __bu_init_env_commands

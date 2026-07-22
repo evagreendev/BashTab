@@ -84,6 +84,8 @@ source ./lib/core/bu_core_var.sh --__bu-once
 source ./lib/core/bu_core_base.sh --__bu-once
 source ./lib/core/bu_core_out.sh --__bu-once
 source ./lib/core/bu_core_compat.sh --__bu-once
+source ./lib/core/bu_core_cap.sh --__bu-once
+bu_cap_init
 source ./lib/core/bu_core_autocomplete.sh --__bu-once
 source ./lib/core/bu_core_tmux.sh --__bu-once
 source ./lib/core/bu_core_cli.sh --__bu-once
@@ -99,7 +101,7 @@ source ./lib/core/bu_core_ts.sh --__bu-once
 
 # Warm-start the tree-sitter daemon at shell init so first Tab is instant.
 # (~200ms one-time cost absorbed into shell startup)
-if "$BU_AUTOCOMPLETE_USE_TREE_SITTER" && [[ $- == *i* ]]; then
+if "$BU_AUTOCOMPLETE_USE_TREE_SITTER" && [[ -n "${BU_CAP[node]}" ]] && [[ $- == *i* ]]; then
     __bu_ts_daemon_start &>/dev/null
 fi
 
