@@ -6,7 +6,7 @@ BU_CLI_COMMAND_NAME=${BU_USER_DEFINED_CLI_COMMAND_NAME:-bu}
 # This file can sourced multiple times, but the following variables will only be defined once
 # to avoid resetting changes.
 # All array/map container variables should be placed below this conditional
-if [[ -n "$BU_CORE_VAR_SOURCED" ]]; then return; fi
+if [[ -n "${BU_CORE_VAR_SOURCED:-}" ]]; then return; fi
 
 declare -g BU_CORE_VAR_SOURCED=1
 
@@ -68,7 +68,8 @@ declare -A -g BU_COMMAND_NAMESPACES=()
 # verb=`convert-to`, noun=`jsonl` instead of verb=`convert`, noun=`to-jsonl`.
 # Extend from user-defined configs to support custom multi-word verbs.
 # ```
-if ((${#BU_MULTI_WORD_VERBS[@]} == 0))
+# `declare -p` check: "${#arr[@]}" on an undeclared array errors under `set -u`.
+if ! declare -p BU_MULTI_WORD_VERBS &>/dev/null
 then
     declare -a -g BU_MULTI_WORD_VERBS=(convert-to convert-from)
 fi
@@ -81,6 +82,11 @@ declare -A -g BU_MODULE_REGISTRY=()
 # Exportable scalar version of the registry for subshell inspection
 # Format: "name:version:path;name:version:path;..."
 export BU_MODULE_LIST=${BU_MODULE_LIST:-}
+
+# Global default for the parse-position counter incremented by bu_parse_positional /
+# bu_parse_multiselect. bu_parse_nested re-declares this as a `local`, which shadows
+# the global via dynamic scoping; the global exists so stray increments don't trip `set -u`.
+declare -g __bu_g_shift_by=0
 
 # ```
 # It is recommended to isolate this by declaring `local -A BU_COMPOPT_CURRENT_COMPLETION_OPTIONS`
@@ -129,7 +135,8 @@ declare -A -g BU_KEY_BINDING_DOCS=(
 
 # 1 metadata entry corresponds to 1 compreply entry
 # Meant for display in fzf completion mode
-declare -a -g BU_COMPREPLY_METADATA
+# (=() required: "${#arr[@]}" on a declared-but-unset array errors under `set -u`)
+declare -a -g BU_COMPREPLY_METADATA=()
 
 # Meant for display in fzf completion mode
-declare -g BU_COMPREPLY_HINT
+declare -g BU_COMPREPLY_HINT=

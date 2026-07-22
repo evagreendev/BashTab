@@ -143,11 +143,12 @@ __bu_module_register()
     local version=$2
     local preinit=$3
 
-    if [[ -z "${BU_MODULE_REGISTRY[$name]}" ]]; then
+    if [[ -z "${BU_MODULE_REGISTRY[$name]:-}" ]]; then
         BU_MODULE_REGISTRY[$name]="$version:$preinit"
     fi
     # Also build an exportable scalar for subshell inspection
-    if [[ "$BU_MODULE_LIST" != *"${name}:"* ]]; then
+    # ${BU_MODULE_LIST:-}: not yet initialized when modules register during sourcing (set -u safe)
+    if [[ "${BU_MODULE_LIST:-}" != *"${name}:"* ]]; then
         BU_MODULE_LIST+="${name}:${version}:${preinit};"
     fi
     BU_USER_DEFINED_STATIC_PRE_INIT_ENTRYPOINT_CALLBACKS+=("$preinit")

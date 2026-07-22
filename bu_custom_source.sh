@@ -269,7 +269,11 @@ bu_str_split()
     fi
 }
 
-if ((!${#BU_SOURCE_ONCE_CACHE[@]}))
+# `declare -p` check instead of "${#BU_SOURCE_ONCE_CACHE[@]}", which errors
+# under `set -u` when the array has never been declared (and would leave the
+# array undeclared, turning later CACHE[$name]=true assignments into indexed
+# array assignments with an arithmetic-invalid string subscript).
+if ! declare -p BU_SOURCE_ONCE_CACHE &>/dev/null
 then
     declare -A -g BU_SOURCE_ONCE_CACHE=(
         [BU_NULL]=true

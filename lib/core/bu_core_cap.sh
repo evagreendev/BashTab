@@ -64,21 +64,21 @@ bu_cap_detect_platform()
 # - $2: primary binary name to look for
 # - $3: fallback binary name (optional)
 #
-# Returns: 0 if found, 1 if not
+# Returns: 0 always. Presence/absence is recorded in BU_CAP[$cap] instead of
+# the exit status, because this runs while bu_entrypoint.sh is being sourced —
+# a non-zero return here would abort the whole activation under `set -e`.
 # ```
 bu_cap_probe()
 {
-    local cap=$1 binary=$2 fallback=$3
+    local cap=$1 binary=$2 fallback=${3:-}
     if command -v "$binary" &>/dev/null; then
         BU_CAP[$cap]=$(command -v "$binary")
-        return 0
     elif [[ -n "$fallback" ]] && command -v "$fallback" &>/dev/null; then
         BU_CAP[$cap]=$(command -v "$fallback")
-        return 0
     else
         BU_CAP[$cap]=
-        return 1
     fi
+    return 0
 }
 
 # ```

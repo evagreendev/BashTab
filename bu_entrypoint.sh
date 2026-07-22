@@ -5,15 +5,19 @@ esac
 
 declare -a -g BU_RET=()
 declare -A -g BU_RET_MAP=()
-if (("${#BU_MODULE_REGISTRY[@]}" == 0))
+# `declare -p` check instead of "${#BU_MODULE_REGISTRY[@]}", which errors
+# under `set -u` when the array has never been declared.
+if ! declare -p BU_MODULE_REGISTRY &>/dev/null
 then
     declare -A -g BU_MODULE_REGISTRY=()
 fi
 
-BU_REPO_DIR_PREV=$BU_REPO_DIR
-BU_REPO_SHA1_PREV=$BU_REPO_SHA1
+# ${VAR:-} guards: this file may be sourced from shells running `set -u`.
+BU_REPO_DIR_PREV=${BU_REPO_DIR:-}
+BU_REPO_SHA1_PREV=${BU_REPO_SHA1:-}
 BU_REPO_DIR=$PWD
-BU_REPO_SHA1=$(git rev-parse @)
+# Suppressed: users who downloaded a ZIP/tarball have no .git directory.
+BU_REPO_SHA1=$(git rev-parse @ 2>/dev/null) || BU_REPO_SHA1=unknown
 if [[ -n "$BU_REPO_SHA1_PREV" && "$BU_REPO_SHA1" != "$BU_REPO_SHA1_PREV" ]]
 then
     echo "WARN    A different BashTab version is being activated: Prev[$BU_REPO_SHA1_PREV@$BU_REPO_DIR_PREV] Cur[$BU_REPO_SHA1@$BU_REPO_DIR]" >&2
@@ -26,7 +30,7 @@ source ./lib/core/bu_core_user_defined.sh --__bu-once
 # i.e. BashTab related libraries setup.
 # In particular, all the callbacks can be setup in these scripts
 # To make it export-friendly, we will use a colon-separated string rather than an array.
-if [[ -z "$BU_MODULE_PATH" ]]
+if [[ -z "${BU_MODULE_PATH:-}" ]]
 then
     declare -g BU_MODULE_PATH=
 fi
@@ -101,7 +105,7 @@ source ./lib/core/bu_core_ts.sh --__bu-once
 
 # Warm-start the tree-sitter daemon at shell init so first Tab is instant.
 # (~200ms one-time cost absorbed into shell startup)
-if "$BU_AUTOCOMPLETE_USE_TREE_SITTER" && [[ -n "${BU_CAP[node]}" ]] && [[ $- == *i* ]]; then
+if "$BU_AUTOCOMPLETE_USE_TREE_SITTER" && [[ -n "${BU_CAP[node]:-}" ]] && [[ $- == *i* ]]; then
     __bu_ts_daemon_start &>/dev/null
 fi
 
@@ -110,3 +114,6 @@ popd &>/dev/null
 bu_source_user_defined_post_entrypoint_callbacks
 
 bu_log_info "Bash utils: fully set up"
+
+# Sourcing may happen under `set -e`: never leak a non-zero status to the user's shell.
+return 0

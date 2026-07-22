@@ -2419,7 +2419,7 @@ bu_env_rename_func()
 # ```
 bu_env_is_in_tmux()
 {
-    [[ -n "$TMUX" && ("$TERM" == screen* || "$TERM" == tmux*) ]]
+    [[ -n "${TMUX:-}" && ("${TERM:-}" == screen* || "${TERM:-}" == tmux*) ]]
 }
 
 # ```
@@ -2438,7 +2438,7 @@ bu_env_is_in_tmux()
 # ```
 bu_env_is_in_autocomplete()
 {
-    [[ -n "$COMP_CWORD" && -z "$BU_COMP_FAKE" ]]
+    [[ -n "${COMP_CWORD:-}" && -z "${BU_COMP_FAKE:-}" ]]
 }
 
 # MARK: Run utils

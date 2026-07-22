@@ -29,13 +29,13 @@ __bu_cli_sort_keys()
 __bu_cli_command_type()
 {
     local bu_command=$1
-    local function_or_script_path=${BU_COMMANDS[$bu_command]}
+    local function_or_script_path=${BU_COMMANDS[$bu_command]:-}
     if [[ -z "$function_or_script_path" ]]
     then
         # Also accept non bu command
         function_or_script_path=$bu_command
     fi
-    local properties="${BU_COMMAND_PROPERTIES[$bu_command,type]}"
+    local properties="${BU_COMMAND_PROPERTIES[$bu_command,type]:-}"
     if [[ -z "$properties" ]]
     then
         if bu_symbol_is_function "$function_or_script_path"
@@ -435,7 +435,7 @@ bu_autohelp()
         fi
     done
 
-    if [[ "${BU_COMMANDS[$command]}" != "$script_path" ]]
+    if [[ "${BU_COMMANDS[${command:-}]:-}" != "$script_path" ]]
     then
         command=
     fi
@@ -480,9 +480,9 @@ bu_autohelp()
 
         if [[ -n "$command" ]]
         then
-            local namespace=${BU_COMMAND_PROPERTIES[$command,namespace]}
-            local verb=${BU_COMMAND_PROPERTIES[$command,verb]}
-            local noun=${BU_COMMAND_PROPERTIES[$command,noun]}
+            local namespace=${BU_COMMAND_PROPERTIES[$command,namespace]:-}
+            local verb=${BU_COMMAND_PROPERTIES[$command,verb]:-}
+            local noun=${BU_COMMAND_PROPERTIES[$command,noun]:-}
             printf "$padding%s\n" "Namespace: $namespace" "Verb: $verb" "Noun: $noun"
             echo
         fi  

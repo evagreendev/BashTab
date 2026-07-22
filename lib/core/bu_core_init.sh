@@ -29,15 +29,15 @@ __bu_init_keybindings()
     fi
 }
 
-# Technically, WSL code setup isn't needed, 
-# for e.g. I see /mnt/c/Users/sunjc/AppData/Local/Programs/Microsoft VS Code/bin/code
-# when I enter wsl.
+# Technically, WSL code setup isn't needed,
+# for e.g. the code CLI at /mnt/c/Users/<user>/AppData/Local/Programs/Microsoft VS Code/bin/code
+# when entering wsl.
 # Though note that the code CLI binary in /mnt/c and 
 # the vscode server code CLI binary in ~/.vscode-server
 # are 2 different binaries, though with similar options.
 __bu_init_vscode()
 {
-    if [[ -n "$VSCODE_IPC_HOOK_CLI" && -n "$VSCODE_GIT_ASKPASS_NODE" ]]
+    if [[ -n "${VSCODE_IPC_HOOK_CLI:-}" && -n "${VSCODE_GIT_ASKPASS_NODE:-}" ]]
     then
         # This is the "real" VSCode integrated terminal
         bu_log_info setting vscode links
@@ -45,7 +45,7 @@ __bu_init_vscode()
         ln -sf "$(realpath -- "$(dirname -- "$VSCODE_GIT_ASKPASS_NODE")"/..)" "$BU_OUT_DIR"/vscode_server_instance
     else
         # This is an external terminal
-        if [[ -n "$VSCODE_IPC_HOOK_CLI" ]]
+        if [[ -n "${VSCODE_IPC_HOOK_CLI:-}" ]]
         then
             # VSCODE_IPC_HOOK_CLI was already set, e.g. in a parent process
             bu_log_info "code cli already initialized, to force VSCode CLI setup again, run ${BU_TPUT_BOLD}unset -v VSCODE_IPC_HOOK_CLI${BU_TPUT_RESET}" 
@@ -62,7 +62,7 @@ __bu_init_vscode()
             else
                 bu_log_info vscode server not found
                 unset VSCODE_IPC_HOOK_CLI
-                if [[ "$VISUAL" == code* || "$EDITOR" == code* ]]
+                if [[ "${VISUAL:-}" == code* || "${EDITOR:-}" == code* ]]
                 then
                     export VISUAL=vim
                     export EDITOR=vim
