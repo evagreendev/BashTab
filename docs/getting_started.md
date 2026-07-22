@@ -2,13 +2,13 @@
 layout: page
 title: Getting Started
 permalink: /getting-started/
-nav-order: 2
+nav_order: 2
 ---
 
 ## Install
 
 ```sh
-git clone https://github.com/sunjc826/BashTab.git
+git clone https://github.com/evagreendev/BashTab.git
 cd BashTab
 ```
 

@@ -2,7 +2,7 @@
 layout: page
 title: "How To: Creating custom commands"
 permalink: /how-to-01-create-custom-commands/
-nav-order: 3
+nav_order: 3
 ---
 
 In this How-To, let us look at how to create a new command.

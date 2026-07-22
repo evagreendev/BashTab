@@ -2,7 +2,7 @@
 layout: page
 title: "How To: Using BashTab as a project dependency"
 permalink: /how-to-02-BashTab-workflow/
-nav-order: 4
+nav_order: 4
 ---
 
 This guide shows how to embed BashTab in your own project using git submodules and the module system. We'll use a Python project as the running example, but the pattern applies to any language.
@@ -11,7 +11,7 @@ This guide shows how to embed BashTab in your own project using git submodules a
 
 ```sh
 cd your-project
-git submodule add https://github.com/sunjc826/BashTab.git deps/bash-tab
+git submodule add https://github.com/evagreendev/BashTab.git deps/bash-tab
 ```
 
 ## 2. Scaffold your module

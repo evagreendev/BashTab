@@ -1,13 +1,8 @@
----
-layout: page
-title: About
-permalink: /
-nav-order: 1
----
-
 # BashTab
 
 **BashTab** is a Bash scripting framework that makes shell development feel like a modern CLI platform. Command scripts, argument parsing, autocompletion, module loading, and interactive fzf previews — all in pure Bash.
+
+![BashTab demo: command listing, fzf completion, structured-output pipeline, and option hints](./demo.gif)
 
 ## Quick start
 
@@ -79,25 +74,3 @@ BashTab is **not**:
 - A YAML/TOML-to-Bash compiler (we stay in Bash)
 - A POSIX-sh framework (requires Bash 4+, uses associative arrays, `coproc`, `mapfile`)
 
----
-
-{% capture github_base %}{{ site.github.repository_url }}/blob/{{ site.github.build_revision }}/{% endcapture %}
-
-{% capture links %}
-[commands]: ../commands/
-[bu-import-environment]: ../commands/bu-import-environment.sh
-[bu-get-command]: ../commands/bu-get-command.sh
-[bu-new-command]: ../commands/bu-new-command.sh
-[bu-new-module]: ../commands/bu-new-module.sh
-[bu-get-module]: ../commands/bu-get-module.sh
-[bu_user_defined_decl]: ../bu_user_defined_decl.sh
-[bu_core_preinit]: ../lib/core/bu_core_preinit.sh
-[core]: ../lib/core/
-[bu_core_base]: ../lib/core/bu_core_base.sh
-[bu_core_autocomplete]: ../lib/core/bu_core_autocomplete.sh
-{% endcapture %}
-
-{% assign links_list = links | newline_to_br | split: '<br />' %}
-{% for link in links_list %}
-{{ link | replace_first: "../", github_base }}
-{% endfor %}

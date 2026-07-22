@@ -2,7 +2,7 @@
 layout: page
 title: Structured Output
 permalink: /structured-output/
-nav-order: 6
+nav_order: 6
 ---
 
 # Structured Output (PowerShell-inspired)

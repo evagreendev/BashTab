@@ -2,7 +2,7 @@
 layout: page
 title: Technical Reference
 permalink: /technical-reference/
-nav-order: 5
+nav_order: 5
 ---
 
 ## Using bu as a scripting dependency
@@ -11,7 +11,7 @@ The recommended way to use BashTab in your project is via the module system.
 
 ```sh
 # 1. Add BashTab as a git submodule
-git submodule add https://github.com/sunjc826/BashTab.git deps/bash-tab
+git submodule add https://github.com/evagreendev/BashTab.git deps/bash-tab
 
 # 2. Scaffold your module
 source deps/bash-tab/activate
