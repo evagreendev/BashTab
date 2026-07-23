@@ -4,6 +4,10 @@
 
 ![BashTab demo: command listing, fzf completion, structured-output pipeline, and option hints](./demo.gif)
 
+## 🌐 Try it in your browser
+
+No install needed — the **[live demo](https://evagreendev.github.io/BashTabDemo/)** boots Alpine Linux with BashTab pre-installed, running entirely in your browser via [v86](https://github.com/copy/v86) (x86 emulation in WebAssembly). Demo source: [evagreendev/BashTabDemo](https://github.com/evagreendev/BashTabDemo).
+
 ## Quick start
 
 ```sh
