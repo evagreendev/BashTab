@@ -9,7 +9,7 @@ IMAGES_DIR=$BASH_TAB_ROOT/images
 IMAGE_NAME=bashtab-v86
 CONTAINER_NAME=bashtab-v86-temp
 
-rm -r images
+rm -r images || true
 
 sudo env HTTP_PROXY="$HTTP_PROXY" HTTPS_PROXY="$HTTPS_PROXY" \
     docker build \
@@ -17,6 +17,7 @@ sudo env HTTP_PROXY="$HTTP_PROXY" HTTPS_PROXY="$HTTPS_PROXY" \
     --build-arg "HTTPS_PROXY=$HTTPS_PROXY" \
     --platform linux/386 \
     --rm \
+    --no-cache \
     --tag "$IMAGE_NAME" \
     --file docker/Dockerfile \
     .

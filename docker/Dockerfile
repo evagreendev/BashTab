@@ -10,7 +10,7 @@ RUN apk add --no-cache openrc alpine-base agetty alpine-conf linux-${KERNEL} lin
 
 # Set up autologin on tty1 (VGA) and ttyS0 (serial)
 RUN sed -i 's/getty 38400 tty1/agetty --autologin root tty1 linux/' /etc/inittab
-RUN echo 'ttyS0::respawn:/sbin/agetty --autologin root -s ttyS0 115200 vt100' >> /etc/inittab
+RUN echo 'ttyS0::respawn:/sbin/agetty --autologin root -s ttyS0 115200 xterm-256color' >> /etc/inittab
 RUN echo "root:" | chpasswd
 
 # Set bash as root's default shell
