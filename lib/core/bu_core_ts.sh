@@ -8,7 +8,7 @@
 # Result stored in BU_TS_RESULT associative array.
 
 if false; then
-    source ../../../bu_custom_source.sh
+    source ../../bu_custom_source.sh
 fi
 
 BU_TS_DAEMON=$BU_LIB_BIN_DIR/bu_ts_daemon.js
