@@ -2745,14 +2745,22 @@ __bu_bind_fzf_autocomplete_impl()
     local row_start=${BU_RET[0]}
     # https://stackoverflow.com/questions/22322879/how-to-print-current-bash-prompt
     # Note that @P is a Bash 4.4 feature.
-    local ps1_last_row=$(tail -n 1 <<<"${PS1##*\\n}")
-    printf "%s" "${ps1_last_row@P}" # Let's print this out ASAP to reduce the duration of flicker (readline will erase the current line during a binding)
+    # Remove \[ \] markers (preserve content — ANSI codes inside need to survive)
+    # and strip kitty OSC 133 shell-integration sequences which contain $? that
+    # @P would expand, corrupting them into visible garbage.
+    local ps1_clean
+    ps1_clean=$(printf '%s' "$PS1" | sed -E 's/\\\[|\\\]//g; s/\\e\\]133;[^\\]*(\\a|\\e\\)//g')
+    # Now @P-expand the cleaned prompt and take the last line (after last \n → real newline)
+    local ps1_expanded="${ps1_clean@P}"
+    local ps1_last_row="${ps1_expanded##*$'\n'}"
+    printf "%s" "$ps1_last_row" # | tee /tmp/bashtab_prompt.raw
+    #echo "" >> /tmp/bashtab_prompt.raw
 
-    # \[ (not \]) \]
-    local ps1_last_row_no_escape=$(sed -r 's/\\\[([^]]*([^\\]\]|\\[^]])?)*\\\]//g' <<<"$ps1_last_row")
-    local ps1_last_row_no_escape_rendered
-    printf -v ps1_last_row_no_escape_rendered "%s" "${ps1_last_row_no_escape@P}"
-    local col_with_ps1=$((${#ps1_last_row_no_escape_rendered} % COLUMNS))
+    # Compute visible prompt width.  Strip all ANSI escape sequences from
+    # the already-rendered string: CSI (ESC [ ... letter), OSC (ESC ] ... BEL).
+    local ps1_noesc
+    ps1_noesc=$(printf '%s' "$ps1_last_row" | sed -E 's/\x1B\[[^a-zA-Z]*[a-zA-Z]//g; s/\x1B\][^\x07]*(\x07|\x1B\\)//g; s/\x1B[PX^_][^\x1B]*(\x1B\\)?//g')
+    local col_with_ps1=$((${#ps1_noesc} % COLUMNS))
 
     local command_line_back_last_word=${command_line_back%%[[:space:]]*}
     local command_line_back_no_operator=${command_line_back_last_word}
@@ -3192,13 +3200,22 @@ __bu_bind_fzf_autocomplete_impl_ts()
     __bu_terminal_get_pos2 "$oldstty"
     local row_start=${BU_RET[0]}
 
-    local ps1_last_row=$(tail -n 1 <<<"${PS1##*\n}")
-    printf "%s" "${ps1_last_row@P}"
+    # Remove \[ \] markers (preserve content — ANSI codes inside need to survive)
+    # and strip kitty OSC 133 shell-integration sequences which contain $? that
+    # @P would expand, corrupting them into visible garbage.
+    local ps1_clean
+    ps1_clean=$(printf '%s' "$PS1" | sed -E 's/\\\[|\\\]//g; s/\\e\\]133;[^\\]*(\\a|\\e\\)//g')
+    # Now @P-expand the cleaned prompt and take the last line (after last \n → real newline)
+    local ps1_expanded="${ps1_clean@P}"
+    local ps1_last_row="${ps1_expanded##*$'\n'}"
+    printf "%s" "$ps1_last_row" # | tee /tmp/bashtab_prompt_ts.raw
+    #echo "" >> /tmp/bashtab_prompt_ts.raw
 
-    local ps1_last_row_no_escape=$(sed -r 's/\\\[([^]]*([^\\]\]|\\[^]])?)*\\\]//g' <<<"$ps1_last_row")
-    local ps1_last_row_no_escape_rendered
-    printf -v ps1_last_row_no_escape_rendered "%s" "${ps1_last_row_no_escape@P}"
-    local col_with_ps1=$((${#ps1_last_row_no_escape_rendered} % COLUMNS))
+    # Compute visible prompt width.  Strip all ANSI escape sequences from
+    # the already-rendered string: CSI (ESC [ ... letter), OSC (ESC ] ... BEL).
+    local ps1_noesc
+    ps1_noesc=$(printf '%s' "$ps1_last_row" | sed -E 's/\x1B\[[^a-zA-Z]*[a-zA-Z]//g; s/\x1B\][^\x07]*(\x07|\x1B\\)//g; s/\x1B[PX^_][^\x1B]*(\x1B\\)?//g')
+    local col_with_ps1=$((${#ps1_noesc} % COLUMNS))
 
     # Print the full command line with syntax highlighting (IDE-style preview)
     # Build the text already typed between command name and the word being completed
