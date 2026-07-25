@@ -850,10 +850,11 @@ bu_format_table()
             | ([$cols[] | {key: .key, header: .header, width: ([$minw, ((($termw - 2 * ($n - 1)) / $n) | floor)] | max)}]) as $spec
             | def rowline($r): $spec | map(
                   . as $s
-                  | ($r[$s.key] | cellstr | ellipsize($s.width) | pad($s.width)) as $cell
-                  | ($colors[$s.key] // "") + $cell + (if $colors[$s.key] then $reset else "" end)
+                  | ($r[$s.key] | cellstr | ellipsize($s.width)) as $val
+                  | ($colors[$s.key] // "") + $val + (if $colors[$s.key] then $reset else "" end) as $colored
+                  | $colored + (" " * ($s.width - ($val | length)))
               ) | join("  ");
-            ($spec | map(. as $s | $bold + ($s.header | ellipsize($s.width) | pad($s.width)) + $reset) | join("  ") | rtrim),
+            ($spec | map(. as $s | ($s.header | ellipsize($s.width)) as $h | $bold + $h + $reset + (" " * ($s.width - ($h | length)))) | join("  ") | rtrim),
             ($spec | map("-" * .width) | join("  ") | rtrim),
             (inputs | rowline(.) | rtrim)
             '
@@ -892,12 +893,13 @@ bu_format_table()
         | (if ($spec | length) < ($cols | length) then
               debug("showing \($spec | length) of \($cols | length) columns (use --columns or --format list)")
            else . end)
-        | ($spec | map(. as $s | $bold + ($s.header | ellipsize($s.width) | pad($s.width)) + $reset) | join("  ") | rtrim),
+        | ($spec | map(. as $s | ($s.header | ellipsize($s.width)) as $h | $bold + $h + $reset + (" " * ($s.width - ($h | length)))) | join("  ") | rtrim),
           ($spec | map("-" * .width) | join("  ") | rtrim),
           ($rows[] | . as $r | $spec | map(
               . as $s
-              | ($r[$s.key] | cellstr | ellipsize($s.width) | pad($s.width)) as $cell
-              | ($colors[$s.key] // "") + $cell + (if $colors[$s.key] then $reset else "" end)
+              | ($r[$s.key] | cellstr | ellipsize($s.width)) as $val
+              | ($colors[$s.key] // "") + $val + (if $colors[$s.key] then $reset else "" end) as $colored
+              | $colored + (" " * ($s.width - ($val | length)))
           ) | join("  ") | rtrim)
         end
         '

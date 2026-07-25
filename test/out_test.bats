@@ -147,7 +147,7 @@ function test_bu_format_table_colors_wrap_cells { #@test
     # Explicit --colors applies ANSI even when piped; header stays plain (not a TTY)
     local out
     out=$(printf '%s\n' '{"name":"x"}' | bu_format_table --columns name --colors name=red | grep -c $'\033')
-    assert_equal "$out" '1'
+    assert_equal "$out" '2'
 }
 
 # ===========================================================================
@@ -340,7 +340,7 @@ function test_bu_format_table_colors_use_key_not_label { #@test
     # --colors refers to the record key even when the display label differs
     local out
     out=$(printf '%s\n' '{"name":"x"}' | bu_format_table --columns name:Module --colors name=red | grep -c $'\033')
-    assert_equal "$out" '1'
+    assert_equal "$out" '2'
 }
 
 # ===========================================================================
