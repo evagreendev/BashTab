@@ -1,11 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+BASH_TAB_DEMO_BUILD=0
+
+if [[ "$1" = --build ]]
+then
+    BASH_TAB_DEMO_BUILD=1
+    shift
+fi
+
 BASH_TAB_DEMO_DIR=$(realpath -- "$1")
 
 cd "$(dirname -- "$BASH_SOURCE")"
 
 cd ..
+
+if ((BASH_TAB_DEMO_BUILD != 0))
+then
+    docker/build-image.sh
+fi
 
 BASH_TAB_DIR=$PWD
 
