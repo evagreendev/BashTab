@@ -645,19 +645,17 @@ function test_cmdlets_jsonl_when_piped { #@test
 }
 
 function test_cmdlets_table_when_terminal { #@test
-    # DISABLED: flaky in GitHub CI — the nested `script -qec` pty (util-linux
-    # 2.39 on ubuntu-24.04) injects a NUL byte at the start of the captured
-    # output, so the table never matches. Passes locally (util-linux 2.41).
-    skip "flaky in GitHub CI: script(1) pty emits a leading NUL byte"
     # script(1) allocates a pty, so the pipeline terminus sees a terminal and
-    # Out-Default renders a table (bold header ANSI stripped)
+    # Out-Default renders a table (bold header ANSI stripped).
+    # NULs stripped: util-linux script(1) can inject spurious NUL bytes into
+    # the pty stream (seen on ubuntu-24.04's 2.39 in GitHub CI)
     local helper=$BATS_TEST_TMPDIR/pty_select.sh
     cat > "$helper" <<EOF
 source "$DIR/../bu_entrypoint.sh" >/dev/null 2>&1
 BU_MODULE_LIST="a:1.0.0:/x" bu get-module | bu select-object name,version
 EOF
     local out
-    out=$(script -qec "bash $helper" /dev/null | tr -d '\r' | sed 's/\x1b\[[0-9;]*m//g;s/\x1b(B//g')
+    out=$(script -qec "bash $helper" /dev/null | tr -d '\r\000' | sed 's/\x1b\[[0-9;]*m//g;s/\x1b(B//g')
     assert_equal "$out" 'name  version
 ----  -------
 a     1.0.0'
@@ -679,7 +677,7 @@ source "$DIR/../bu_entrypoint.sh" >/dev/null 2>&1
 BU_MODULE_LIST="a:1.0.0:/x;b:2.0.0:/y" bu get-module | bu where-object '.name == "b"' | bu convert-to-tsv --columns name
 EOF
     local out
-    out=$(script -qec "bash $helper" /dev/null | tr -d '\r')
+    out=$(script -qec "bash $helper" /dev/null | tr -d '\r\000')
     assert_equal "$out" 'b'
 }
 
