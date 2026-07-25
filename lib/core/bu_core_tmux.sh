@@ -1,6 +1,4 @@
-if false; then
-source ./bu_core_base.sh
-fi
+# bash-ide source=./bu_core_base.sh
 
 # ```
 # *Description*:

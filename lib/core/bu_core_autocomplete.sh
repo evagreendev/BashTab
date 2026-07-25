@@ -1,7 +1,5 @@
-if false; then
-source ./bu_core_base.sh
-source ../../bu_user_defined_decl.sh
-fi
+# bash-ide source=./bu_core_base.sh
+# bash-ide source=../../bu_user_defined_decl.sh
 
 # MARK: Custom compopt
 

@@ -1,7 +1,5 @@
-if false; then
-source ../../bu_custom_source.sh
-source ../../bu_user_defined_decl.sh
-fi
+# bash-ide source=../../bu_custom_source.sh
+# bash-ide source=../../bu_user_defined_decl.sh
 
 # ```
 # *Description*:

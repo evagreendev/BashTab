@@ -4,10 +4,10 @@
 # initialize BashTab fully just to have the bu builtin commands,
 # then call the bu builtin commands inside a downstream repo activation script,
 # then reinitialize again.
-if false; then
-source ./bu_core_base.sh
-source ./bu_core_autocomplete.sh
-fi
+
+# bash-ide source=./bu_core_base.sh
+# bash-ide source=./bu_core_autocomplete.sh
+
 __bu_init_env_commands()
 {
     # ── Try to load the compat cache ──

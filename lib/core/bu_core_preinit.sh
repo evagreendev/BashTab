@@ -1,8 +1,7 @@
-if false; then
-source ./bu_core_base.sh
-source ./bu_core_autocomplete.sh
-source ./bu_core_cli.sh
-fi
+# bash-ide source=./bu_core_base.sh
+# bash-ide source=./bu_core_autocomplete.sh
+# bash-ide source=./bu_core_cli.sh
+
 
 # ```
 # *Description*:

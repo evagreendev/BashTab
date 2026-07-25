@@ -15,9 +15,7 @@
 # Pipeline users can drop to raw jq at any point for Where-Object /
 # Select-Object style filtering.
 
-if false; then
-source ./bu_core_base.sh
-fi
+# bash-ide source=./bu_core_base.sh
 
 # Resolved once at source time. Empty means jq is unavailable.
 BU_OUT_JQ=$(command -v jq 2>/dev/null) || BU_OUT_JQ=

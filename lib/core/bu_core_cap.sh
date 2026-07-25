@@ -15,9 +15,8 @@
 #   BU_COMMAND_UNAVAILABLE associative array: command → reason (populated by registration)
 # ```
 
-if false; then
-    source ./bu_core_base.sh
-fi
+# bash-ide source=./bu_core_base.sh
+
 
 # ── Platform detection ────────────────────────────────────────────────
 

@@ -1,12 +1,10 @@
-if false; then
-source ../../bu_custom_source.sh
-source ./bu_core_var.sh
+# bash-ide source=../../bu_custom_source.sh
+# bash-ide source=./bu_core_var.sh
 # Note: static.sh should be sourced outside of this file!
-source ../../config/bu_config_static.sh
+# bash-ide source=../../config/bu_config_static.sh
 # Note: dynamic.sh should be sourced outside of this file!
-source ../../config/bu_config_dynamic.sh
-source ./bu_core_base.sh
-fi
+# bash-ide source=../../config/bu_config_dynamic.sh
+# bash-ide source=./bu_core_base.sh
 
 function __bu_compat_macos()
 {

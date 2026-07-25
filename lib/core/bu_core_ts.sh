@@ -7,9 +7,8 @@
 # Usage: source this file, then call bu_ts_parse CURSOR_OFFSET "COMMAND_LINE"
 # Result stored in BU_TS_RESULT associative array.
 
-if false; then
-    source ../../bu_custom_source.sh
-fi
+# bash-ide source=../../bu_custom_source.sh
+
 
 BU_TS_DAEMON=$BU_LIB_BIN_DIR/bu_ts_daemon.js
 BU_TS_COPROC_PID=
