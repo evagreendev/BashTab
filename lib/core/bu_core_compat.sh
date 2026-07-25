@@ -17,7 +17,7 @@ function __bu_compat_macos()
         bu_log_warn "gfind not found, -printf will break"
     fi
 
-    if command -v gwak &>/dev/null; then
+    if command -v gawk &>/dev/null; then
         alias awk=gwak
     else
         bu_log_warn "gawk not found" >&2
