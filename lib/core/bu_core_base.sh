@@ -2778,9 +2778,15 @@ bu_edit_file()
         if command -v code &>/dev/null
         then
             code "${files[@]}"
-        else
+        elif command -v vim &>/dev/null
+        then
             vim "${files[@]}"
-        fi 
+        elif command -v vi &>/dev/null
+        then
+            vi "${files[@]}"
+        else
+            bu_log_err "No editor found"
+        fi
         ;;
     *)
         $editor "${files[@]}"

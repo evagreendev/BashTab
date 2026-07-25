@@ -37,6 +37,17 @@ __bu_init_keybindings()
 # are 2 different binaries, though with similar options.
 __bu_init_vscode()
 {
+    # Default fallback editor
+    local DEFAULT_EDITOR=
+    local editor
+    for editor in vi nano vim emacs
+    do
+        if command -v "$editor"
+        then
+            DEFAULT_EDITOR=$editor
+        fi
+    done
+    
     if [[ -n "${VSCODE_IPC_HOOK_CLI:-}" && -n "${VSCODE_GIT_ASKPASS_NODE:-}" ]]
     then
         # This is the "real" VSCode integrated terminal
@@ -64,8 +75,8 @@ __bu_init_vscode()
                 unset VSCODE_IPC_HOOK_CLI
                 if [[ "${VISUAL:-}" == code* || "${EDITOR:-}" == code* ]]
                 then
-                    export VISUAL=vim
-                    export EDITOR=vim
+                    export VISUAL=
+                    export EDITOR=$DEFAULT_EDITOR
                 fi
                 return
             fi
@@ -88,8 +99,8 @@ __bu_init_vscode()
             if bu_vscode_is_socket_inactive
             then
                 rm -f "$BU_OUT_DIR"/VSCODE_IPC_HOOK_CLI.sock "$BU_OUT_DIR"/vscode_server_instance
-                export VISUAL=vim
-                export EDITOR=vim
+                export VISUAL=
+                export EDITOR=$DEFAULT_EDITOR
                 bu_log_warn code server is not running
             else
                 export VISUAL=$BU_LIB_BIN_DIR/bu_code_wait.sh
