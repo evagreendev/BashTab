@@ -569,7 +569,7 @@ bu_def_source()
             # We assume all bu source once files to be uniquely named
             if "${BU_SOURCE_ONCE_CACHE[$basename]:-false}"
             then
-                if "$BU_SOURCE_IS_FORCE"
+                if "${BU_SOURCE_IS_FORCE:-false}"
                 then
                     bu_basic_log_debug "$basename has already been sourced, forcing."
                 else

@@ -38,13 +38,13 @@ __bu_init_keybindings()
 __bu_init_vscode()
 {
     # Default fallback editor
-    local DEFAULT_EDITOR=
+    local default_editor=
     local editor
     for editor in vi nano vim emacs
     do
-        if command -v "$editor"
+        if command -v "$editor" &>/dev/null
         then
-            DEFAULT_EDITOR=$editor
+            default_editor=$editor
         fi
     done
     
@@ -76,7 +76,7 @@ __bu_init_vscode()
                 if [[ "${VISUAL:-}" == code* || "${EDITOR:-}" == code* ]]
                 then
                     export VISUAL=
-                    export EDITOR=$DEFAULT_EDITOR
+                    export EDITOR=$default_editor
                 fi
                 return
             fi
@@ -100,7 +100,7 @@ __bu_init_vscode()
             then
                 rm -f "$BU_OUT_DIR"/VSCODE_IPC_HOOK_CLI.sock "$BU_OUT_DIR"/vscode_server_instance
                 export VISUAL=
-                export EDITOR=$DEFAULT_EDITOR
+                export EDITOR=$default_editor
                 bu_log_warn code server is not running
             else
                 export VISUAL=$BU_LIB_BIN_DIR/bu_code_wait.sh
