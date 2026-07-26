@@ -67,7 +67,7 @@ then
     return 1
 fi
 
-docker network ls --format json 2>/dev/null | bu_format_jsonl | bu_out --format "$format"
+${BU_CAP[docker,sudo]} docker network ls --format json 2>/dev/null | bu_format_jsonl | bu_out --format "$format"
 
 bu_scope_pop_function
 }

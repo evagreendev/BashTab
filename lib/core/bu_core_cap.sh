@@ -85,11 +85,21 @@ bu_cap_probe()
 # ```
 bu_cap_probe_all()
 {
+    bu_log_debug "Init probe"
     bu_cap_probe fzf      fzf
     bu_cap_probe jq       jq
     bu_cap_probe node     node
     bu_cap_probe jc       jc
     bu_cap_probe docker   docker
+
+    if [[ -n "${BU_CAP[docker]}" ]]
+    then
+        if { docker info |& grep -q 'permission denied' ; } &>/dev/null
+        then
+            BU_CAP[docker,sudo]=sudo
+        fi
+    fi
+
     bu_cap_probe systemctl systemctl
     bu_cap_probe dpkg     dpkg
     bu_cap_probe rpm      rpm
