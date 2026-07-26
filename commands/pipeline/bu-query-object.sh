@@ -10,6 +10,8 @@ bu_scope_push_function
 bu_run_log_command "$@"
 
 local select_fields=
+local from_file=
+local out_file=
 local -a where_exprs=()
 local group_keys=
 local -a agg_specs=()
@@ -33,6 +35,11 @@ do
         # Fields to keep, in order (comma-separated; new=old renames)
         bu_parse_positional $# --ret __bu_out_complete_pipeline_fields ret-- --hint "Fields (from pipeline producer), new=old renames"
         select_fields=${!shift_by}
+        ;;
+    --from|from)# FROM
+        # Query a particular file. Defaults to /dev/stdin
+        bu_parse_positional $# "${BU_AUTOCOMPLETE_SPEC_FILE[@]}" --hint "Input file (JSONL). Defaults to stdin"
+        from_file=${!shift_by}
         ;;
     --where|where)# WHERE
         # Filter records with a jq boolean expression. Repeatable; multiple
@@ -67,6 +74,11 @@ do
         # Field to sort by (refers to output field names, after any renames)
         bu_parse_positional $# --ret __bu_out_complete_pipeline_fields ret-- --hint "Sort field (from pipeline producer)"
         order_by=${!shift_by}
+        ;;
+    --outfile|outfile)# OUTFILE
+        # Output query results to a file
+        bu_parse_positional $# "${BU_AUTOCOMPLETE_SPEC_FILE[@]}" --hint "Output file. Defaults to stdout"
+        out_file=${!shift_by}
         ;;
     --desc|desc)# _FLAG
         # Sort descending
@@ -143,6 +155,9 @@ order: WHERE -> GROUP BY -> HAVING -> SELECT -> ORDER BY -> FIRST.
   distinct  removes duplicate records after projection (SELECT DISTINCT)
   order-by  uses output field names  (after renames, like SQL aliases)
   first     takes the first N records (SQL LIMIT)
+  from      reads records from a file instead of stdin
+  outfile   writes results to a file instead of stdout (defaults to JSONL
+            there, since a file is not a terminal)
 
 Each clause keyword works with or without dashes (select / --select).
 Output ends at Out-Default: a table on a terminal, JSONL when piped.
@@ -154,7 +169,9 @@ Output ends at Out-Default: a table on a terminal, JSONL when piped.
         --example "Distinct projected fields" "select verb distinct" \
         --example "Group and count" "group-by verb agg count" \
         --example "Group with aggregates and having" "group-by verb agg count,avg:len having '.count > 1' order-by count desc" \
-        --example "Dashed forms work too" "--where '.type == \"source\"' --select name"
+        --example "Dashed forms work too" "--where '.type == \"source\"' --select name" \
+        --example "Query a file instead of stdin" "from data.jsonl where '.type == \"source\"' select name" \
+        --example "Save results to a file" "select name,verb order-by name outfile verbs.jsonl"
     return 0
 fi
 
@@ -196,6 +213,46 @@ then
     do
         having_expr+=" and ($h)"
     done
+fi
+
+# Resolve file paths against the invocation directory and validate them.
+# Like the --first/agg validations above, this runs before --debug: a bad
+# path simply fails plan generation and completion falls back gracefully.
+if [[ -n "$from_file" ]]
+then
+    bu_realpath "$from_file" "$invocation_dir"
+    from_file=$BU_RET
+    if [[ ! -e "$from_file" ]]
+    then
+        error_msg="--from file does not exist[$from_file]"
+    elif [[ -d "$from_file" ]]
+    then
+        error_msg="--from file is a directory[$from_file]"
+    elif [[ ! -r "$from_file" ]]
+    then
+        error_msg="--from file is not readable[$from_file]"
+    fi
+fi
+
+if [[ -z "$error_msg" && -n "$out_file" ]]
+then
+    bu_realpath "$out_file" "$invocation_dir"
+    out_file=$BU_RET
+    local -r out_file_dir=${out_file%/*}
+    if [[ ! -d "$out_file_dir" ]]
+    then
+        error_msg="--outfile directory does not exist[$out_file_dir]"
+    elif [[ -e "$out_file" && ! -w "$out_file" ]] || [[ ! -e "$out_file" && ! -w "$out_file_dir" ]]
+    then
+        error_msg="--outfile is not writable[$out_file]"
+    fi
+fi
+
+if [[ -n "$error_msg" ]]
+then
+    bu_autohelp
+    bu_scope_pop_function
+    return 1
 fi
 
 if "$is_debug"
@@ -351,8 +408,19 @@ __bu_query_object_first()
 local -a out_args=(--format "$format")
 [[ -n "$columns" ]] && out_args+=(--columns "$columns")
 
-# Cmdlets implicitly end at Out-Default: a table on a terminal, JSONL when piped
-__bu_query_object_where | __bu_query_object_group | __bu_query_object_having | __bu_query_object_select | __bu_query_object_distinct | __bu_query_object_sort | __bu_query_object_first | bu_out "${out_args[@]}"
+__bu_query_object_pipeline()
+{
+    # Cmdlets implicitly end at Out-Default: a table on a terminal, JSONL when piped
+    __bu_query_object_where | __bu_query_object_group | __bu_query_object_having | __bu_query_object_select | __bu_query_object_distinct | __bu_query_object_sort | __bu_query_object_first | bu_out "${out_args[@]}"
+}
+
+if [[ -n "$out_file" ]]
+then
+    # A file is never a terminal, so --format auto resolves to JSONL there
+    __bu_query_object_pipeline < "${from_file:-/dev/stdin}" > "$out_file"
+else
+    __bu_query_object_pipeline < "${from_file:-/dev/stdin}"
+fi
 
 bu_scope_pop_function
 }

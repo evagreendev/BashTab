@@ -925,6 +925,69 @@ function test_bu_query_object_agg_requires_group_by { #@test
     assert_failure
 }
 
+function test_bu_query_object_from_file { #@test
+    # --from reads records from a file instead of stdin
+    local input=$BATS_TEST_TMPDIR/query_input.jsonl
+    printf '%s\n' '{"name":"b","n":2}' '{"name":"a","n":1}' '{"name":"c","n":3}' > "$input"
+    local out
+    out=$(bu query-object from "$input" select name order-by name --format tsv --columns name </dev/null)
+    assert_equal "$out" $'a\nb\nc'
+}
+
+function test_bu_query_object_from_relative_path { #@test
+    # Relative --from resolves against the invocation directory
+    local input=$BATS_TEST_TMPDIR/query_input.jsonl
+    printf '%s\n' '{"name":"a"}' > "$input"
+    local out
+    out=$(cd "$BATS_TEST_TMPDIR" && bu query-object from query_input.jsonl </dev/null)
+    assert_equal "$out" '{"name":"a"}'
+}
+
+function test_bu_query_object_from_missing_file { #@test
+    run bu query-object from "$BATS_TEST_TMPDIR"/nope.jsonl </dev/null
+    assert_failure
+}
+
+function test_bu_query_object_from_directory { #@test
+    run bu query-object from "$BATS_TEST_TMPDIR" </dev/null
+    assert_failure
+}
+
+function test_bu_query_object_outfile { #@test
+    # --outfile writes results to a file instead of stdout
+    local output=$BATS_TEST_TMPDIR/query_output.jsonl
+    local out
+    out=$(bu get-command | bu query-object where '.name == "query-object" or .name == "get-command"' select name order-by name outfile "$output")
+    assert_equal "$out" ''
+    assert_equal "$(cat "$output")" '{"name":"get-command"}
+{"name":"query-object"}'
+}
+
+function test_bu_query_object_from_and_outfile { #@test
+    # File in, file out: stdin/stdout untouched
+    local input=$BATS_TEST_TMPDIR/query_input.jsonl
+    local output=$BATS_TEST_TMPDIR/query_output.jsonl
+    printf '%s\n' '{"n":2}' '{"n":1}' > "$input"
+    bu query-object from "$input" order-by n outfile "$output" </dev/null
+    assert_equal "$(cat "$output")" '{"n":1}
+{"n":2}'
+}
+
+function test_bu_query_object_outfile_bad_directory { #@test
+    run bu query-object outfile "$BATS_TEST_TMPDIR"/no_such_dir/out.jsonl </dev/null
+    assert_failure
+}
+
+function test_e2e_query_object_from_completion { #@test
+    # from/outfile values complete filenames
+    touch "$BATS_TEST_TMPDIR"/alpha.jsonl "$BATS_TEST_TMPDIR"/beta.jsonl
+    cd "$BATS_TEST_TMPDIR"
+    bu_autocomplete_get_autocompletions bu query-object from ""
+    assert_equal "${COMPREPLY[*]}" "alpha.jsonl beta.jsonl"
+    bu_autocomplete_get_autocompletions bu query-object outfile b
+    assert_equal "${COMPREPLY[*]}" "beta.jsonl"
+}
+
 function test_e2e_query_object_group_by_completion { #@test
     local command_line_front_before_pipe="bu get-command | "
     bu_autocomplete_get_autocompletions bu query-object group-by ""
