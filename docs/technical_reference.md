@@ -65,10 +65,16 @@ Variable list
 
 ### Module registry
 
-Modules can self-identify via `bu_register_module`:
+Modules register by appending to `BU_MODULE_LIST`, an exported scalar of the form
+`"name:version:preinit_path;..."`.  `bu_entrypoint.sh` parses this (deduping by name),
+sources each preinit, and populates `BU_MODULE_REGISTRY` for `bu get-module`.
 
 ```sh
-bu_register_module "modname" "0.1.0" "/path/to/modname_bu_preinit.sh"
+# In a module script (sourced from BU_MODULE_PATH):
+BU_MODULE_LIST+="modname:0.1.0:/path/to/modname_bu_preinit.sh;"
+
+# Or set directly in a top-level activate script:
+export BU_MODULE_LIST="myproject:0.1.0:/path/to/preinit.sh;"
 ```
 
 This populates:
@@ -76,9 +82,9 @@ This populates:
 | Variable | Type | Description |
 |---|---|---|
 | `BU_MODULE_REGISTRY` | `Map[String, String]` | `name → "version:preinit_path"`. Available in current shell. |
-| `BU_MODULE_LIST` | `String` (exported) | `"name:version:path;..."`. Survives subshells for `bu get-module`. |
+| `BU_MODULE_LIST` | `String` (exported) | `"name:version:path;..."`. Deduped after parsing. Survives subshells for `bu get-module`. |
 
-`bu get-module` reads `BU_MODULE_LIST` to display loaded modules with name, version, and path. Legacy modules (without `bu_register_module`) still work but won't appear in the listing.
+`bu get-module` reads `BU_MODULE_LIST` to display loaded modules with name, version, and path.
 
 ### Initialization callable functions
 Another point of customization are the pre-init functions. They are found in [bu_core_preinit.sh][bu_core_preinit]. They all have the `bu_preinit_` prefix.

@@ -37,7 +37,7 @@ This creates:
 ```
 myproject/
 ├── activate                      ← "binary" entrypoint (sets BU_TOP_LEVEL_MODULE)
-├── myproject_bu_module.sh        ← "library" registration (bu_register_module)
+├── myproject_bu_module.sh        ← "library" registration (appends to BU_MODULE_LIST)
 ├── myproject_bu_preinit.sh       ← registers command dirs (runs in both modes)
 └── commands/
 ```
@@ -152,12 +152,12 @@ top-level "binary" and override their cache key.
 
 ## Module registration (updated pattern)
 
-The module script (`myproject_bu_module.sh`) registers itself with the `bu_register_module` API:
+The module script (`myproject_bu_module.sh`) appends to `BU_MODULE_LIST`:
 
 ```sh
 #!/usr/bin/env bash
 myproject_DIR=$(realpath -- "$(dirname -- "${BASH_SOURCE}")")
-bu_register_module "myproject" "0.1.0" "$myproject_DIR/myproject_bu_preinit.sh"
+BU_MODULE_LIST+="myproject:0.1.0:$myproject_DIR/myproject_bu_preinit.sh;"
 ```
 
 This makes the module visible to `bu get-module` and future module introspection tools. The legacy raw-array pattern still works but won't appear in module listings.

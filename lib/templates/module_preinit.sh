@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ── Pre-init callback ─────────────────────────────────────────────
 # This script runs DURING bu_entrypoint.sh initialization (registered
-# by @MODULE_NAME@_bu_module.sh via bu_register_module).
+# by @MODULE_NAME@_bu_module.sh via BU_MODULE_LIST).
 #
 # bu IS available here — the early init phase already registered the
 # builtin commands.  Use +i (--no-init) to avoid re-sourcing

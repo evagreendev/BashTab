@@ -27,10 +27,10 @@ function @MODULE_NAME@_activate()
         bu import-environment --reset-leaky --no-init
     fi
 
-    if [[ "$BU_MODULE_PATH" != *@MODULE_NAME@_bu_module.sh* ]]
-    then
-        BU_MODULE_PATH+=:$@MODULE_NAME@_dir/@MODULE_NAME@_bu_module.sh
-    fi
+    # Register this module.  The top-level empties BU_MODULE_LIST and sets
+    # its own entry.  Library dependencies add themselves to BU_MODULE_PATH:
+    # their module scripts are sourced and append to BU_MODULE_LIST.
+    export BU_MODULE_LIST="@MODULE_NAME@:0.1.0:$@MODULE_NAME@_dir/@MODULE_NAME@_bu_preinit.sh;"
 
     # Set the top-level module key so the command registry can be cached.
     # Must be set before sourcing bu_entrypoint.sh so the cache is checked.

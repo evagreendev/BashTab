@@ -122,32 +122,60 @@ bu_user_defined_autocomplete_lazy()
 
 # ```
 # *Description*:
-# Register a module with BashTab's module registry.
-# Modules call this to self-identify with a name and optional version,
-# enabling bu get-module and other inspection commands.
+# Parse BU_MODULE_LIST and register preinit callbacks + module registry entries.
 #
-# *Params*:
-# - `$1`: Module name (e.g. "utilities", "demoapp")
-# - `$2`: Module version (e.g. "0.1.0", or empty string)
-# - `$3`: Path to the module's preinit callback script
+# BU_MODULE_LIST is an exported scalar of the form:
+#   "name:version:preinit_path;name:version:preinit_path;..."
+#
+# Modules append to it in their module script (sourced from BU_MODULE_PATH).
+# Top-level projects set it directly in their activate script before sourcing
+# bu_entrypoint.sh — no function call needed.
 #
 # *Side effects*:
-# - Registers the module in BU_MODULE_REGISTRY (associative array)
-# - Appends the preinit callback to BU_USER_DEFINED_STATIC_PRE_INIT_ENTRYPOINT_CALLBACKS
+# - Populates BU_MODULE_REGISTRY (for bu get-module)
+# - Appends preinit paths to BU_USER_DEFINED_STATIC_PRE_INIT_ENTRYPOINT_CALLBACKS
 # ```
-bu_register_module()
+__bu_parse_module_list()
 {
-    local name=$1
-    local version=$2
-    local preinit=$3
+    local entry name version path
+    local old_ifs=$IFS
+    IFS=';'
+    local -a entries=()
+    entries=(${BU_MODULE_LIST:-})
+    IFS=$old_ifs
 
-    if [[ -z "${BU_MODULE_REGISTRY[$name]:-}" ]]; then
-        BU_MODULE_REGISTRY[$name]="$version:$preinit"
-    fi
-    # Also build an exportable scalar for subshell inspection
-    # ${BU_MODULE_LIST:-}: not yet initialized when modules register during sourcing (set -u safe)
-    if [[ "${BU_MODULE_LIST:-}" != *"${name}:"* ]]; then
-        BU_MODULE_LIST+="${name}:${version}:${preinit};"
-    fi
-    BU_USER_DEFINED_STATIC_PRE_INIT_ENTRYPOINT_CALLBACKS+=("$preinit")
+    local -A seen_names=()
+    local -A seen_paths=()
+    local deduped=
+
+    for entry in "${entries[@]}"
+    do
+        [[ -z "$entry" ]] && continue
+        name=${entry%%:*}
+        local rest=${entry#*:}
+        version=${rest%%:*}
+        path=${rest#*:}
+
+        # Dedup by name (first registration wins)
+        if [[ -n "${seen_names[$name]:-}" ]]; then
+            continue
+        fi
+        seen_names[$name]=1
+
+        # Append to deduped list
+        deduped+="${name}:${version}:${path};"
+
+        # Register for bu get-module
+        BU_MODULE_REGISTRY[$name]="$version:$path"
+
+        # Register preinit callback (dedup by path)
+        if [[ -n "$path" && -z "${seen_paths[$path]:-}" ]]; then
+            seen_paths[$path]=1
+            BU_USER_DEFINED_STATIC_PRE_INIT_ENTRYPOINT_CALLBACKS+=("$path")
+        fi
+    done
+
+    # Write back the deduped list
+    BU_MODULE_LIST=$deduped
+    export BU_MODULE_LIST
 }

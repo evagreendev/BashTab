@@ -370,13 +370,21 @@ Register via pre-init functions:
 
 ### Module System
 
-Module scripts in `BU_MODULE_PATH` register themselves:
+Module scripts in `BU_MODULE_PATH` append to `BU_MODULE_LIST` to register
+their name, version, and preinit callback.  Top-level projects can set
+`BU_MODULE_LIST` directly in their `activate` script before sourcing
+`bu_entrypoint.sh` — no function call needed.
 
 ```bash
-bu_register_module "modname" "0.1.0" "/path/to/preinit.sh"
+# In a module script (sourced from BU_MODULE_PATH):
+BU_MODULE_LIST+="modname:0.1.0:/path/to/preinit.sh;"
+
+# Or in a top-level activate script (set before sourcing entrypoint):
+export BU_MODULE_LIST="myproject:0.1.0:/path/to/preinit.sh;"
 ```
 
-This populates `BU_MODULE_REGISTRY` (associative array) and `BU_MODULE_LIST` (exported scalar for subshells).
+`bu_entrypoint.sh` parses `BU_MODULE_LIST` (deduping by name), populates
+`BU_MODULE_REGISTRY` for `bu get-module`, and sources each preinit callback.
 
 - `bu new-module --name myapp` — scaffold a module
 - `bu get-module` — list loaded modules with name, version, path

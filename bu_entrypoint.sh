@@ -86,6 +86,7 @@ function __bu_source_modules()
     done
 }
 __bu_source_modules
+__bu_parse_module_list
 
 
 source ./config/bu_config_static.sh --__bu-once
