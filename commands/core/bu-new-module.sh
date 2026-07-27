@@ -157,10 +157,16 @@ echo
 echo "  ${g}✓${rs} Module scaffolded at ${b}$module_dir${rs}"
 echo
 echo "  Layout:"
-echo "    activate                        ← source this to activate"
-echo "    ${substitute_name}_bu_module.sh   ← registers the module"
-echo "    ${substitute_name}_bu_preinit.sh  ← sets up shell + commands"
-echo "    commands/                       ← add your subcommands here"
+echo "    activate                      ← source this to enter the environment"
+echo "    ${substitute_name}_bu_module.sh ← library registration (runs BEFORE bu exists)"
+echo "    ${substitute_name}_bu_preinit.sh ← pre-init callback (bu IS available here)"
+echo "    commands/                     ← your subcommands (registered by preinit)"
+echo
+echo "  Lifecycle:"
+echo "    1. activate sets BU_TOP_LEVEL_MODULE, sources bu_entrypoint.sh"
+echo "    2. *_bu_module.sh runs → registers preinit callback"
+echo "    3. *_bu_preinit.sh runs → bu import-environment (bu is available)"
+echo "    4. bu_mark_load_complete → caches command registry"
 echo
 echo "  Next steps:"
 echo "    cd $module_dir"
