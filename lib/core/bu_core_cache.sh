@@ -124,7 +124,7 @@ __bu_command_cache_file()
 # BU_COMMAND_CACHE_LOADED=true so that __bu_init_env_commands skips the
 # scan (PATH setup still runs).
 #
-# Returns: 0 if cache was loaded, 1 otherwise
+# Returns: always 0 (cache miss is normal; never abort under set -e)
 # ```
 __bu_try_load_command_cache()
 {
@@ -138,20 +138,24 @@ __bu_try_load_command_cache()
 
     local key=${BU_TOP_LEVEL_MODULE:-}
     if [[ -z "$key" ]]; then
-        return 1
+        return 0
     fi
 
     __bu_command_cache_file "$key"
     local cache_file=$BU_RET
 
     if [[ ! -f "$cache_file" ]]; then
-        bu_log_info "Command cache: miss (${cache_file##*/})"
-        return 1
+        bu_log_warn "Command cache: miss (${cache_file##*/}) — will do a full scan"
+        return 0
     fi
 
     bu_log_info "Command cache: hit (${cache_file##*/})"
     # shellcheck disable=SC1090
-    source "$cache_file"
+    if ! source "$cache_file"; then
+        bu_log_warn "Command cache: corrupt, removing ${cache_file##*/}"
+        rm -f "$cache_file"
+        return 0
+    fi
     BU_COMMAND_CACHE_LOADED=true
 
     if "${BU_PROMPT_SHOW_MODULE:-false}"; then
