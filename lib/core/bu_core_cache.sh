@@ -156,6 +156,29 @@ __bu_try_load_command_cache()
         rm -f "$cache_file"
         return 0
     fi
+
+    # Validate: if any cached command path no longer exists (e.g. repo moved),
+    # the cache is stale — discard it and do a fresh scan.
+    local cmd script_path
+    for cmd in "${!BU_COMMANDS[@]}"
+    do
+        script_path=${BU_COMMANDS[$cmd]}
+        if [[ ! -f "$script_path" && ! -x "$script_path" ]]; then
+            bu_log_warn "Command cache: stale path for '$cmd' (${script_path}), removing ${cache_file##*/}"
+            rm -f "$cache_file"
+            # Clear the stale cache data so the fresh scan starts from scratch
+            BU_COMMANDS=()
+            BU_COMMAND_UNAVAILABLE=()
+            BU_COMMAND_VERBS=()
+            BU_COMMAND_NOUNS=()
+            BU_COMMAND_NAMESPACES=()
+            BU_COMMAND_PROPERTIES=()
+            # BU_COMMAND_SEARCH_DIRS is not reset — preinit already registered
+            # the builtin dirs, and user preinit will re-register the rest.
+            return 0
+        fi
+    done
+
     BU_COMMAND_CACHE_LOADED=true
 
     if "${BU_PROMPT_SHOW_MODULE:-false}"; then
