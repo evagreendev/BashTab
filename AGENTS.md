@@ -47,7 +47,7 @@ source ./activate --__bu-inline ./inline.sh
 ### Initialization Flow
 
 1. `bu_entrypoint.sh` - Main entry point that orchestrates loading
-2. Loads modules from `BU_MODULE_PATH`
+2. Parses `BU_MODULE_LIST` (the sole module registry)
 3. Loads static config (`config/bu_config_static.sh`)
 4. Loads dynamic config (`config/bu_config_dynamic.sh`)
 5. Sources all core modules
@@ -370,21 +370,21 @@ Register via pre-init functions:
 
 ### Module System
 
-Module scripts in `BU_MODULE_PATH` append to `BU_MODULE_LIST` to register
-their name, version, and preinit callback.  Top-level projects can set
-`BU_MODULE_LIST` directly in their `activate` script before sourcing
-`bu_entrypoint.sh` — no function call needed.
+`BU_MODULE_LIST` is the sole module registry — an exported scalar of the form
+`"name:version:preinit_path;..."`.  Top-level projects set it in their
+`activate` script; library dependencies append to it in their module scripts.
 
 ```bash
-# In a module script (sourced from BU_MODULE_PATH):
-BU_MODULE_LIST+="modname:0.1.0:/path/to/preinit.sh;"
-
-# Or in a top-level activate script (set before sourcing entrypoint):
+# Top-level activate (sets the initial list):
 export BU_MODULE_LIST="myproject:0.1.0:/path/to/preinit.sh;"
+
+# Library module script (appends):
+BU_MODULE_LIST+="libname:0.1.0:/path/to/lib_preinit.sh;"
 ```
 
-`bu_entrypoint.sh` parses `BU_MODULE_LIST` (deduping by name), populates
-`BU_MODULE_REGISTRY` for `bu get-module`, and sources each preinit callback.
+`bu_entrypoint.sh` calls `__bu_parse_module_list` which dedupes by name,
+populates `BU_MODULE_REGISTRY` for `bu get-module`, and registers each
+preinit callback to be sourced during init.
 
 - `bu new-module --name myapp` — scaffold a module
 - `bu get-module` — list loaded modules with name, version, path
@@ -410,7 +410,7 @@ BashTab modules follow Rust's library/binary model:
 | Role | Entrypoint | Has `BU_TOP_LEVEL_MODULE` | Calls `bu_mark_load_complete` |
 |------|-----------|---------------------------|-------------------------------|
 | **Binary** (top-level) | `activate` | yes — set before sourcing entrypoint | yes — saves command cache |
-| **Library** (dependency) | `*_bu_module.sh` (via `BU_MODULE_PATH`) | no — inherits parent's | no — parent handles caching |
+| **Library** (dependency) | `*_bu_module.sh` (appends to `BU_MODULE_LIST`) | no — inherits parent's | no — parent handles caching |
 
 A module can be used either way. Its `activate` makes it a standalone "binary"; its `*_bu_module.sh` lets another project consume it as a library.
 
@@ -424,7 +424,7 @@ A module can be used either way. Its `activate` makes it a standalone "binary"; 
 
 ### Setup (as library / dependency of another project)
 
-1. Register the module script in `BU_MODULE_PATH` (colon-separated)
+1. Append your module entry to `BU_MODULE_LIST` in the host project's activate
 2. The host project's `activate` sets its own `BU_TOP_LEVEL_MODULE`
 3. Your preinit callbacks run during the host's initialization
 4. Your commands appear alongside the host's — all cached under the host's key

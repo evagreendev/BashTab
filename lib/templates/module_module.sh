@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # ── Library registration ──────────────────────────────────────────
-# This script is sourced via BU_MODULE_PATH BEFORE bu_entrypoint.sh
-# finishes.  Append to BU_MODULE_LIST to register the module name,
+# This script appends to BU_MODULE_LIST to register the module name,
 # version, and preinit callback.  bu_entrypoint.sh parses this later
 # and sources the preinit when bu IS available.
 

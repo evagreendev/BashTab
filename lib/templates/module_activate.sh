@@ -28,7 +28,7 @@ function @MODULE_NAME@_activate()
     fi
 
     # Register this module.  The top-level empties BU_MODULE_LIST and sets
-    # its own entry.  Library dependencies add themselves to BU_MODULE_PATH:
+    # its own entry.  Library dependencies append to BU_MODULE_LIST
     # their module scripts are sourced and append to BU_MODULE_LIST.
     export BU_MODULE_LIST="@MODULE_NAME@:0.1.0:$@MODULE_NAME@_dir/@MODULE_NAME@_bu_preinit.sh;"
 

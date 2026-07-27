@@ -64,7 +64,7 @@ then
         --description "
 List all modules registered in BU_MODULE_LIST.
 Each entry has the form \"name:version:preinit_path;\".
-Module scripts set this when sourced from BU_MODULE_PATH;
+Module scripts set this when sourced;
 top-level projects set it in their activate script.
 
 Output is structured: piped output defaults to JSONL, terminal output

@@ -67,7 +67,7 @@ do
         is_reset_module_path=true
         ;;
     --reset-leaky)# _FLAG
-        # Allow BU_MODULE_PATH to leak into the current environment, otherwise reset everything else.
+        # Allow BU_MODULE_LIST to leak into the current environment, otherwise reset everything else.
         is_reset_source=true
         is_reset_vars=true
         ;;
@@ -80,7 +80,7 @@ do
         is_reset_vars=true
         ;;
     --reset-module-path)# _FLAG
-        # Allow BU_MODULE_PATH to be reset, this will effectively de-register the other modules that are not part of this project.  
+        # Allow BU_MODULE_LIST to be reset, this will effectively de-register the other modules that are not part of this project.  
         is_reset_module_path=true
         ;;
     -h|--help)# _FLAG
@@ -185,8 +185,8 @@ fi
 
 if "$is_reset_module_path"
 then
-    bu_log_info "Resetting BU_MODULE_PATH"
-    BU_MODULE_PATH=
+    bu_log_info "Resetting BU_MODULE_LIST"
+    BU_MODULE_LIST=
 fi
 
 if "$is_init"

@@ -127,7 +127,7 @@ bu_user_defined_autocomplete_lazy()
 # BU_MODULE_LIST is an exported scalar of the form:
 #   "name:version:preinit_path;name:version:preinit_path;..."
 #
-# Modules append to it in their module script (sourced from BU_MODULE_PATH).
+# Modules append to it in their module script; the top-level sets it directly.
 # Top-level projects set it directly in their activate script before sourcing
 # bu_entrypoint.sh — no function call needed.
 #

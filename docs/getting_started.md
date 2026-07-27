@@ -99,7 +99,7 @@ Generates:
 ```
 myapp/
 ├── activate                   ← source to activate
-├── myapp_bu_module.sh         ← registers with BU_MODULE_PATH
+├── myapp_bu_module.sh         ← appends to BU_MODULE_LIST
 ├── myapp_bu_preinit.sh        ← imports commands directory
 └── commands/                  ← your subcommands
 ```

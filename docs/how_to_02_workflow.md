@@ -21,7 +21,7 @@ BashTab modules can be used in two ways, just like Rust crates:
 | Mode | Your module acts as… | Entrypoint | Caching |
 |------|----------------------|------------|---------|
 | **Binary** | A standalone shell environment | `activate` script | Sets `BU_TOP_LEVEL_MODULE`, calls `bu_mark_load_complete` |
-| **Library** | A dependency of another project | `*_bu_module.sh` (registered in `BU_MODULE_PATH`) | Inherits the host's cache key |
+| **Library** | A dependency of another project | `*_bu_module.sh` (appends to `BU_MODULE_LIST`) | Inherits the host's cache key |
 
 The same module can do both — `activate` is the "binary" entrypoint, `*_bu_module.sh` is the "library" entrypoint. Only the binary/top-level calls `bu_mark_load_complete`.
 
@@ -83,9 +83,10 @@ function myproject_activate()
         bu import-environment --reset-leaky --no-init
     fi
 
-    if [[ "$BU_MODULE_PATH" != *myproject_bu_module.sh* ]]; then
-        BU_MODULE_PATH+=:$myproject_dir/myproject_bu_module.sh
-    fi
+    # Register this module and its library dependencies in BU_MODULE_LIST.
+    export BU_MODULE_LIST="myproject:0.1.0:$myproject_dir/myproject_bu_preinit.sh;"
+    # Library dependencies append:
+    #   BU_MODULE_LIST+="somelib:1.0.0:/path/to/somelib_preinit.sh;"
 
     # Set the top-level module key so the command registry can be cached.
     # Must be set BEFORE sourcing bu_entrypoint.sh.
@@ -145,7 +146,7 @@ bu clear-cache --all        # invalidate all caches
 ## 7. Use your module as a library
 
 If another project wants to use your module as a dependency (library mode),
-they add your `*_bu_module.sh` to their `BU_MODULE_PATH`.  Your preinit
+they append to `BU_MODULE_LIST`.  Your preinit
 callbacks run during their init, and your commands appear alongside theirs.
 They do NOT source your `activate` — that would make your module the
 top-level "binary" and override their cache key.
@@ -166,8 +167,8 @@ This makes the module visible to `bu get-module` and future module introspection
 
 | Concept | Purpose |
 |---|---|
-| `BU_MODULE_PATH` | Colon-separated list of module scripts. Add yours here. |
-| Module script | Registers preinit callbacks. Sourced once at shell init. |
+| `BU_MODULE_LIST` | Semicolon-separated list of `name:version:preinit_path` entries. The sole module registry. |
+| Module script | Appends to `BU_MODULE_LIST`. Top-level sets it directly. |
 | Preinit callback | Runs during `bu import-environment`. Registers commands, aliases, keybindings. |
 | `activate` | Bootstrap script. Users `source ./activate` to enter the project environment. |
-| `commands/` | Directory of bu subcommand scripts. Scanned by `bu import-environment -c`. |
+| `commands/` | Directory of bu subcommand scripts. Registered by preinit via `bu import-environment -c`. |

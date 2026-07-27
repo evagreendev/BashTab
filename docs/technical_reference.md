@@ -70,7 +70,7 @@ Modules register by appending to `BU_MODULE_LIST`, an exported scalar of the for
 sources each preinit, and populates `BU_MODULE_REGISTRY` for `bu get-module`.
 
 ```sh
-# In a module script (sourced from BU_MODULE_PATH):
+# In a module script (appends):
 BU_MODULE_LIST+="modname:0.1.0:/path/to/modname_bu_preinit.sh;"
 
 # Or set directly in a top-level activate script:

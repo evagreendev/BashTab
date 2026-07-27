@@ -35,57 +35,15 @@ fi
 
 source ./lib/core/bu_core_user_defined.sh --__bu-once
 
-# The BU_MODULE_PATH is the only variable that should be needed to get all external "libraries"
-# i.e. BashTab related libraries setup.
-# In particular, all the callbacks can be setup in these scripts
-# To make it export-friendly, we will use a colon-separated string rather than an array.
-if [[ -z "${BU_MODULE_PATH:-}" ]]
+# BU_MODULE_LIST is the sole module registry — an exported scalar of the form
+# "name:version:preinit_path;...".  Top-level projects set it in their activate
+# script.  Library dependencies append to it in their module scripts.
+# __bu_parse_module_list dedupes, populates BU_MODULE_REGISTRY, and registers
+# preinit callbacks.
+if [[ -z "${BU_MODULE_LIST:-}" ]]
 then
-    declare -g BU_MODULE_PATH=
+    export BU_MODULE_LIST=
 fi
-export BU_MODULE_PATH
-
-function __bu_source_modules()
-{
-    local paths=()
-    local path
-    bu_str_split : "$BU_MODULE_PATH" paths
-    for path in "${paths[@]}"
-    do
-        # We allow empty paths, in which case we simply ignore them
-        # This means BU_MODULE_PATH is quite freeform
-        # The following are effectively equivalent
-        # - a:b:c which is quite like a normal PATH-like variable
-        # - a:b:c:
-        # - a:::::b:c
-        # - :a:b:c:
-        if [[ -z "$path" ]]
-        then
-            continue
-        fi
-
-        if [[ ! -e "$path" ]]
-        then
-            bu_basic_log_err "bu module[$path] does not exist"
-            continue
-        fi
-
-        if [[ -d "$path" ]]
-        then
-            bu_basic_log_err "bu module directory[$path] is not supported. Files only please."
-            continue
-        fi
-
-        if [[ ! -f "$path" ]]
-        then
-            bu_basic_log_err "bu module[$path] is not a file??"
-            continue
-        fi
-
-        source "$path" --__bu-once
-    done
-}
-__bu_source_modules
 __bu_parse_module_list
 
 

@@ -39,7 +39,7 @@ source /path/to/BashTab/activate
 - See [Structured Output](./structured_output.md)
 
 ### 📦 Module system
-- `BU_MODULE_PATH` — colon-separated list of module scripts
+- `BU_MODULE_LIST` — semicolon-separated list of `name:version:preinit_path` entries
 - `bu new-module --name myapp` — scaffold a module with activate / module script / preinit callback / commands directory
 - `bu get-module` — inspect loaded modules with name, version, and path
 - Module preinit callbacks register commands, keybindings, aliases, and completion specs
@@ -74,7 +74,7 @@ Every built-in command — `bu new-command`, `bu import-environment`, `bu get-co
 ## Not in scope
 
 BashTab is **not**:
-- A package manager (no `import`/`load` — use `source` and `BU_MODULE_PATH`)
+- A package manager (no `import`/`load` — use `source` and `BU_MODULE_LIST`)
 - A YAML/TOML-to-Bash compiler (we stay in Bash)
 - A POSIX-sh framework (requires Bash 4+, uses associative arrays, `coproc`, `mapfile`)
 
