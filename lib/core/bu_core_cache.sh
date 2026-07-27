@@ -30,6 +30,78 @@ declare -g BU_COMMAND_CACHE_LOADED=false
 # is re-sourced mid-session (e.g. by bu import-environment).
 declare -g __BU_COMMAND_CACHE_CHECKED=false
 
+# ── Prompt integration ───────────────────────────────────────────────
+
+# Saved original PROMPT_COMMAND before BashTab hooked it.
+__BU_PROMPT_ORIGINAL_PROMPT_COMMAND=
+# The module name currently shown in the prompt (empty if none).
+__BU_PROMPT_MODULE_DISPLAYED=
+
+# ```
+# PROMPT_COMMAND hook that prepends the active module indicator to PS1
+# on every prompt display.  Works with dynamic PS1 (e.g. users whose
+# PROMPT_COMMAND rebuilds PS1 from scratch each time).
+#
+# Chains to the original PROMPT_COMMAND after prepending.
+# ```
+__bu_prompt_command_hook()
+{
+    local indicator="[${BU_TPUT_GREEN}${BU_TOP_LEVEL_MODULE}${BU_TPUT_RESET}] "
+    # Only prepend if not already there (handles re-entrant / nested cases)
+    if [[ "$PS1" != "$indicator"* ]]; then
+        PS1="${indicator}${PS1}"
+    fi
+    # Chain to the original PROMPT_COMMAND
+    local orig=${__BU_PROMPT_ORIGINAL_PROMPT_COMMAND:-}
+    if [[ -n "$orig" ]]; then
+        eval "$orig"
+    fi
+}
+
+# ```
+# Prepend the active top-level module name to the prompt.
+#
+# Only runs in interactive shells.  Saves the original PROMPT_COMMAND
+# and installs a hook that prepends a colored [module] indicator before
+# each primary prompt.  Subsequent calls with the same module are no-ops.
+#
+# Uses PROMPT_COMMAND (not a one-shot PS1 edit) so it works correctly
+# with dynamic prompts that are rebuilt on every display.
+#
+# Params: None
+# ```
+__bu_prompt_show_module()
+{
+    [[ $- == *i* ]] || return
+
+    local module=${BU_TOP_LEVEL_MODULE:-}
+    if [[ -z "$module" || "$module" == "$__BU_PROMPT_MODULE_DISPLAYED" ]]; then
+        return
+    fi
+
+    # Save the original PROMPT_COMMAND once
+    if [[ -z "$__BU_PROMPT_MODULE_DISPLAYED" ]]; then
+        __BU_PROMPT_ORIGINAL_PROMPT_COMMAND=${PROMPT_COMMAND:-}
+    fi
+
+    PROMPT_COMMAND='__bu_prompt_command_hook'
+    __BU_PROMPT_MODULE_DISPLAYED=$module
+}
+
+# ```
+# Remove the module indicator from the prompt and restore the original
+# PROMPT_COMMAND.
+#
+# Params: None
+# ```
+__bu_prompt_hide_module()
+{
+    local indicator="[${BU_TPUT_GREEN}${__BU_PROMPT_MODULE_DISPLAYED}${BU_TPUT_RESET}] "
+    PS1=${PS1#"$indicator"}
+    PROMPT_COMMAND=${__BU_PROMPT_ORIGINAL_PROMPT_COMMAND:-}
+    __BU_PROMPT_MODULE_DISPLAYED=
+}
+
 # ```
 # Resolve the command-cache file path for a top-level module key.
 #
@@ -81,6 +153,10 @@ __bu_try_load_command_cache()
     # shellcheck disable=SC1090
     source "$cache_file"
     BU_COMMAND_CACHE_LOADED=true
+
+    if "${BU_PROMPT_SHOW_MODULE:-false}"; then
+        __bu_prompt_show_module
+    fi
     return 0
 }
 
@@ -157,6 +233,10 @@ bu_mark_load_complete()
 
     __bu_save_command_cache "$key"
     BU_COMMAND_CACHE_LOADED=true
+
+    if "${BU_PROMPT_SHOW_MODULE:-false}"; then
+        __bu_prompt_show_module
+    fi
 }
 
 # ```

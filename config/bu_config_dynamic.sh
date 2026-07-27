@@ -71,3 +71,11 @@ BU_OUTPUT_FORMAT=${BU_OUTPUT_FORMAT:-}
 bu_config_register BU_OUT_PROBE_PIPELINE --bool --default false \
     --hint "Allow pipeline field completion to execute the pipeline prefix (probing)"
 BU_OUT_PROBE_PIPELINE=${BU_OUT_PROBE_PIPELINE:-${BU_CONFIG_PROPERTIES[BU_OUT_PROBE_PIPELINE,default]}}
+
+# ```
+# Show the active top-level module name in PS1, like Python venvs.
+# When enabled, PS1 is prefixed with e.g. "[myproject] ".
+# ```
+bu_config_register BU_PROMPT_SHOW_MODULE --bool --default false \
+    --hint "Show the active top-level module name in the shell prompt (PS1)"
+BU_PROMPT_SHOW_MODULE=${BU_PROMPT_SHOW_MODULE:-${BU_CONFIG_PROPERTIES[BU_PROMPT_SHOW_MODULE,default]}}
