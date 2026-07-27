@@ -27,9 +27,8 @@ function @MODULE_NAME@_activate()
         bu import-environment --reset-leaky --no-init
     fi
 
-    # Register this module.  The top-level empties BU_MODULE_LIST and sets
-    # its own entry.  Library dependencies append to BU_MODULE_LIST
-    # their module scripts are sourced and append to BU_MODULE_LIST.
+    # Register this module.  The top-level sets BU_MODULE_LIST with its own
+    # entry.  Library dependencies append to BU_MODULE_LIST in their scripts.
     export BU_MODULE_LIST="@MODULE_NAME@:0.1.0:$@MODULE_NAME@_dir/@MODULE_NAME@_bu_preinit.sh;"
 
     # Set the top-level module key so the command registry can be cached.
