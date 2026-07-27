@@ -157,6 +157,13 @@ __bu_try_load_command_cache()
         return 0
     fi
 
+    # TODO: Reconsider what belongs in the cache.  Validating every command
+    # path on load is a band-aid — the real question is whether caching
+    # individual command paths is worth it at all.  Command directories are
+    # few and stable; deriving BU_COMMANDS from them via `find` is cheap.
+    # Caching BU_COMMAND_SEARCH_DIRS + BU_COMMAND_UNAVAILABLE may be
+    # sufficient, with BU_COMMANDS rebuilt from the dirs on every activation.
+    #
     # Validate: if any cached command path no longer exists (e.g. repo moved),
     # the cache is stale — discard it and do a fresh scan.
     local cmd script_path
