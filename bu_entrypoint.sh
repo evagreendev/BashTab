@@ -104,6 +104,9 @@ source ./lib/core/bu_core_tmux.sh --__bu-once
 source ./lib/core/bu_core_cli.sh --__bu-once
 source ./lib/core/bu_core_preinit.sh --__bu-once
 
+source ./lib/core/bu_core_cache.sh --__bu-once
+__bu_try_load_command_cache
+
 source ./lib/core/bu_core_early_init.sh
 
 bu_source_user_defined_pre_init_callbacks

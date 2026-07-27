@@ -13,6 +13,11 @@ case "$*" in
     ;;
 esac
 
+# Default top-level module key for standalone BashTab use.
+# Downstream projects should set their own BU_TOP_LEVEL_MODULE
+# before sourcing their activate script.
+export BU_TOP_LEVEL_MODULE="${BU_TOP_LEVEL_MODULE:-bashtab}"
+
 case "$*" in
 *e*)
     BU_SOURCE_IS_FORCE="$force" source ./bu_examples_entrypoint.sh
@@ -24,6 +29,8 @@ case "$*" in
     BU_SOURCE_IS_FORCE="$force" source ./bu_entrypoint.sh
     ;;
 esac
+
+bu_mark_load_complete
 popd &>/dev/null
 }
 

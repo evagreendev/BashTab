@@ -7,9 +7,22 @@
 
 # bash-ide source=./bu_core_base.sh
 # bash-ide source=./bu_core_autocomplete.sh
+# bash-ide source=./bu_core_cache.sh
 
 __bu_init_env_commands()
 {
+    # If the command cache was loaded, only set up PATH and return.
+    # The registry arrays (BU_COMMANDS, BU_COMMAND_UNAVAILABLE, etc.)
+    # were already restored from the cache by __bu_try_load_command_cache.
+    if "$BU_COMMAND_CACHE_LOADED"; then
+        local dir
+        for dir in "${!BU_COMMAND_SEARCH_DIRS[@]}"
+        do
+            bu_env_append_path "$dir"
+        done
+        return
+    fi
+
     # ── Try to load the compat cache ──
     local cache_valid=false
     local fingerprint
