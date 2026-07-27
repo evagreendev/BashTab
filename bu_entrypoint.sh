@@ -105,7 +105,7 @@ source ./lib/core/bu_core_cli.sh --__bu-once
 source ./lib/core/bu_core_preinit.sh --__bu-once
 
 source ./lib/core/bu_core_cache.sh --__bu-once
-__bu_try_load_command_cache
+__bu_try_load_command_cache || true
 
 source ./lib/core/bu_core_early_init.sh
 

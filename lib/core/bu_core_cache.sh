@@ -223,7 +223,7 @@ bu_mark_load_complete()
         bu_log_warn "bu_mark_load_complete: BU_TOP_LEVEL_MODULE is not set."
         bu_log_warn "  Set it before sourcing bu_entrypoint.sh to enable command caching:"
         bu_log_warn "    export BU_TOP_LEVEL_MODULE=\"myproject\""
-        return 1
+        return 0
     fi
 
     if "$BU_COMMAND_CACHE_LOADED"; then
