@@ -14,6 +14,17 @@ cd your-project
 git submodule add https://github.com/evagreendev/BashTab.git deps/bash-tab
 ```
 
+## Library vs Binary
+
+BashTab modules can be used in two ways, just like Rust crates:
+
+| Mode | Your module acts as… | Entrypoint | Caching |
+|------|----------------------|------------|---------|
+| **Binary** | A standalone shell environment | `activate` script | Sets `BU_TOP_LEVEL_MODULE`, calls `bu_mark_load_complete` |
+| **Library** | A dependency of another project | `*_bu_module.sh` (registered in `BU_MODULE_PATH`) | Inherits the host's cache key |
+
+The same module can do both — `activate` is the "binary" entrypoint, `*_bu_module.sh` is the "library" entrypoint. Only the binary/top-level calls `bu_mark_load_complete`.
+
 ## 2. Scaffold your module
 
 ```sh
@@ -25,9 +36,9 @@ This creates:
 
 ```
 myproject/
-├── activate
-├── myproject_bu_module.sh
-├── myproject_bu_preinit.sh
+├── activate                      ← "binary" entrypoint (sets BU_TOP_LEVEL_MODULE)
+├── myproject_bu_module.sh        ← "library" registration (__bu_module_register)
+├── myproject_bu_preinit.sh       ← registers command dirs (runs in both modes)
 └── commands/
 ```
 
@@ -53,7 +64,10 @@ bu_popd_silent
 
 ## 4. Customize the activate script
 
-`myproject/activate` bootstraps the full environment — BashTab, your module, Python venv, and anything else your project needs:
+`myproject/activate` is the "binary" entrypoint — it sets `BU_TOP_LEVEL_MODULE`
+so the command registry can be cached, and calls `bu_mark_load_complete` after
+initialization.  Bootstrap the full environment — BashTab, your module, Python
+venv, and anything else your project needs:
 
 ```sh
 #!/usr/bin/env bash
@@ -73,7 +87,15 @@ function myproject_activate()
         BU_MODULE_PATH+=:$myproject_dir/myproject_bu_module.sh
     fi
 
+    # Set the top-level module key so the command registry can be cached.
+    # Must be set BEFORE sourcing bu_entrypoint.sh.
+    export BU_TOP_LEVEL_MODULE="${BU_TOP_LEVEL_MODULE:-myproject}"
+
     source "$BU_DIR"/bu_entrypoint.sh
+
+    # Cache the command registry so subsequent activations skip the scan.
+    # No-op if the cache was already loaded.
+    bu_mark_load_complete
 
     bu_scope_push_function
     bu_scope_add_cleanup bu_popd_silent
@@ -108,6 +130,25 @@ bu                          # see your commands alongside built-ins
 bu get-module              # verify your module is loaded
 bu deploy --help            # auto-generated help
 ```
+
+### Cache management
+
+After the first activation, the command registry is cached. Subsequent shell
+startups load from the cache and skip the scan entirely.
+
+```sh
+bu get-cache                # list cached projects
+bu clear-cache myproject    # invalidate after adding/removing commands
+bu clear-cache --all        # invalidate all caches
+```
+
+## 7. Use your module as a library
+
+If another project wants to use your module as a dependency (library mode),
+they add your `*_bu_module.sh` to their `BU_MODULE_PATH`.  Your preinit
+callbacks run during their init, and your commands appear alongside theirs.
+They do NOT source your `activate` — that would make your module the
+top-level "binary" and override their cache key.
 
 ## Module registration (updated pattern)
 
