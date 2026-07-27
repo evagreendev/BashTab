@@ -373,7 +373,7 @@ Register via pre-init functions:
 Module scripts in `BU_MODULE_PATH` register themselves:
 
 ```bash
-__bu_module_register "modname" "0.1.0" "/path/to/preinit.sh"
+bu_register_module "modname" "0.1.0" "/path/to/preinit.sh"
 ```
 
 This populates `BU_MODULE_REGISTRY` (associative array) and `BU_MODULE_LIST` (exported scalar for subshells).

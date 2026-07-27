@@ -62,10 +62,10 @@ if "$is_help"
 then
     bu_autohelp \
         --description "
-List all modules registered via __bu_module_register.
-Reads the BU_get_module environment variable (populated when modules
+List all modules registered via bu_register_module.
+Reads the BU_MODULE_LIST environment variable (populated when modules
 are sourced at shell startup). Modules that were loaded without calling
-__bu_module_register (legacy BU_MODULE_PATH entries) are shown with
+bu_register_module (legacy BU_MODULE_PATH entries) are shown with
 version \"-\" and a note.
 
 Output is structured: piped output defaults to JSONL, terminal output
@@ -90,7 +90,7 @@ if ((${#entries[@]} == 0))
 then
     # Hints go to stderr so they never pollute the structured stream
     bu_log_info "No modules registered."
-    bu_log_info "Modules are detected via __bu_module_register in their module script."
+    bu_log_info "Modules are detected via bu_register_module in their module script."
     bu_log_info "Use 'bu new-module --name <name>' to scaffold a properly registered module."
 else
     # Stream TSV records (zero forks in the loop), recordify once, then

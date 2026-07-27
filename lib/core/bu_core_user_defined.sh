@@ -135,7 +135,7 @@ bu_user_defined_autocomplete_lazy()
 # - Registers the module in BU_MODULE_REGISTRY (associative array)
 # - Appends the preinit callback to BU_USER_DEFINED_STATIC_PRE_INIT_ENTRYPOINT_CALLBACKS
 # ```
-__bu_module_register()
+bu_register_module()
 {
     local name=$1
     local version=$2
