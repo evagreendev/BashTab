@@ -254,6 +254,32 @@ function my_func() {
 }
 ```
 
+### `set -e` safety
+
+Every script and function in this codebase may be sourced from a user's shell
+that runs `set -e` (or `set -o errexit`).  Any non-zero return from a function
+called at the top level of a sourced script will **abort the entire sourcing**
+and kill the user's shell session.
+
+**Rules for shared-codepath functions:**
+
+1. Functions that can "fail normally" (cache miss, key not set, optional feature
+   unavailable) must **always return 0**.  Log a warning, not an error.
+2. At the call site in entrypoint/init scripts, guard with `|| true` even when
+   the function returns 0 — defensive redundancy:
+   ```bash
+   __bu_try_load_command_cache || true
+   ```
+3. Only `return 1` from functions where failure is genuinely exceptional and
+   should abort — and only when called from a non-sourced context.
+4. The `bu_entrypoint.sh` script ends with `return 0` specifically to contain
+   any leaked non-zero status from earlier commands under `set -e`.
+
+**Checklist before writing a function used in init/entrypoint:**
+- [ ] Could this be sourced from a shell with `set -e`? (yes, always)
+- [ ] Does any code path return non-zero for a non-fatal reason? → change to `return 0`
+- [ ] Is the call site guarded with `|| true`?
+
 ### Quoting
 
 Always quote variable expansions unless you explicitly want word splitting:
