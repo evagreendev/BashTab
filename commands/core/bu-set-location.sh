@@ -23,8 +23,11 @@ do
     case "$1" in
     --module)# MODULE_NAME
         # Root directory of a loaded module (default: current top-level)
-        bu_parse_positional $# --hint "Module name (empty for top-level)"
-        module_name=${!shift_by}
+        # Optional name can follow, otherwise uses BU_TOP_LEVEL_MODULE
+        if (($# >= 2)) && [[ "$2" != -* ]]; then
+            module_name=$2
+            shift_by=2
+        fi
         ;;
     --commands-dir)# COMMANDS_DIR
         # A registered command-search directory
@@ -95,8 +98,12 @@ if [[ -n "$commands_dir" ]]; then
         return 1
     fi
     dir=$commands_dir
-elif [[ -n "$module_name" || ( -z "$module_name" && ! "$is_cache" && ! "$is_bash_tab" ) ]]; then
-    # --module with optional name, or default when no flag given
+elif "$is_cache"; then
+    dir=$BU_CACHE_DIR
+elif "$is_bash_tab"; then
+    dir=$BU_DIR
+else
+    # Default: --module with optional name
     local key=${module_name:-${BU_TOP_LEVEL_MODULE:-}}
     if [[ -z "$key" ]]; then
         bu_log_err "No module specified and BU_TOP_LEVEL_MODULE is not set"
@@ -114,10 +121,6 @@ elif [[ -n "$module_name" || ( -z "$module_name" && ! "$is_cache" && ! "$is_bash
     fi
     # entry format: "version:preinit_path"
     dir=$(dirname -- "${entry#*:}")
-elif "$is_cache"; then
-    dir=$BU_CACHE_DIR
-elif "$is_bash_tab"; then
-    dir=$BU_DIR
 fi
 
 if [[ -z "$dir" ]]; then

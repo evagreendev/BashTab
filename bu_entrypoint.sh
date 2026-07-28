@@ -39,12 +39,11 @@ source ./lib/core/bu_core_user_defined.sh --__bu-once
 # "name:version:preinit_path;...".  Top-level projects set it in their activate
 # script.  Library dependencies append to it in their module scripts.
 # __bu_parse_module_list dedupes, populates BU_MODULE_REGISTRY, and registers
-# preinit callbacks.
+# preinit callbacks.  Runs after bu_core_var.sh so the registry arrays exist.
 if [[ -z "${BU_MODULE_LIST:-}" ]]
 then
     export BU_MODULE_LIST=
 fi
-__bu_parse_module_list
 
 
 source ./config/bu_config_static.sh --__bu-once
@@ -62,6 +61,9 @@ source ./lib/core/bu_core_autocomplete.sh --__bu-once
 source ./lib/core/bu_core_tmux.sh --__bu-once
 source ./lib/core/bu_core_cli.sh --__bu-once
 source ./lib/core/bu_core_preinit.sh --__bu-once
+
+# Now that all registry arrays are declared, parse BU_MODULE_LIST.
+__bu_parse_module_list
 
 source ./lib/core/bu_core_cache.sh --__bu-once
 __bu_try_load_command_cache || true
