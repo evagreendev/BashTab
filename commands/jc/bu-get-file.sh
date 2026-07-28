@@ -7,6 +7,7 @@ function __bu_bu_get_file_main()
 if [[ "$1" == "--is-compatible" ]]; then
     command -v jc &>/dev/null || { echo "jc is required" >&2; exit 1; }
     command -v ls &>/dev/null || { echo "ls is required" >&2; exit 1; }
+    command -v find &>/dev/null || { echo "find is required (for --recurse/--file/--directory/--depth)" >&2; exit 1; }
     exit 0
 fi
 local -r invocation_dir=$PWD
@@ -19,6 +20,11 @@ bu_run_log_command "$@"
 
 local is_help=false
 local format=auto
+local path=
+local is_recurse=false
+local only_files=false
+local only_dirs=false
+local depth=
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -31,12 +37,44 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    -r|--recurse)# _FLAG
+        # Descend into subdirectories (PowerShell Get-ChildItem -Recurse)
+        is_recurse=true
+        ;;
+    --file)# _FLAG
+        # Only regular files (PowerShell Get-ChildItem -File)
+        only_files=true
+        ;;
+    -d|--directory)# _FLAG
+        # Only directories (PowerShell Get-ChildItem -Directory)
+        only_dirs=true
+        ;;
+    --depth)# N
+        # Max directory depth (implies find mode; 0 = the path itself)
+        bu_parse_positional $# --hint "Max depth"
+        depth=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         is_help=true
         ;;
-    *)
-        # Any unrecognized arg: pass through to the underlying command, replacing the default
+    --)
+        # Remaining args are passed through to ls, replacing the default arguments
+        shift
         break
+        ;;
+    *)
+        if bu_env_is_in_autocomplete
+        then
+            # Path positional: complete directories
+            autocompletion=("${BU_AUTOCOMPLETE_SPEC_DIRECTORY[@]}")
+        fi
+        if [[ -z "$path" ]]
+        then
+            path=$1
+        else
+            # Any further unrecognized arg: pass through to ls, replacing the default arguments
+            break
+        fi
         ;;
     esac
     if "$is_help"
@@ -60,9 +98,17 @@ fi
 if "$is_help"
 then
     bu_autohelp \
-        --description "List files in a directory (jc ls parser wrapper)." \
-        --example "Default" "" \
-        --example "With extra flags" "-- -la /var/log"
+        --description "
+List files in a directory (jc ls parser wrapper, PowerShell Get-ChildItem).
+Default lists the current directory in long format. The filter flags
+(--recurse, --file, --directory, --depth) switch to find mode: entries
+are located with find(1), then stat'd with ls for the same record shape.
+" \
+        --example "Current directory" "" \
+        --example "One directory" "/var/log" \
+        --example "All files below a path" "src --recurse --file" \
+        --example "Shallow listing" "/etc --depth 1" \
+        --example "With extra ls flags" "-- -lh /var/log"
     return 0
 fi
 
@@ -74,16 +120,36 @@ then
     return 1
 fi
 
-# Build the command: use provided args if any, otherwise the default
-local -a cmd=()
-if ((${#remaining_options[@]} > 0))
+if "$is_recurse" || "$only_files" || "$only_dirs" || [[ -n "$depth" ]]
 then
-    cmd=("${remaining_options[@]}")
+    # find mode: locate entries, stat them with ls for the jc record shape
+    local -a find_args=("${path:-.}")
+    [[ -n "$depth" ]] && find_args+=(-maxdepth "$depth")
+    if "$only_files" && ! "$only_dirs"
+    then
+        find_args+=(-type f)
+    elif "$only_dirs" && ! "$only_files"
+    then
+        find_args+=(-type d)
+    fi
+    find "${find_args[@]}" -exec ls -ld {} + 2>/dev/null \
+        | jc --ls 2>/dev/null \
+        | jq -c 'if type == "array" then .[] else . end' 2>/dev/null \
+        | bu_out --format "$format"
 else
-    cmd=(ls -la)
+    # ls mode: base command + provided args, otherwise base + default args
+    local -a cmd=(ls)
+    if ((${#remaining_options[@]} > 0))
+    then
+        cmd+=("${remaining_options[@]}")
+    else
+        cmd+=(-la "${path:-.}")
+    fi
+    "${cmd[@]}" 2>/dev/null \
+        | jc --ls 2>/dev/null \
+        | jq -c 'if type == "array" then .[] else . end' 2>/dev/null \
+        | bu_out --format "$format"
 fi
-
-"${cmd[@]}" 2>/dev/null | jc --ls 2>/dev/null | jq -c 'if type == "array" then .[] else . end' 2>/dev/null | bu_out --format "$format"
 
 bu_scope_pop_function
 }
