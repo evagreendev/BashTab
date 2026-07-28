@@ -11,25 +11,19 @@
 
 __bu_init_env_commands()
 {
-    # If the command cache was loaded, only set up PATH and return.
-    # The registry arrays (BU_COMMANDS, BU_COMMAND_UNAVAILABLE, etc.)
-    # were already restored from the cache by __bu_try_load_command_cache.
-    if "$BU_COMMAND_CACHE_LOADED"; then
-        local dir
-        for dir in "${!BU_COMMAND_SEARCH_DIRS[@]}"
-        do
-            bu_env_append_path "$dir"
-        done
-        return
-    fi
-
-    # ── Try to load the compat cache ──
-    local cache_valid=false
+    # ── Determine whether --is-compatible probes can be skipped ──
+    local compat_cache_valid=false
     local fingerprint
-    if bu_cap_cache_fingerprint; then
+
+    if "$BU_COMMAND_CACHE_LOADED"; then
+        # Command cache was loaded — BU_COMMAND_UNAVAILABLE is already
+        # populated.  Use it to skip --is-compatible probes.
+        compat_cache_valid=true
+    elif bu_cap_cache_fingerprint; then
+        # Try the legacy per-environment compat cache
         fingerprint=$BU_RET
         if bu_cap_cache_load "$fingerprint"; then
-            cache_valid=true
+            compat_cache_valid=true
         fi
     fi
 
@@ -67,7 +61,7 @@ __bu_init_env_commands()
             # Scripts without it are assumed compatible (backward compat).
             # Matches both case-style (--is-compatible)) and if-style (--is-compatible").
             if grep -qE -- '--is-compatible[)"]' "$script_path" 2>/dev/null; then
-                if $cache_valid; then
+                if $compat_cache_valid; then
                     # Cache hit — check if this command was marked unavailable
                     if [[ -n "${BU_COMMAND_UNAVAILABLE[$command]:-}" ]]; then
                         continue
@@ -86,8 +80,8 @@ __bu_init_env_commands()
         done
     done
 
-    # Save cache if we probed fresh
-    if ! $cache_valid && [[ -n "$fingerprint" ]]; then
+    # Save compat cache if we probed fresh (only when command cache not loaded)
+    if ! "$BU_COMMAND_CACHE_LOADED" && ! $compat_cache_valid && [[ -n "$fingerprint" ]]; then
         bu_cap_cache_save "$fingerprint"
     fi
 }
