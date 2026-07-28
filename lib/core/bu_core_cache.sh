@@ -192,11 +192,12 @@ __bu_save_command_cache()
         printf '# Delete this file to force a fresh --is-compatible probe on next activation.\n'
         printf '# Managed by: bu get-cache | bu clear-cache\n'
         printf '#\n'
-        printf '# Caches only command-search directories and --is-compatible\n'
-        printf '# probe results.  BU_COMMANDS is rebuilt from find on every\n'
-        printf '# activation — no stale paths possible.\n'
+        printf '# Caches command-search directories, recursion flags, and\n'
+        printf '# --is-compatible probe results.  BU_COMMANDS is rebuilt\n'
+        printf '# from find on every activation — no stale paths possible.\n'
         echo
         declare -p BU_COMMAND_SEARCH_DIRS
+        declare -p BU_COMMAND_SEARCH_DIR_RECURSIVE
         declare -p BU_COMMAND_UNAVAILABLE
     } > "$cache_file"
 

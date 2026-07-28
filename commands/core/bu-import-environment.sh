@@ -11,6 +11,7 @@ bu_run_log_command "$@"
 
 local namespace_style=
 local command_dirs=()
+local is_non_recursive=false
 local is_git_pull=false
 local is_reset_source=false
 local is_reset_vars=false
@@ -44,6 +45,11 @@ do
         bu_parse_positional $# --enum "${BU_ENUM_NAMESPACE_STYLE[@]}" enum--
         bu_validate_positional "${!shift_by}"
         namespace_style=${!shift_by}
+        ;;
+    -nr|--non-recursive)# _FLAG
+        # Only scan the top level of the command directory (no subdirectories).
+        # Subdirectories can serve as utility libraries that don't become commands.
+        is_non_recursive=true
         ;;
     -p|--pull)# _FLAG
         # Pull from the git repo, works when using BashTab from a submodule too
@@ -139,6 +145,10 @@ local command_dir
 for command_dir in "${command_dirs[@]}"
 do
     bu_preinit_register_user_defined_subcommand_dir "$command_dir" "${opt_command_mapper[@]}"
+    if "$is_non_recursive"; then
+        bu_realpath "$command_dir"
+        BU_COMMAND_SEARCH_DIR_RECURSIVE[$BU_RET]=false
+    fi
 done
 
 if "$is_git_pull"

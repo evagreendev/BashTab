@@ -26,6 +26,11 @@ declare -A -g BU_COMMANDS=()
 # ```
 declare -A -g BU_COMMAND_SEARCH_DIRS=()
 # ```
+# Map of directory to whether it is scanned recursively (default: true = recursive).
+# Set to false by bu import-environment --non-recursive.
+# ```
+declare -A -g BU_COMMAND_SEARCH_DIR_RECURSIVE=()
+# ```
 # Map of (<command>,<query>) to properties
 # The following queries are currently defined
 # - type 
