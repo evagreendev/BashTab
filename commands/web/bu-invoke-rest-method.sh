@@ -98,7 +98,15 @@ Content-Type header is added automatically.
         --example "List API objects" "https://api.github.com/repos/kellyjonbrazil/jc/tags" \
         --example "POST JSON" "https://httpbin.org/post -X POST -d '{\"a\":1}'" \
         --example "Filter the response" ""
+        --example "Pipeline input" ""
     return 0
+fi
+
+# Pipeline input: when no URL is given and stdin is a pipe, read JSONL
+# records and extract .url via structural typing.
+if [[ -z "$url" ]] && [[ ! -t 0 ]]
+then
+    url=$(jq -r '.url // empty' 2>/dev/null | head -1)
 fi
 
 if [[ -z "$url" ]]

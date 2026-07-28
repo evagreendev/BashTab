@@ -79,8 +79,44 @@ Option names autocomplete from the live shopt list. Emits the resulting
 state as a record.
 " \
         --example "Enable globstar" "globstar" \
-        --example "Disable nullglob" "nullglob --unset"
+        --example "Disable nullglob" "nullglob --unset" \
+        --example "Pipeline (enable all off)" ""
+        --example "Pipeline input" ""
     return 0
+fi
+
+action=${action:-set}
+
+# Pipeline input: when no name is given and stdin is a pipe, read JSONL
+# records and toggle each option's .name to the value (from .value or --set/--unset).
+# 'bu get-shopt-option | bu where-object ".value == false" | bu set-shopt-option'
+# enables every currently-off option.
+if [[ -z "$name" ]] && [[ ! -t 0 ]]
+then
+    local records_file _n _v _tv
+    records_file=$(mktemp)
+    bu_scope_add_cleanup rm -f "$records_file"
+    local rc=0
+    {
+        while IFS=$'\t' read -r _n _v
+        do
+            [[ -z "$_n" ]] && continue
+            _tv=${_v:-$action}
+            if [[ "$_tv" == set || "$_tv" == on || "$_tv" == true ]]
+            then
+                shopt -s "$_n" 2>/dev/null \
+                    && bu_out_record name="$_n" value:=true \
+                    || { bu_out_record name="$_n" value:=false error="shopt -s failed"; rc=1; }
+            else
+                shopt -u "$_n" 2>/dev/null \
+                    && bu_out_record name="$_n" value:=false \
+                    || { bu_out_record name="$_n" value:=true error="shopt -u failed"; rc=1; }
+            fi
+        done < <(jq -r '.name as $n | (if has("value") then (.value | tostring) else "" end) as $v | if $n then "\($n)\t\($v)" else empty end' 2>/dev/null)
+    } > "$records_file"
+    bu_out --format "$format" < "$records_file"
+    bu_scope_pop_function
+    return $rc
 fi
 
 if [[ -z "$name" ]]

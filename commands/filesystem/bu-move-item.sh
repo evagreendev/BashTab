@@ -72,19 +72,43 @@ moved (boolean).
         --example "One file" "a.txt archive/a.txt" \
         --example "Several into a directory" "*.log /var/log/archive/" \
         --example "Dry run" "a.txt /tmp --what-if"
+        --example "Pipeline input" ""
     return 0
 fi
 
-if ((${#args[@]} < 2))
+if ((${#args[@]} < 1))
 then
-    error_msg="Need at least one source and a destination (e.g. bu move-item a.txt archive/)"
+    error_msg="Need a destination (e.g. bu move-item a.txt archive/)"
     bu_autohelp
     bu_scope_pop_function
     return 1
 fi
 
 local destination=${args[-1]}
-local -a sources=("${args[@]:0:${#args[@]}-1}")
+local -a sources=()
+if ((${#args[@]} >= 2))
+then
+    sources=("${args[@]:0:${#args[@]}-1}")
+fi
+
+# Pipeline input: when no sources are given as arguments and stdin is a pipe,
+# read JSONL records and extract .source (or .path, .filename) via structural typing.
+if ((${#sources[@]} == 0)) && [[ ! -t 0 ]]
+then
+    local _s
+    while IFS= read -r _s
+    do
+        [[ -n "$_s" ]] && sources+=("$_s")
+    done < <(jq -r '.source // .path // .filename // empty' 2>/dev/null)
+fi
+
+if ((${#sources[@]} == 0))
+then
+    error_msg="Need at least one source (e.g. bu move-item a.txt archive/)"
+    bu_autohelp
+    bu_scope_pop_function
+    return 1
+fi
 
 if ((${#sources[@]} > 1)) && [[ ! -d "$destination" ]]
 then

@@ -79,8 +79,43 @@ counterparts. Option names autocomplete from the live set -o list.
 Emits the resulting state as a record.
 " \
         --example "Enable pipefail" "pipefail" \
-        --example "Disable xtrace" "xtrace --off"
+        --example "Disable xtrace" "xtrace --off" \
+        --example "Enable every off option" ""
     return 0
+fi
+
+value=${value:-on}
+
+# Pipeline input: when no name is given and stdin is a pipe, read JSONL
+# records and toggle each option's .name to the value (from .value or --on/--off).
+# 'bu get-shell-option | bu where-object ".value == false" | bu set-shell-option'
+# enables every currently-off option.
+if [[ -z "$name" ]] && [[ ! -t 0 ]]
+then
+    local records_file _n _v _tv
+    records_file=$(mktemp)
+    bu_scope_add_cleanup rm -f "$records_file"
+    local rc=0
+    {
+        while IFS=$'\t' read -r _n _v
+        do
+            [[ -z "$_n" ]] && continue
+            _tv=${_v:-$value}
+            if [[ "$_tv" == on || "$_tv" == true ]]
+            then
+                set -o "$_n" 2>/dev/null \
+                    && bu_out_record name="$_n" value:=true \
+                    || { bu_out_record name="$_n" value:=false error="set -o failed"; rc=1; }
+            else
+                set +o "$_n" 2>/dev/null \
+                    && bu_out_record name="$_n" value:=false \
+                    || { bu_out_record name="$_n" value:=true error="set +o failed"; rc=1; }
+            fi
+        done < <(jq -r '.name as $n | (if has("value") then (.value | tostring) else "" end) as $v | if $n then "\($n)\t\($v)" else empty end' 2>/dev/null)
+    } > "$records_file"
+    bu_out --format "$format" < "$records_file"
+    bu_scope_pop_function
+    return $rc
 fi
 
 if [[ -z "$name" ]]

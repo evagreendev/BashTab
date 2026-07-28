@@ -96,7 +96,19 @@ polkit); --user targets the per-user manager and needs no elevation.
         --example "One unit" "sshd" \
         --example "User unit" "--user pipewire" \
         --example "Dry run" "nginx --what-if"
+        --example "Pipeline input" ""
     return 0
+fi
+
+# Pipeline input: when no unit names are given as arguments and stdin is a pipe,
+# read JSONL records and extract .unit (or .name) via structural typing.
+if ((${#units[@]} == 0)) && [[ ! -t 0 ]]
+then
+    local _u
+    while IFS= read -r _u
+    do
+        [[ -n "$_u" ]] && units+=("$_u")
+    done < <(jq -r '.unit // .name // empty' 2>/dev/null)
 fi
 
 if ((${#units[@]} == 0))

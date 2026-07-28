@@ -79,7 +79,26 @@ renamed (boolean).
 " \
         --example "Rename a file" "old.txt new.txt" \
         --example "Dry run" "old.txt new.txt --what-if"
+        --example "Pipeline input" ""
     return 0
+fi
+
+# Pipeline input: when no path/new_name are given and stdin is a pipe, read
+# JSONL records and extract .path (or .filename) and .new_name via structural typing.
+if [[ -z "$path" || -z "$new_name" ]] && [[ ! -t 0 ]]
+then
+    local _line _p _n
+    while IFS=$'\t' read -r _p _n
+    do
+        if [[ -z "$path" && -n "$_p" ]]
+        then
+            path=$_p
+        fi
+        if [[ -z "$new_name" && -n "$_n" ]]
+        then
+            new_name=$_n
+        fi
+    done < <(jq -r '(.path // .filename // null) as $p | (.new_name // null) as $n | if $p then ($p + "\t" + ($n // "")) else empty end' 2>/dev/null)
 fi
 
 if [[ -z "$path" || -z "$new_name" ]]

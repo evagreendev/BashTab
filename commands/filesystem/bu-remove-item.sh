@@ -81,7 +81,19 @@ exit code. Destructive: use --what-if to preview.
         --example "One file" "tmp.txt" \
         --example "Directory tree" "-r build/" \
         --example "Dry run" "-r build/ --what-if"
+        --example "Pipeline input" ""
     return 0
+fi
+
+# Pipeline input: when no paths are given and stdin is a pipe, read JSONL
+# records and extract .path (or .filename, .name) via structural typing.
+if ((${#paths[@]} == 0)) && [[ ! -t 0 ]]
+then
+    local _p
+    while IFS= read -r _p
+    do
+        [[ -n "$_p" ]] && paths+=("$_p")
+    done < <(jq -r '.path // .filename // .name // empty' 2>/dev/null)
 fi
 
 if ((${#paths[@]} == 0))

@@ -74,7 +74,8 @@ xclip, xsel (X11).
     return 0
 fi
 
-# No argument: take stdin verbatim
+# No argument: take stdin. If the stream is JSONL records, extract .text from each
+# one (joined with newlines); otherwise copy raw stdin verbatim.
 if [[ -z "$text" ]]
 then
     if [[ -t 0 ]]
@@ -84,7 +85,15 @@ then
         bu_scope_pop_function
         return 1
     fi
-    text=$(cat)
+    # Try structural typing: extract .text fields from JSONL records
+    local jq_text
+    jq_text=$(jq -r '.text // empty' 2>/dev/null)
+    if [[ -n "$jq_text" ]]
+    then
+        text=$jq_text
+    else
+        text=$(cat)
+    fi
 fi
 
 if command -v pbcopy &>/dev/null

@@ -105,7 +105,15 @@ records directly.
         --example "GET a page" "https://example.com" \
         --example "POST a form body" "https://httpbin.org/post -X POST -d 'a=1'" \
         --example "Download to disk" "https://example.com/big.iso --out-file big.iso"
+        --example "Pipeline input" ""
     return 0
+fi
+
+# Pipeline input: when no URL is given and stdin is a pipe, read JSONL
+# records and extract .url via structural typing.
+if [[ -z "$url" ]] && [[ ! -t 0 ]]
+then
+    url=$(jq -r '.url // empty' 2>/dev/null | head -1)
 fi
 
 if [[ -z "$url" ]]

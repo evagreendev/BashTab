@@ -792,3 +792,71 @@ function test_bu_pipeline_group_measure_combo { #@test
     out=$(printf '{"v":"a","n":1}\n{"v":"a","n":2}\n{"v":"b","n":3}\n' | bu group-object v --no-items | bu measure-object count --sum)
     assert_equal "$out" '{"count":2,"property":"count","sum":3}'
 }
+
+# ===========================================================================
+# Pipeline input (structural typing): commands act on piped records
+# ===========================================================================
+
+function test_bu_pipeline_stop_process_from_records { #@test
+    local out
+    out=$(printf '{"pid":999999}\n' | bu stop-process --what-if 2>/dev/null)
+    # --what-if logs to stderr only; the record stream should be empty (no actual action)
+    assert_equal "$out" ""
+}
+
+function test_bu_pipeline_remove_item_from_records_what_if { #@test
+    local d=$BATS_TEST_TMPDIR/pi_rm_wi
+    mkdir -p "$d"
+    touch "$d/a" "$d/b"
+    local out
+    out=$(printf '{"path":"%s/a"}\n{"filename":"%s/b"}\n' "$d" "$d" | bu remove-item --what-if 2>/dev/null)
+    # --what-if only logs to stderr, emits no records for existing paths
+    assert_equal "$out" ""
+    # Files should still exist
+    [[ -f "$d/a" && -f "$d/b" ]]
+}
+
+function test_bu_pipeline_remove_item_filename_alias { #@test
+    local d=$BATS_TEST_TMPDIR/pi_rm
+    mkdir -p "$d"
+    touch "$d/f.txt"
+    local out
+    out=$(bu get-file "$d" --file | bu remove-item)
+    assert_equal "$out" "{\"path\":\"$d/f.txt\",\"removed\":true}"
+    [[ ! -e "$d/f.txt" ]]
+}
+
+function test_bu_pipeline_copy_item_from_records { #@test
+    local d=$BATS_TEST_TMPDIR/pi_cp
+    mkdir -p "$d/src" "$d/dst"
+    touch "$d/src/a.txt"
+    local out
+    out=$(bu test-path "$d/src/a.txt" | bu copy-item "$d/dst/")
+    assert_equal "$out" "{\"source\":\"$d/src/a.txt\",\"destination\":\"$d/dst/\",\"copied\":true}"
+    [[ -f "$d/dst/a.txt" ]]
+}
+
+function test_bu_pipeline_set_shell_option_from_records { #@test
+    local out
+    out=$(printf '{"name":"pipefail","value":true}\n' | bu set-shell-option)
+    assert_equal "$out" '{"name":"pipefail","value":true}'
+    # Confirm it took effect (we're in a subshell from $( ), doesn't leak)
+}
+
+function test_bu_pipeline_set_shopt_option_from_records { #@test
+    local out
+    out=$(printf '{"name":"nullglob","value":false}\n' | bu set-shopt-option)
+    assert_equal "$out" '{"name":"nullglob","value":false}'
+}
+
+function test_bu_pipeline_service_from_records_what_if { #@test
+    local out
+    out=$(printf '{"unit":"sshd"}\n' | bu start-service --what-if 2>/dev/null)
+    assert_equal "$out" ""
+}
+
+function test_bu_pipeline_web_request_from_url_record { #@test
+    local out
+    out=$(printf '{"url":"https://example.com"}\n' | bu invoke-web-request -o /dev/null 2>/dev/null | jq -r .response_code)
+    assert_equal "$out" "200"
+}
