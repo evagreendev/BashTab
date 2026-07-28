@@ -41,7 +41,7 @@ __bu_init_env_commands()
             *.txt|README|README.*|*.md) 
                 continue
                 ;;
-            __*)
+            __*|*/__*)
                 # 2 underscores in front can be used to hide scripts
                 continue
                 ;;
