@@ -166,9 +166,11 @@ __bu_try_load_command_cache()
     #
     # Validate: if any cached command path no longer exists (e.g. repo moved),
     # the cache is stale — discard it and do a fresh scan.
+    # Skip aliases: their value is a command template, not a file path.
     local cmd script_path
     for cmd in "${!BU_COMMANDS[@]}"
     do
+        [[ "${BU_COMMAND_PROPERTIES[$cmd,type]:-}" == alias ]] && continue
         script_path=${BU_COMMANDS[$cmd]}
         if [[ ! -f "$script_path" && ! -x "$script_path" ]]; then
             bu_log_warn "Command cache: stale path for '$cmd' (${script_path}), removing ${cache_file##*/}"
