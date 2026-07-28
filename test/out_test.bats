@@ -381,7 +381,7 @@ function test_bu_get_command_multi_word_verb { #@test
 function test_bu_get_command_verb_filter_multi_word { #@test
     local out
     out=$(bu get-command --verb convert-to | jq -sc 'map(.name)')
-    assert_equal "$out" '["convert-to-json","convert-to-jsonl","convert-to-tsv"]'
+    assert_equal "$out" '["convert-to-base64","convert-to-csv","convert-to-json","convert-to-jsonl","convert-to-tsv"]'
 }
 
 function test_bu_get_command_table_header { #@test
@@ -420,12 +420,14 @@ function test_bu_pipeline_jq_as_where_object { #@test
 }
 
 function test_bu_pipeline_where_select_sort_table { #@test
-    # Full transform chain piped into a table sink
+    # Full transform chain piped into a table sink.
+    # Uses the deterministic BU_MODULE_LIST fixture: asserting on the sorted
+    # bu command registry breaks whenever a command is added or removed.
     local out
-    out=$(bu get-command | bu_out_where '.namespace == "bu"' | bu_out_select name,verb | bu_out_sort_by name | bu_format_table | head -3)
-    assert_equal "$out" 'name                     verb
------------------------  ------------
-convert-from-jc          convert-from'
+    out=$(BU_MODULE_LIST="zeta:1.0.0:/z;alpha:2.0.0:/a" bu get-module | bu_out_where '.version != ""' | bu_out_select name,version | bu_out_sort_by name | bu_format_table | head -3)
+    assert_equal "$out" 'name   version
+-----  -------
+alpha  2.0.0'
 }
 
 # ===========================================================================
@@ -503,7 +505,9 @@ function test_bu_full_powershell_pipeline { #@test
         | bu sort-object name \
         | bu format-table)
     assert_equal "$out" 'name
-----------------
+-----------------
+convert-to-base64
+convert-to-csv
 convert-to-json
 convert-to-jsonl
 convert-to-tsv'
@@ -687,15 +691,17 @@ EOF
 
 function test_bu_query_object_full_query { #@test
     local out
-    out=$(bu get-command | bu query-object --where '.type == "source"' --select name,verb --order-by name --first 2 --format tsv --columns name,verb)
-    assert_equal "$out" $'convert-from-jc\tconvert-from\nconvert-from-lines\tconvert-from'
+    # Deterministic BU_MODULE_LIST fixture (see test_bu_pipeline_where_select_sort_table)
+    out=$(BU_MODULE_LIST="zeta:1.0.0:/z;alpha:2.0.0:/a" bu get-module | bu query-object --where '.version != ""' --select name,version --order-by name --first 2 --format tsv --columns name,version)
+    assert_equal "$out" $'alpha\t2.0.0\nzeta\t1.0.0'
 }
 
 function test_bu_query_object_bare_keywords { #@test
     # SQL keywords without dashes
     local out
-    out=$(bu get-command | bu query-object where '.type == "source"' select name,verb order-by name first 2 --format tsv --columns name,verb)
-    assert_equal "$out" $'convert-from-jc\tconvert-from\nconvert-from-lines\tconvert-from'
+    # Deterministic BU_MODULE_LIST fixture (see test_bu_pipeline_where_select_sort_table)
+    out=$(BU_MODULE_LIST="zeta:1.0.0:/z;alpha:2.0.0:/a" bu get-module | bu query-object where '.version != ""' select name,version order-by name first 2 --format tsv --columns name,version)
+    assert_equal "$out" $'alpha\t2.0.0\nzeta\t1.0.0'
 }
 
 function test_bu_query_object_clause_order_invariance { #@test
@@ -731,7 +737,7 @@ function test_bu_query_object_multiple_where_anded { #@test
 function test_bu_query_object_desc { #@test
     local out
     out=$(bu get-command | bu query-object order-by name desc first 2 select name --format tsv --columns name)
-    assert_equal "$out" $'where-object\nsort-object'
+    assert_equal "$out" $'where-object\ntrace-route'
 }
 
 function test_bu_query_object_invalid_first { #@test
