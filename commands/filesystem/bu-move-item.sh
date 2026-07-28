@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+function __bu_bu_move_item_main()
+{
+local -r invocation_dir=$PWD
+
+# shellcheck source=./__bu_entrypoint_decl.sh
+source "$BU_NULL"
+
+bu_scope_push_function
+bu_run_log_command "$@"
+
+local -a args=()
+local is_what_if=false
+local format=auto
+local is_help=false
+local error_msg=
+local autocompletion=()
+local shift_by=
+while (($#))
+do
+    bu_parse_multiselect $# "$1"
+    case "$1" in
+    --what-if)# _FLAG
+        # Show what would happen without changing anything
+        is_what_if=true
+        ;;
+    --format)# FORMAT
+        # Output format
+        bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
+        format=${!shift_by}
+        ;;
+    -h|--help)# _FLAG
+        # Print help
+        is_help=true
+        ;;
+    *)
+        if bu_env_is_in_autocomplete
+        then
+            # Path positionals: complete files
+            autocompletion=("${BU_AUTOCOMPLETE_SPEC_FILE[@]}")
+        fi
+        args+=("$1")
+        ;;
+    esac
+    if "$is_help"
+    then
+        break
+    fi
+    if (( $# < shift_by ))
+    then
+        bu_parse_error_argn "$1" $#
+        break
+    fi
+    shift "$shift_by"
+done
+if bu_env_is_in_autocomplete
+then
+    bu_autocomplete
+    return 0
+fi
+
+if "$is_help"
+then
+    bu_autohelp \
+        --description "
+Move files and directories (PowerShell Move-Item, structured mv).
+The last positional is the destination; all preceding positionals are
+sources. When moving several sources, the destination must be an
+existing directory. Emits one record per source: source, destination,
+moved (boolean).
+" \
+        --example "One file" "a.txt archive/a.txt" \
+        --example "Several into a directory" "*.log /var/log/archive/" \
+        --example "Dry run" "a.txt /tmp --what-if"
+    return 0
+fi
+
+if ((${#args[@]} < 2))
+then
+    error_msg="Need at least one source and a destination (e.g. bu move-item a.txt archive/)"
+    bu_autohelp
+    bu_scope_pop_function
+    return 1
+fi
+
+local destination=${args[-1]}
+local -a sources=("${args[@]:0:${#args[@]}-1}")
+
+if ((${#sources[@]} > 1)) && [[ ! -d "$destination" ]]
+then
+    error_msg="Destination must be an existing directory when moving multiple sources: $destination"
+    bu_autohelp
+    bu_scope_pop_function
+    return 1
+fi
+
+# Records go to a temp file (not a pipeline) so the loop runs in the current
+# shell and the per-item failure status survives in rc.
+local records_file
+records_file=$(mktemp)
+bu_scope_add_cleanup rm -f "$records_file"
+
+local rc=0
+local src
+{
+    for src in "${sources[@]}"
+    do
+        if [[ ! -e "$src" && ! -L "$src" ]]
+        then
+            bu_out_record source="$src" destination="$destination" moved:=false error="source does not exist"
+            rc=1
+            continue
+        fi
+        if "$is_what_if"
+        then
+            bu_log_info "What if: move $src to $destination"
+            continue
+        fi
+        mv -- "$src" "$destination" \
+            && bu_out_record source="$src" destination="$destination" moved:=true \
+            || { bu_out_record source="$src" destination="$destination" moved:=false; rc=1; }
+    done
+} > "$records_file"
+
+bu_out --format "$format" < "$records_file"
+
+bu_scope_pop_function
+return $rc
+}
+
+__bu_bu_move_item_main "$@"
