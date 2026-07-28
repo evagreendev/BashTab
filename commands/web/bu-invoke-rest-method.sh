@@ -55,6 +55,11 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    --url)# URL
+        # Target URL (also accepts pipeline input by structural typing)
+        bu_parse_positional $# --hint "https://..."
+        url=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         # Print help
         is_help=true

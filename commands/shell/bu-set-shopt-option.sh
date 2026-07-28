@@ -33,6 +33,11 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    --name)# NAME
+        # shopt option name (also accepts pipeline input by structural typing)
+        bu_parse_positional $# --ret __bu_bu_set_shopt_complete_names ret-- --hint "Option name"
+        name=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         # Print help
         is_help=true

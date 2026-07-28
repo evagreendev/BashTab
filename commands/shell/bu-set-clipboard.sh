@@ -29,6 +29,11 @@ while (($#))
 do
     bu_parse_multiselect $# "$1"
     case "$1" in
+    --text)# TEXT
+        # Text to copy to the clipboard (also accepts pipeline input by structural typing)
+        bu_parse_positional $# --hint "Clipboard text"
+        text=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         # Print help
         is_help=true

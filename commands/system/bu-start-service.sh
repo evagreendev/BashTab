@@ -54,6 +54,11 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    --unit)# UNIT
+        # Service unit name (repeatable; also accepts pipeline input by structural typing)
+        bu_parse_positional $# --ret __bu_bu_start_service_complete_units ret-- --hint "Unit name"
+        units+=("${!shift_by}")
+        ;;
     -h|--help)# _FLAG
         # Print help
         is_help=true

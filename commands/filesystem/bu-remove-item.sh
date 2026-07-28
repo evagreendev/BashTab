@@ -39,6 +39,11 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    --path)# PATH
+        # Path to remove (repeatable; also accepts pipeline input by structural typing)
+        bu_parse_positional $# "${BU_AUTOCOMPLETE_SPEC_FILE[@]}" --hint "File or directory path"
+        paths+=("${!shift_by}")
+        ;;
     -h|--help)# _FLAG
         # Print help
         is_help=true

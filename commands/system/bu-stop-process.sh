@@ -41,6 +41,11 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    --pid)# PID
+        # Numeric PID to signal (repeatable; also accepts pipeline input by structural typing)
+        bu_parse_positional $# --hint "Process ID"
+        pids+=("${!shift_by}")
+        ;;
     -h|--help)# _FLAG
         # Print help
         is_help=true

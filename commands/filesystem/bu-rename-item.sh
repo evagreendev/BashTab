@@ -30,6 +30,16 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    --path)# PATH
+        # Existing path to rename (also accepts pipeline input by structural typing)
+        bu_parse_positional $# "${BU_AUTOCOMPLETE_SPEC_FILE[@]}" --hint "Existing file or directory"
+        path=${!shift_by}
+        ;;
+    --new-name)# NAME
+        # New name for the item (also accepts pipeline input by structural typing)
+        bu_parse_positional $# --hint "New name (not a path, no slashes)"
+        new_name=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         # Print help
         is_help=true
