@@ -33,9 +33,9 @@ declare -g __BU_COMMAND_CACHE_CHECKED=false
 # ── Prompt integration ───────────────────────────────────────────────
 
 # Saved original PROMPT_COMMAND before BashTab hooked it.
-__BU_PROMPT_ORIGINAL_PROMPT_COMMAND=
+declare -g __BU_PROMPT_ORIGINAL_PROMPT_COMMAND=
 # The module name currently shown in the prompt (empty if none).
-__BU_PROMPT_MODULE_DISPLAYED=
+declare -g __BU_PROMPT_MODULE_DISPLAYED=
 
 # ```
 # PROMPT_COMMAND hook that prepends the active module indicator to PS1
@@ -46,15 +46,16 @@ __BU_PROMPT_MODULE_DISPLAYED=
 # ```
 __bu_prompt_command_hook()
 {
-    local indicator="[${BU_TPUT_GREEN}${BU_TOP_LEVEL_MODULE}${BU_TPUT_RESET}] "
-    # Only prepend if not already there (handles re-entrant / nested cases)
-    if [[ "$PS1" != "$indicator"* ]]; then
-        PS1="${indicator}${PS1}"
-    fi
+    local indicator="[\[${BU_TPUT_GREEN}\]${BU_TOP_LEVEL_MODULE}\[${BU_TPUT_RESET}\]] "
     # Chain to the original PROMPT_COMMAND
     local orig=${__BU_PROMPT_ORIGINAL_PROMPT_COMMAND:-}
     if [[ -n "$orig" ]]; then
         eval "$orig"
+    fi
+
+    # Only prepend if not already there (handles re-entrant / nested cases)
+    if [[ "$PS1" != "$indicator"* ]]; then
+        PS1="${indicator}${PS1}"
     fi
 }
 
@@ -96,7 +97,7 @@ __bu_prompt_show_module()
 # ```
 __bu_prompt_hide_module()
 {
-    local indicator="[${BU_TPUT_GREEN}${__BU_PROMPT_MODULE_DISPLAYED}${BU_TPUT_RESET}] "
+    local indicator="[\[${BU_TPUT_GREEN}\]${BU_TOP_LEVEL_MODULE}\[${BU_TPUT_RESET}\]] "
     PS1=${PS1#"$indicator"}
     PROMPT_COMMAND=${__BU_PROMPT_ORIGINAL_PROMPT_COMMAND:-}
     __BU_PROMPT_MODULE_DISPLAYED=

@@ -3198,22 +3198,23 @@ __bu_bind_fzf_autocomplete_impl_ts()
     __bu_terminal_get_pos2 "$oldstty"
     local row_start=${BU_RET[0]}
 
-    # Remove \[ \] markers (preserve content — ANSI codes inside need to survive)
-    # and strip kitty OSC 133 shell-integration sequences which contain $? that
+    # strip kitty OSC 133 shell-integration sequences which contain $? that
     # @P would expand, corrupting them into visible garbage.
-    local ps1_clean
-    ps1_clean=$(printf '%s' "$PS1" | sed -E 's/\\\[|\\\]//g; s/\\e\\]133;[^\\]*(\\a|\\e\\)//g')
+    local ps1_clean=$(sed -E 's/\\e\\]133;[^\\]*(\\a|\\e\\)//g' <<<"$PS1")
+    local ps1_clean_last_row=${ps1_clean##*$'\n'}
     # Now @P-expand the cleaned prompt and take the last line (after last \n → real newline)
-    local ps1_expanded="${ps1_clean@P}"
+    local ps1_expanded="${ps1_clean_last_row@P}"
     local ps1_last_row="${ps1_expanded##*$'\n'}"
     printf "%s" "$ps1_last_row" # | tee /tmp/bashtab_prompt_ts.raw
     #echo "" >> /tmp/bashtab_prompt_ts.raw
 
     # Compute visible prompt width.  Strip all ANSI escape sequences from
     # the already-rendered string: CSI (ESC [ ... letter), OSC (ESC ] ... BEL).
-    local ps1_noesc
-    ps1_noesc=$(printf '%s' "$ps1_last_row" | sed -E 's/\x1B\[[^a-zA-Z]*[a-zA-Z]//g; s/\x1B\][^\x07]*(\x07|\x1B\\)//g; s/\x1B[PX^_][^\x1B]*(\x1B\\)?//g')
-    local col_with_ps1=$((${#ps1_noesc} % COLUMNS))
+    local ps1_noesc=$(sed -E 's/\\\[([^\\]*([^\\]\]|\\[^]])?)*\\\]//g; s/\x1B\[[^a-zA-Z]*[a-zA-Z]//g; s/\x1B\][^\x07]*(\x07|\x1B\\)//g; s/\x1B[PX^_][^\x1B]*(\x1B\\)?//g' <<<"$ps1_clean_last_row")
+    local ps1_noesc_rendered="${ps1_noesc@P}"
+    local col_with_ps1=$((${#ps1_noesc_rendered} % COLUMNS))
+
+    # bu_log_tty "Len:$col_with_ps1|$ps1_noesc|$ps1_clean_last_row|"
 
     # Print the full command line with syntax highlighting (IDE-style preview)
     # Build the text already typed between command name and the word being completed
