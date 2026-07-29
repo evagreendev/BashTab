@@ -65,6 +65,16 @@ bu_config_register BU_OUTPUT_FORMAT \
     --hint "Default output format when stdout is not a terminal (empty: table on tty, jsonl when piped)"
 BU_OUTPUT_FORMAT=${BU_OUTPUT_FORMAT:-}
 
+# Pager for tabular output. When set and stdout is a terminal,
+# bu_format_table pipes output through this command.
+#   "preset:less"   → less -R      "preset:bat" → bat --paging=always
+#   "preset:never"  → cat (no paging)
+#   "less -R"       → custom command, used verbatim
+bu_config_register BU_TABLE_PAGER --default "" \
+    --presets less less-quit bat never presets-- \
+    --hint "Pager for tabular output (preset:less, preset:bat, or a custom command). Empty disables."
+BU_TABLE_PAGER=${BU_TABLE_PAGER:-""}
+
 # Allow pipeline field completion to execute the pipeline prefix being typed
 # ("probing") to discover record fields from live output. Off by default:
 # only producers in BU_OUT_PROBE_COMMANDS are ever executed.

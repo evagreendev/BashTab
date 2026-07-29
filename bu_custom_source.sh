@@ -154,6 +154,7 @@ bu_config_register()
     fi
     local default= enum= hint=
     local is_bool=false
+    local presets=
     while (($#))
     do
         case "$1" in
@@ -181,6 +182,22 @@ bu_config_register()
             shift
             enum="${enum_values[*]}"
             ;;
+        --presets)
+            shift
+            local -a preset_values=()
+            while (($#)) && [[ "$1" != presets-- ]]
+            do
+                preset_values+=("$1")
+                shift
+            done
+            if (($# == 0))
+            then
+                bu_basic_log_err "bu_config_register: --presets missing terminator presets--"
+                return 1
+            fi
+            shift
+            presets="${preset_values[*]}"
+            ;;
         --hint)
             hint=$2
             shift 2
@@ -195,6 +212,7 @@ bu_config_register()
     [[ -n "$default" ]] && BU_CONFIG_PROPERTIES[$name,default]=$default
     [[ -n "$enum" ]] && BU_CONFIG_PROPERTIES[$name,enum]=$enum
     [[ -n "$hint" ]] && BU_CONFIG_PROPERTIES[$name,hint]=$hint
+    [[ -n "$presets" ]] && BU_CONFIG_PROPERTIES[$name,presets]=$presets
     "$is_bool" && BU_CONFIG_PROPERTIES[$name,bool]=true
     return 0
 }
@@ -270,6 +288,10 @@ __bu_config_completion_values()
     for entry in ${BU_CONFIG_PROPERTIES[$name,enum]:-}
     do
         BU_RET+=("${entry%%:*}")
+    done
+    for entry in ${BU_CONFIG_PROPERTIES[$name,presets]:-}
+    do
+        BU_RET+=("preset:${entry}")
     done
 }
 

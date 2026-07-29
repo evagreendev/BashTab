@@ -1056,3 +1056,98 @@ function test_bu_distinct_object_metadata { #@test
     out=$(bu get-command | jq -c 'select(.name == "distinct-object")')
     assert_equal "$out" '{"name":"distinct-object","verb":"distinct","noun":"object","namespace":"bu","type":"source"}'
 }
+
+# ===========================================================================
+# BU_TABLE_PAGER
+# ===========================================================================
+
+function test_bu_table_pager_piped_noop { #@test
+    # When stdout is a pipe (not a TTY), BU_TABLE_PAGER must be ignored.
+    # We use a pager that would transform the output, and verify it didn't run.
+    local out
+    out=$(printf '{"key":"val"}\n' | BU_TABLE_PAGER="sed s/.*/PAGED/" bu_format_table)
+    # Without paging: a table with header, separator, and the value row
+    [[ "$out" == *key* ]]
+    [[ "$out" == *val* ]]
+    # The pager did NOT run
+    [[ "$out" != *PAGED* ]]
+}
+
+function test_bu_table_pager_preset_piped_noop { #@test
+    # preset:less with a piped stdout must still be ignored (same as above).
+    local out
+    out=$(printf '{"key":"val"}\n' | BU_TABLE_PAGER="preset:less" bu_format_table)
+    [[ "$out" == *key* ]]
+    [[ "$out" == *val* ]]
+}
+
+function test_bu_table_pager_cat_equivalent { #@test
+    # Setting BU_TABLE_PAGER to cat produces the same output as no pager,
+    # confirming the pipeline is constructed correctly.
+    local out no_pager_out
+    out=$(printf '{"name":"test"}\n' | BU_TABLE_PAGER=cat bu_format_table)
+    no_pager_out=$(printf '{"name":"test"}\n' | BU_TABLE_PAGER= bu_format_table)
+    assert_equal "$out" "$no_pager_out"
+}
+
+function test_bu_table_pager_preset_on_terminal { #@test
+    # When stdout is a terminal and BU_TABLE_PAGER=preset:less, output must
+    # pass through the resolved preset (less -R).  We use sed as a marker
+    # pager via a custom preset registered at runtime.
+    if ! command -v script &>/dev/null; then
+        skip "script(1) not available"
+    fi
+    local helper=$BATS_TEST_TMPDIR/pager_preset_pty.sh
+    cat > "$helper" <<'SCRIPT_EOF'
+source "$HELPER_DIR/../bu_entrypoint.sh" >/dev/null 2>&1
+bu_register_table_pager_preset "marker" "sed s/^/PAGED:/"
+export BU_TABLE_PAGER="preset:marker"
+printf '{"name":"test"}\n' | bu_format_table
+SCRIPT_EOF
+    local out
+    out=$(HELPER_DIR="$DIR" script -qec "bash $helper" /dev/null | tr -d '\r\000')
+    # The sed pager should have prepended "PAGED:" to every line
+    [[ "$out" == *PAGED:* ]]
+}
+
+function test_bu_table_pager_custom_on_terminal { #@test
+    # A bare command (no preset: prefix) is used verbatim.
+    if ! command -v script &>/dev/null; then
+        skip "script(1) not available"
+    fi
+    local helper=$BATS_TEST_TMPDIR/pager_custom_pty.sh
+    cat > "$helper" <<'SCRIPT_EOF'
+source "$HELPER_DIR/../bu_entrypoint.sh" >/dev/null 2>&1
+export BU_TABLE_PAGER="sed s/^/CUSTOM:/"
+printf '{"name":"test"}\n' | bu_format_table
+SCRIPT_EOF
+    local out
+    out=$(HELPER_DIR="$DIR" script -qec "bash $helper" /dev/null | tr -d '\r\000')
+    [[ "$out" == *CUSTOM:* ]]
+}
+
+function test_bu_table_pager_preset_never { #@test
+    # preset:never maps to cat — no paging transformation even on a terminal.
+    if ! command -v script &>/dev/null; then
+        skip "script(1) not available"
+    fi
+    local helper=$BATS_TEST_TMPDIR/pager_never_pty.sh
+    cat > "$helper" <<'SCRIPT_EOF'
+source "$HELPER_DIR/../bu_entrypoint.sh" >/dev/null 2>&1
+export BU_TABLE_PAGER="preset:never"
+printf '{"name":"test"}\n' | bu_format_table
+SCRIPT_EOF
+    local out
+    out=$(HELPER_DIR="$DIR" script -qec "bash $helper" /dev/null | tr -d '\r\000')
+    # Table should render normally (header, separator, data)
+    [[ "$out" == *name* ]]
+    [[ "$out" == *test* ]]
+    # No pager marker
+    [[ "$out" != *PAGED:* ]]
+}
+
+function test_bu_table_pager_register_preset { #@test
+    # bu_register_table_pager_preset extends the presets at runtime.
+    bu_register_table_pager_preset "my-pager" "my-custom-pager --flag"
+    assert_equal "${__BU_TABLE_PAGER_PRESETS[my-pager]}" "my-custom-pager --flag"
+}

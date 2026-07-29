@@ -226,6 +226,7 @@ verb=`convert-to`, noun=`jsonl`. Extend the array for custom multi-word verbs.
 | Variable | Default | Purpose |
 |---|---|---|
 | `BU_OUTPUT_FORMAT` | *(empty)* | Force output format when `--format auto` |
+| `BU_TABLE_PAGER` | *(empty)* | Pager for tables. `preset:less` → `less -R`, `preset:bat` → `bat --paging=always`, `preset:never` → cat, or a raw command like `less -R`. Empty disables. |
 | `BU_OUT_PRODUCER_FIELDS` | builtins | Assoc: producer prefix → field list |
 | `BU_OUT_PROBE_PIPELINE` | `false` | Master switch for live probing during completion |
 | `BU_OUT_PROBE_COMMANDS` | *(empty)* | Assoc allowlist of probe-safe producer heads |

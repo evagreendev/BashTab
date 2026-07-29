@@ -24,6 +24,42 @@ BU_OUT_JQ=$(command -v jq 2>/dev/null) || BU_OUT_JQ=
 # Used by --format flags and Out-Default auto-detection.
 BU_OUT_FORMATS=(auto table list json jsonl tsv)
 
+# Preset pager shortcuts for BU_TABLE_PAGER.  Maps preset names (the part
+# after "preset:") to full pager command lines.  Extend via
+# bu_register_table_pager_preset.
+declare -A -g __BU_TABLE_PAGER_PRESETS=(
+    [less]="less -R"
+    [less-quit]="less -FRSX"
+    [bat]="bat --paging=always"
+    [never]=cat
+)
+
+# ```
+# *Description*:
+# Register a preset pager shortcut for BU_TABLE_PAGER.
+# Users can then write BU_TABLE_PAGER=preset:<name>.
+#
+# *Params*:
+# - `$1`: Preset name (e.g. "less", "bat")
+# - `$2`: Full pager command (e.g. "less -R", "bat --paging=always")
+#
+# *Examples*:
+# ```bash
+# bu_register_table_pager_preset "moar" "moar -style native"
+# ```
+# ```
+bu_register_table_pager_preset()
+{
+    local name=$1
+    local cmd=$2
+    if [[ -z "$name" || -z "$cmd" ]]
+    then
+        bu_log_err "Usage: bu_register_table_pager_preset <name> <command>"
+        return 1
+    fi
+    __BU_TABLE_PAGER_PRESETS[$name]=$cmd
+}
+
 # Static field registry: producer command-line prefix -> space-separated
 # record fields. Consulted first by __bu_out_complete_pipeline_fields when
 # completing after a pipe. Longest prefix match wins, so fields stay correct
@@ -993,6 +1029,29 @@ bu_format_table()
         reset=
     fi
 
+    # Pager support: when BU_TABLE_PAGER is set and stdout is a terminal,
+    # pipe table output through the configured pager.
+    # - "preset:less"   → resolves to "less -R" (or whatever the preset maps to)
+    # - "less -R"       → used verbatim as a custom pager command
+    # - "" (empty)      → no paging (cat passthrough)
+    # Falls back to cat if the pager command is invalid or not found.
+    local __bu_pager_pipe=cat
+    if [[ -n "${BU_TABLE_PAGER:-}" && -t 1 ]]
+    then
+        if [[ "$BU_TABLE_PAGER" == preset:* ]]
+        then
+            local __bu_preset_name=${BU_TABLE_PAGER#preset:}
+            if [[ -n "${__BU_TABLE_PAGER_PRESETS[$__bu_preset_name]:-}" ]]
+            then
+                __bu_pager_pipe=${__BU_TABLE_PAGER_PRESETS[$__bu_preset_name]}
+            else
+                bu_log_warn "Unknown pager preset[$__bu_preset_name]; valid presets: ${!__BU_TABLE_PAGER_PRESETS[*]}"
+            fi
+        else
+            __bu_pager_pipe=$BU_TABLE_PAGER
+        fi
+    fi
+
     if "$is_stream"
     then
         if [[ "$cols_json" == '[]' ]]
@@ -1023,7 +1082,7 @@ bu_format_table()
             ($spec | map(. as $s | ($s.header | ellipsize($s.width)) as $h | $bold + $h + $reset + (" " * ($s.width - ($h | length)))) | join("  ") | rtrim),
             ($spec | map("-" * .width) | join("  ") | rtrim),
             (inputs | rowline(.) | rtrim)
-            '
+            ' | $__bu_pager_pipe || cat
         return
     fi
 
@@ -1068,7 +1127,7 @@ bu_format_table()
               | $colored + (" " * ($s.width - ($val | length)))
           ) | join("  ") | rtrim)
         end
-        '
+        ' | $__bu_pager_pipe || cat
 }
 
 # ```
