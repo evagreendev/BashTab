@@ -66,7 +66,7 @@ then
         --description "
 List Docker containers as JSONL records (docker ps --format json wrapper).
 
-Fields: ID, Image, Command, CreatedAt, RunningFor, Ports, Status, Size, Names, Labels, Mounts, Networks
+Fields: ID, Image, Command, CreatedAt, RunningFor, Ports, State, Status, Size, Names, Labels, Mounts, Networks
 " \
         --example "Running containers" "" \
         --example "All containers" "-a" \
