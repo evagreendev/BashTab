@@ -42,10 +42,172 @@ do
         from_file=${!shift_by}
         ;;
     --where|where)# WHERE
-        # Filter records with a jq boolean expression. Repeatable; multiple
-        # expressions are ANDed together.
-        bu_parse_positional $# --ret __bu_out_complete_pipeline_fields --dot ret-- --hint "jq boolean expression"
-        where_exprs+=("${!shift_by}")
+        # Filter records. Two syntaxes:
+        #   jq expression:  where '.type == "source"'
+        #   Structured:     where type -eq "source"
+        #     Operators: -eq -ne -gt -lt -ge -le -like -notlike -match
+        #                -notmatch -contains -notcontains -in -notin
+        #                -isnull -isnotnull
+        #     Connect conditions with `and` or `or` inside one where:
+        #       where type -eq source and name -like get-*
+        # Repeatable; multiple where clauses are ANDed together.
+        # Save shift_by BEFORE bu_parse_positional to detect early return.
+        local _w_saved_shift_by=$shift_by
+        bu_parse_positional $# --ret __bu_out_complete_pipeline_fields ret-- --hint "Field name, or jq expression"
+        local where_raw=${!shift_by}
+        if [[ "$where_raw" == .* || "$where_raw" == \(* || "$where_raw" == select\(* ]]; then
+            where_exprs+=("$where_raw")
+        elif (( shift_by == _w_saved_shift_by )); then
+            # bu_parse_positional returned early — no positional arg to
+            # consume.  where_raw is bogus (resolved to the flag itself).
+            # Force field-name completions.
+            autocompletion=(--ret __bu_out_complete_pipeline_fields ret-- --hint "Field name")
+            :
+        else
+            # Structured comparison with optional and/or chaining.
+            # Grammar: field -op [val] { and|or field -op [val] }*
+            local -a _w_segments=()   # jq expressions for each condition
+            local -a _w_connectors=() # "and" or "or" between segments
+            local _w_extra=0          # extra args consumed (beyond field name)
+            local _w_field=$where_raw
+            local _w_complete=false   # last condition is fully parsed
+
+            while true; do
+                # --- Parse operator for current field ---
+                local _w_op= _w_val= _w_cond_consume=0
+                local _w_o_idx=$(( shift_by + _w_extra + 1 ))
+                if (( _w_o_idx <= $# )); then
+                    local _w_o_arg=${!_w_o_idx}
+                    case "$_w_o_arg" in
+                    -eq|-ne|-gt|-lt|-ge|-le|-like|-notlike|-match|-notmatch|-contains|-notcontains|-in|-notin)
+                        _w_op=$_w_o_arg; _w_cond_consume=1
+                        local _w_v_idx=$(( shift_by + _w_extra + 2 ))
+                        if (( _w_v_idx <= $# )); then
+                            local _w_v_arg=${!_w_v_idx}
+                            if [[ "$_w_v_arg" != -* ]] || [[ "$_w_v_arg" =~ ^-[0-9] ]]; then
+                                _w_val=$_w_v_arg; _w_cond_consume=2
+                            fi
+                        fi
+                        ;;
+                    -isnull|-isnotnull)
+                        _w_op=$_w_o_arg; _w_cond_consume=1
+                        ;;
+                    -*)
+                        # Partial / unknown operator — don't consume.
+                        # Let the autocomplete section show operators, and
+                        # the tail cleanup below will eat this arg.
+                        :
+                        ;;
+                    esac
+                fi
+                _w_extra=$((_w_extra + _w_cond_consume))
+
+                if [[ -n "$_w_op" ]]; then
+                    # Have a condition (possibly with value missing)
+                    if [[ "$_w_op" != -isnull && "$_w_op" != -isnotnull && -z "$_w_val" ]]; then
+                        if ! bu_env_is_in_autocomplete; then
+                            error_msg="Missing value after operator[$_w_op] for field[$_w_field]"
+                            bu_autohelp; bu_scope_pop_function; return 1
+                        fi
+                        _w_complete=false
+                        break
+                    fi
+                    local _w_seg_jq
+                    _w_seg_jq=$(__bu_query_object_translate_op "$_w_field" "$_w_op" "$_w_val") || {
+                        error_msg="Invalid where clause: $_w_field $_w_op $_w_val"
+                        bu_autohelp; bu_scope_pop_function; return 1
+                    }
+                    _w_segments+=("$_w_seg_jq")
+                    _w_complete=true
+                else
+                    _w_complete=false
+                    break
+                fi
+
+                # --- Check for and/or connector ---
+                local _w_c_idx=$(( shift_by + _w_extra + 1 ))
+                if (( _w_c_idx > $# )); then break; fi
+                local _w_c_arg=${!_w_c_idx}
+                case "$_w_c_arg" in
+                and|or)
+                    _w_connectors+=("$_w_c_arg")
+                    _w_extra=$((_w_extra + 1))
+                    ;;
+                *)
+                    break  # next arg is not a connector
+                    ;;
+                esac
+
+                # --- Parse next field name ---
+                local _w_f_idx=$(( shift_by + _w_extra + 1 ))
+                if (( _w_f_idx > $# )); then
+                    _w_complete=false  # waiting for field after connector
+                    break
+                fi
+                _w_field=${!_w_f_idx}
+                if [[ "$_w_field" == -* ]]; then
+                    # Backtrack: connector had no field after it.
+                    # This is an error in non-autocomplete mode.
+                    if ! bu_env_is_in_autocomplete; then
+                        error_msg="Expected field name after '${_w_connectors[-1]}', got flag[$_w_field]"
+                        bu_autohelp; bu_scope_pop_function; return 1
+                    fi
+                    _w_extra=$((_w_extra - 1))       # un-consume connector
+                    unset '_w_connectors[-1]'         # remove last connector
+                    _w_complete=true
+                    break
+                fi
+                _w_extra=$((_w_extra + 1))
+                _w_complete=false  # need to parse operator for new field
+            done
+
+            : $((shift_by += _w_extra))
+
+            # Remember whether cursor is past the field (before tail
+            # cleanup consumes the operator-position empty arg).
+            local _w_cursor_past_field=false
+            (( $# > shift_by )) && _w_cursor_past_field=true
+
+            # Consume any trailing empty or partial-operator arg that
+            # belongs to the where clause (avoids a bogus second loop
+            # iteration that would overwrite autocompletion with flags).
+            if (( shift_by < $# )); then
+                local _w_tail_idx=$(( shift_by + 1 ))
+                local _w_tail=${!_w_tail_idx}
+                if [[ -z "$_w_tail" || ( "$_w_tail" == -* && "$_w_tail" != --* ) ]]; then
+                    : $((shift_by++))
+                fi
+            fi
+
+            # --- Set autocomplete for the current position ---
+            if [[ -z "$_w_op" && -n "$_w_field" ]] && "$_w_cursor_past_field"; then
+                # Have a field name AND cursor past it → show operators
+                autocompletion=(--enum -eq -ne -gt -lt -ge -le -like -notlike -match -notmatch -contains -notcontains -in -notin -isnull -isnotnull enum-- --hint "Comparison operator")
+            elif [[ -z "$_w_op" && -z "$_w_field" ]] && ((${#_w_connectors[@]} > 0)); then
+                # After and/or connector, waiting for next field name
+                autocompletion=(--ret __bu_out_complete_pipeline_fields ret-- --hint "Field name (after ${_w_connectors[-1]})")
+            elif [[ "$_w_complete" == true ]]; then
+                # Have a complete condition; suggest and/or
+                autocompletion=(--enum and or enum-- --hint "Logical connector (and/or)")
+            elif [[ -n "$_w_op" && -z "$_w_val" && "$_w_op" != -isnull && "$_w_op" != -isnotnull ]]; then
+                # Have field + operator, waiting for value
+                autocompletion=(--hint "Value for $_w_field $_w_op")
+            fi
+            if [[ -z "$_w_op" && -z "$_w_field" ]] && ((${#_w_connectors[@]} == 0)); then
+                # Waiting for first field name — force field completions
+                autocompletion=(--ret __bu_out_complete_pipeline_fields ret-- --hint "Field name")
+            fi
+
+            # --- Build combined jq expression ---
+            if ((${#_w_segments[@]} > 0)); then
+                local _w_combined="${_w_segments[0]}"
+                local _w_i
+                for (( _w_i = 1; _w_i < ${#_w_segments[@]}; _w_i++ )); do
+                    _w_combined="($_w_combined) ${_w_connectors[_w_i-1]} (${_w_segments[_w_i]})"
+                done
+                where_exprs+=("$_w_combined")
+            fi
+        fi
         ;;
     --group-by|group-by)# GROUP_BY
         # Group records by key fields (comma-separated), collapsing each group
@@ -65,10 +227,141 @@ do
         IFS=$ifs
         ;;
     --having|having)# HAVING
-        # Filter groups after group-by (jq expression on group/aggregate fields).
+        # Filter groups after group-by. Accepts raw jq or structured comparison
+        # (same operator syntax and and/or chaining as --where).
         # Repeatable; multiple expressions are ANDed together.
-        bu_parse_positional $# --ret __bu_out_complete_pipeline_fields --dot ret-- --hint "jq boolean expression (group fields)"
-        having_exprs+=("${!shift_by}")
+        local _h_saved_shift_by=$shift_by
+        bu_parse_positional $# --ret __bu_out_complete_pipeline_fields ret-- --hint "Field name, or jq expression (group fields)"
+        local having_raw=${!shift_by}
+        if [[ "$having_raw" == .* || "$having_raw" == \(* || "$having_raw" == select\(* ]]; then
+            having_exprs+=("$having_raw")
+        elif (( shift_by == _h_saved_shift_by )); then
+            # bu_parse_positional returned early — no positional arg.
+            autocompletion=(--ret __bu_out_complete_pipeline_fields ret-- --hint "Field name")
+            :
+            :
+        else
+            local -a _h_segments=()
+            local -a _h_connectors=()
+            local _h_extra=0
+            local _h_field=$having_raw
+            local _h_complete=false
+
+            while true; do
+                local _h_op= _h_val= _h_cond_consume=0
+                local _h_o_idx=$(( shift_by + _h_extra + 1 ))
+                if (( _h_o_idx <= $# )); then
+                    local _h_o_arg=${!_h_o_idx}
+                    case "$_h_o_arg" in
+                    -eq|-ne|-gt|-lt|-ge|-le|-like|-notlike|-match|-notmatch|-contains|-notcontains|-in|-notin)
+                        _h_op=$_h_o_arg; _h_cond_consume=1
+                        local _h_v_idx=$(( shift_by + _h_extra + 2 ))
+                        if (( _h_v_idx <= $# )); then
+                            local _h_v_arg=${!_h_v_idx}
+                            if [[ "$_h_v_arg" != -* ]] || [[ "$_h_v_arg" =~ ^-[0-9] ]]; then
+                                _h_val=$_h_v_arg; _h_cond_consume=2
+                            fi
+                        fi
+                        ;;
+                    -isnull|-isnotnull)
+                        _h_op=$_h_o_arg; _h_cond_consume=1
+                        ;;
+                    -*)
+                        # Partial / unknown operator — don't consume.
+                        :
+                        ;;
+                    esac
+                fi
+                _h_extra=$((_h_extra + _h_cond_consume))
+
+                if [[ -n "$_h_op" ]]; then
+                    if [[ "$_h_op" != -isnull && "$_h_op" != -isnotnull && -z "$_h_val" ]]; then
+                        if ! bu_env_is_in_autocomplete; then
+                            error_msg="Missing value after operator[$_h_op] for field[$_h_field]"
+                            bu_autohelp; bu_scope_pop_function; return 1
+                        fi
+                        _h_complete=false; break
+                    fi
+                    local _h_seg_jq
+                    _h_seg_jq=$(__bu_query_object_translate_op "$_h_field" "$_h_op" "$_h_val") || {
+                        error_msg="Invalid having clause: $_h_field $_h_op $_h_val"
+                        bu_autohelp; bu_scope_pop_function; return 1
+                    }
+                    _h_segments+=("$_h_seg_jq")
+                    _h_complete=true
+                else
+                    _h_complete=false; break
+                fi
+
+                # Check for and/or connector
+                local _h_c_idx=$(( shift_by + _h_extra + 1 ))
+                if (( _h_c_idx > $# )); then break; fi
+                local _h_c_arg=${!_h_c_idx}
+                case "$_h_c_arg" in
+                and|or)
+                    _h_connectors+=("$_h_c_arg")
+                    _h_extra=$((_h_extra + 1))
+                    ;;
+                *)
+                    break
+                    ;;
+                esac
+
+                # Parse next field name
+                local _h_f_idx=$(( shift_by + _h_extra + 1 ))
+                if (( _h_f_idx > $# )); then
+                    _h_complete=false; break
+                fi
+                _h_field=${!_h_f_idx}
+                if [[ "$_h_field" == -* ]]; then
+                    if ! bu_env_is_in_autocomplete; then
+                        error_msg="Expected field name after '${_h_connectors[-1]}', got flag[$_h_field]"
+                        bu_autohelp; bu_scope_pop_function; return 1
+                    fi
+                    _h_extra=$((_h_extra - 1))
+                    unset '_h_connectors[-1]'
+                    _h_complete=true; break
+                fi
+                _h_extra=$((_h_extra + 1))
+                _h_complete=false
+            done
+
+            : $((shift_by += _h_extra))
+
+            local _h_cursor_past_field=false
+            (( $# > shift_by )) && _h_cursor_past_field=true
+
+            # Consume trailing empty/operator-like arg (same as --where)
+            if (( shift_by < $# )); then
+                local _h_tail_idx=$(( shift_by + 1 ))
+                local _h_tail=${!_h_tail_idx}
+                if [[ -z "$_h_tail" || ( "$_h_tail" == -* && "$_h_tail" != --* ) ]]; then
+                    : $((shift_by++))
+                fi
+            fi
+
+            if [[ -z "$_h_op" && -n "$_h_field" ]] && "$_h_cursor_past_field"; then
+                autocompletion=(--enum -eq -ne -gt -lt -ge -le -like -notlike -match -notmatch -contains -notcontains -in -notin -isnull -isnotnull enum-- --hint "Comparison operator")
+            elif [[ -z "$_h_op" && -z "$_h_field" ]] && ((${#_h_connectors[@]} > 0)); then
+                autocompletion=(--ret __bu_out_complete_pipeline_fields ret-- --hint "Field name (after ${_h_connectors[-1]})")
+            elif [[ "$_h_complete" == true ]]; then
+                autocompletion=(--enum and or enum-- --hint "Logical connector (and/or)")
+            elif [[ -n "$_h_op" && -z "$_h_val" && "$_h_op" != -isnull && "$_h_op" != -isnotnull ]]; then
+                autocompletion=(--hint "Value for $_h_field $_h_op")
+            fi
+            if [[ -z "$_h_op" && -z "$_h_field" ]] && ((${#_h_connectors[@]} == 0)); then
+                autocompletion=(--ret __bu_out_complete_pipeline_fields ret-- --hint "Field name")
+            fi
+
+            if ((${#_h_segments[@]} > 0)); then
+                local _h_combined="${_h_segments[0]}"
+                local _h_i
+                for (( _h_i = 1; _h_i < ${#_h_segments[@]}; _h_i++ )); do
+                    _h_combined="($_h_combined) ${_h_connectors[_h_i-1]} (${_h_segments[_h_i]})"
+                done
+                having_exprs+=("$_h_combined")
+            fi
+        fi
         ;;
     --order-by|order-by)# ORDER_BY
         # Field to sort by (refers to output field names, after any renames)
@@ -146,11 +439,21 @@ Query a JSONL stream with SQL-style clauses in a single command.
 Clauses may be given in any order; execution always follows SQL logical
 order: WHERE -> GROUP BY -> HAVING -> SELECT -> ORDER BY -> FIRST.
 
-  where     uses source field names  (jq expression, repeatable, ANDed)
+  where     Two syntaxes: raw jq expression ('.field == val') or structured
+            comparison (field -op val). Structured operators:
+              -eq -ne -gt -lt -ge -le   scalar comparisons
+              -like -notlike            glob pattern matching (* and ?)
+              -match -notmatch          regex matching (RLIKE)
+              -contains -notcontains    array contains value
+              -in -notin                value in field
+              -isnull -isnotnull        null checks
+            Chain conditions with `and`/`or` inside a single where:
+              where type -eq source and name -like get-*
+            Repeatable; multiple where clauses are ANDed.
   group-by  collapses records by key fields (comma-separated composite key)
   agg       aggregates per group: [name=]func[:field], repeatable and/or
             comma-separated. funcs: count, sum, avg, min, max, first, last, collect
-  having    filters groups, uses group/aggregate field names
+  having    filters groups; same jq or structured syntax as where
   select    projects/reorders/renames fields (new=old)
   distinct  removes duplicate records after projection (SELECT DISTINCT)
   order-by  uses output field names  (after renames, like SQL aliases)
@@ -162,15 +465,22 @@ order: WHERE -> GROUP BY -> HAVING -> SELECT -> ORDER BY -> FIRST.
 Each clause keyword works with or without dashes (select / --select).
 Output ends at Out-Default: a table on a terminal, JSONL when piped.
 " \
-        --example "Full query" "where '.type == \"source\"' select name,verb order-by verb" \
-        --example "Any clause order" "order-by noun select name,noun where '.namespace == \"bu\"'" \
+        --example "Full query (structured)" "where type -eq source select name,verb order-by verb" \
+        --example "Full query (jq)" "where '.type == \"source\"' select name,verb order-by verb" \
+        --example "Glob pattern matching" "where name -like get-* select name,verb" \
+        --example "Regex matching (RLIKE)" "where name -match '^get-' select name,verb" \
+        --example "Multiple conditions (ANDed)" "where type -eq source where verb -ne help" \
+        --example "And/or in one where" "where type -eq source and name -like get-*" \
+        --example "Or condition" "where type -eq source or type -eq alias" \
+        --example "Null check" "where version -isnotnull select name,version" \
+        --example "Any clause order" "order-by noun select name,noun where namespace -eq bu" \
         --example "Rename then order by the alias" "select name,ver=version order-by ver" \
         --example "Top 3" "order-by name first 3" \
         --example "Distinct projected fields" "select verb distinct" \
         --example "Group and count" "group-by verb agg count" \
-        --example "Group with aggregates and having" "group-by verb agg count,avg:len having '.count > 1' order-by count desc" \
-        --example "Dashed forms work too" "--where '.type == \"source\"' --select name" \
-        --example "Query a file instead of stdin" "from data.jsonl where '.type == \"source\"' select name" \
+        --example "Group with aggregates and having" "group-by verb agg count,avg:len having count -gt 1 order-by count desc" \
+        --example "Dashed forms work too" "--where type -eq source --select name" \
+        --example "Query a file instead of stdin" "from data.jsonl where type -eq source select name" \
         --example "Save results to a file" "select name,verb order-by name outfile verbs.jsonl"
     return 0
 fi

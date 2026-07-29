@@ -529,6 +529,174 @@ bu_out_where()
     "$BU_OUT_JQ" -c "select($1)"
 }
 
+# --------------------------------------------------------------------------
+# Operator-to-jq translation helpers (for PowerShell-style --where syntax)
+# --------------------------------------------------------------------------
+
+# ```
+# *Description*:
+# Convert a user-supplied value to a jq literal. Numbers, booleans, and null
+# are passed through as-is; everything else is quoted as a jq string.
+#
+# *Params*:
+# - `$1`: Raw value string (unquoted at the shell level, e.g. source, 42,
+#         "hello world" if the user typed quotes)
+#
+# *Returns*:
+# - stdout: The value as a valid jq literal
+#
+# *Examples*:
+# ```bash
+# __bu_jq_literal 42        # 42
+# __bu_jq_literal true      # true
+# __bu_jq_literal null      # null
+# __bu_jq_literal hello     # "hello"
+# __bu_jq_literal "hi,there" # "hi,there"  (shell-stripped quotes, re-quoted)
+# ```
+# ```
+__bu_jq_literal()
+{
+    local val=$1
+
+    # null
+    if [[ "$val" == null ]]; then printf 'null'; return 0; fi
+    # booleans
+    if [[ "$val" == true || "$val" == false ]]; then printf '%s' "$val"; return 0; fi
+    # signed integer or float (includes negative)
+    if [[ "$val" =~ ^-?[0-9]+\.?[0-9]*$ || "$val" =~ ^-?[0-9]*\.[0-9]+$ ]]; then
+        # Must not be empty string or just "-"
+        if [[ "$val" != - && "$val" != "" ]]; then
+            printf '%s' "$val"; return 0
+        fi
+    fi
+
+    # String: escape backslashes and double quotes, then wrap in double quotes
+    local escaped=${val//\\/\\\\}
+    escaped=${escaped//\"/\\\"}
+    printf '"%s"' "$escaped"
+}
+
+# ```
+# *Description*:
+# Convert a shell glob pattern to a jq-compatible regex for the `test`
+# function.  Handles `*` (any chars), `?` (one char), escapes everything
+# else that is a regex metacharacter.
+#
+# *Params*:
+# - `$1`: Glob pattern (e.g. "*.txt", "get-?")
+#
+# *Returns*:
+# - stdout: Regex string suitable for jq's `test()`
+#
+# *Examples*:
+# ```bash
+# __bu_glob_to_regex "*.sh"   # ^.*\.sh$
+# __bu_glob_to_regex "get-?"  # ^get-.$
+# ```
+# ```
+__bu_glob_to_regex()
+{
+    local glob=$1
+    local regex=
+    local i ch
+    for (( i = 0; i < ${#glob}; i++ )); do
+        ch=${glob:i:1}
+        case "$ch" in
+        '\\') regex+='\\\\' ;;
+        '.')   regex+='\\.' ;;
+        '*')   regex+='.*' ;;
+        '?')   regex+='.' ;;
+        '['|']'|'('|')'|'{'|'}'|'^'|'$'|'+'|'|')
+                regex+='\\'$ch ;;
+        *)     regex+=$ch ;;
+        esac
+    done
+    printf '^%s$' "$regex"
+}
+
+# ```
+# *Description*:
+# Translate a PowerShell-style structured comparison to a jq boolean
+# expression string suitable for `bu_out_where` (or the --where clause of
+# `bu query-object`).
+#
+# *Params*:
+# - `$1`: Field name (e.g. `type`, `name` — no leading dot)
+# - `$2`: Operator: one of -eq -ne -gt -lt -ge -le -like -notlike -match
+#         -notmatch -contains -notcontains -in -notin -isnull -isnotnull
+# - `$3`: Value (empty for -isnull / -isnotnull)
+#
+# *Returns*:
+# - stdout: jq boolean expression, e.g. `.type == "source"`
+# - exit 0 on success, 1 if operator is unknown
+#
+# *Examples*:
+# ```bash
+# __bu_query_object_translate_op type -eq source       # .type == "source"
+# __bu_query_object_translate_op name -like "*.sh"     # .name | test("^.*\\.sh$")
+# __bu_query_object_translate_op name -match "^get-"   # .name | test("^get-")
+# __bu_query_object_translate_op verb -isnull           # .verb == null
+# ```
+# ```
+__bu_query_object_translate_op()
+{
+    local field=$1
+    local op=$2
+    local val=$3
+    local jq_expr=
+
+    case "$op" in
+    -eq)    jq_expr=".$field == $(__bu_jq_literal "$val")" ;;
+    -ne)    jq_expr=".$field != $(__bu_jq_literal "$val")" ;;
+    -gt)    jq_expr=".$field > $(__bu_jq_literal "$val")" ;;
+    -lt)    jq_expr=".$field < $(__bu_jq_literal "$val")" ;;
+    -ge)    jq_expr=".$field >= $(__bu_jq_literal "$val")" ;;
+    -le)    jq_expr=".$field <= $(__bu_jq_literal "$val")" ;;
+    -like)
+        local regex; regex=$(__bu_glob_to_regex "$val")
+        local regex_lit; regex_lit=$(__bu_jq_literal "$regex")
+        jq_expr=".$field | test($regex_lit)"
+        ;;
+    -notlike)
+        local regex; regex=$(__bu_glob_to_regex "$val")
+        local regex_lit; regex_lit=$(__bu_jq_literal "$regex")
+        jq_expr=".$field | test($regex_lit) | not"
+        ;;
+    -match)
+        local re_lit; re_lit=$(__bu_jq_literal "$val")
+        jq_expr=".$field | test($re_lit)"
+        ;;
+    -notmatch)
+        local re_lit; re_lit=$(__bu_jq_literal "$val")
+        jq_expr=".$field | test($re_lit) | not"
+        ;;
+    -contains)
+        local val_lit; val_lit=$(__bu_jq_literal "$val")
+        jq_expr=".$field | index($val_lit) != null"
+        ;;
+    -notcontains)
+        local val_lit; val_lit=$(__bu_jq_literal "$val")
+        jq_expr=".$field | index($val_lit) == null"
+        ;;
+    -in)
+        local val_lit; val_lit=$(__bu_jq_literal "$val")
+        jq_expr=".$field == $val_lit"
+        ;;
+    -notin)
+        local val_lit; val_lit=$(__bu_jq_literal "$val")
+        jq_expr=".$field != $val_lit"
+        ;;
+    -isnull)    jq_expr=".$field == null" ;;
+    -isnotnull) jq_expr=".$field != null" ;;
+    *)
+        bu_log_err "Unknown operator[$op] for __bu_query_object_translate_op"
+        return 1
+        ;;
+    esac
+
+    printf '%s' "$jq_expr"
+}
+
 # ```
 # *Description*:
 # Project a JSONL stream to a subset of fields, reordering and optionally
