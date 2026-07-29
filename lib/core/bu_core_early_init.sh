@@ -41,11 +41,21 @@ __bu_init_env_commands()
         fi
         for file in $(find "$dir" "${find_opts[@]}" -printf "%P\n")
         do
-            case "$file" in
+            bu_dirname "$file"
+            local file_dir=$BU_RET
+            bu_basename "$file"
+            local file_name=$BU_RET
+
+            if [[ ! -e "$dir"/"$file_dir"/__bu_entrypoint_decl.sh ]]
+            then
+                bu_gen_substitute BU_DIR <"$BU_LIB_TEMPLATE_DIR"/bu_entrypoint_decl_template.sh >"$dir"/"$file_dir"/__bu_entrypoint_decl.sh
+            fi
+
+            case "$file_name" in
             *.txt|README|README.*|*.md) 
                 continue
                 ;;
-            __*|*/__*)
+            __*)
                 # 2 underscores in front can be used to hide scripts
                 continue
                 ;;
