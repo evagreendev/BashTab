@@ -5,3 +5,4 @@ node_modules/
 images
 # Machine-local settings managed by `bu set-config` (uncommitted by design)
 config/bu_config_local.sh
+shims

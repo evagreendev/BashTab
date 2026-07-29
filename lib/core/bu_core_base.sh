@@ -87,13 +87,15 @@ BU_LAST_RUN_CMDS=$BU_LOG_DIR/last_run_cmds.sh
 BU_HISTORY=$BU_OUT_DIR/bu_history.sh
 BU_TMP_DIR=$BU_OUT_DIR/tmp
 BU_PROC_TMP_DIR=$BU_PROC_DIR/tmp
+BU_SHIMS_DIR=$BU_DIR/shims
 
 bu_mkdir \
     "$BU_NAMED_CACHE_DIR" \
     "$BU_HASHED_CACHE_DIR" \
     "$BU_LOG_DIR" \
     "$BU_TMP_DIR" \
-    "$BU_PROC_TMP_DIR"
+    "$BU_PROC_TMP_DIR" \
+    "$BU_SHIMS_DIR"
 
 # Variables prefixed with BU_PROC_ are process specific
 # BU_PROC_FIFO is allows reading from stdout of a command without using a subshell

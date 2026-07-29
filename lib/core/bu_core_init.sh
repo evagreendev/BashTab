@@ -1,7 +1,7 @@
 # bash-ide source=./bu_core_base.sh
 # bash-ide source=./bu_core_autocomplete.sh
 # bash-ide source=./bu_core_early_init.sh
-
+# bash-ide source=../../config/bu_config_static.sh
 
 # MARK: Initialization logic
 __bu_init_env()
@@ -28,25 +28,58 @@ __bu_init_keybindings()
     fi
 }
 
+BU_DEFAULT_EDITOR=$VISUAL
+BU_DEFAULT_TERMINAL_EDITOR=$EDITOR
+__bu_init_editor()
+{
+    if [[ -n "$BU_DEFAULT_EDITOR" || -n "$BU_DEFAULT_TERMINAL_EDITOR" ]]
+    then
+        return
+    fi
+
+    local editor
+    for editor in "${BU_TERMINAL_EDITOR_PREFERENCE[@]}"
+    do
+        if command -v "$editor" &>/dev/null
+        then
+            BU_DEFAULT_EDITOR=$editor
+            BU_DEFAULT_TERMINAL_EDITOR=$editor
+        fi
+    done
+
+    for editor in "${BU_VISUAL_EDITOR_PREFERENCE[@]}"
+    do
+        if command -v "$editor" &>/dev/null
+        then
+            BU_DEFAULT_EDITOR=$editor
+        fi
+    done
+
+    if [[ -d "$HOME"/.vscode-server ]]
+    then
+        # For server/container environments
+        __bu_init_remote_vscode
+    else
+        export VISUAL=$BU_DEFAULT_EDITOR
+        export EDITOR=$BU_DEFAULT_EDITOR
+    fi
+}
+    
+
 # Technically, WSL code setup isn't needed,
 # for e.g. the code CLI at /mnt/c/Users/<user>/AppData/Local/Programs/Microsoft VS Code/bin/code
 # when entering wsl.
 # Though note that the code CLI binary in /mnt/c and 
 # the vscode server code CLI binary in ~/.vscode-server
 # are 2 different binaries, though with similar options.
-__bu_init_vscode()
+__bu_init_remote_vscode()
 {
-    # Default fallback editor
-    local default_editor=
-    local editor
-    for editor in vi nano vim emacs
-    do
-        if command -v "$editor" &>/dev/null
-        then
-            default_editor=$editor
-        fi
-    done
-    
+    # Check if this is a vscode server environment
+    if [[ ! -d "$HOME"/.vscode-server ]]
+    then
+        return
+    fi
+
     if [[ -n "${VSCODE_IPC_HOOK_CLI:-}" && -n "${VSCODE_GIT_ASKPASS_NODE:-}" ]]
     then
         # This is the "real" VSCode integrated terminal
@@ -159,7 +192,7 @@ bu_init()
 {
     __bu_init_env
     __bu_init_keybindings
-    __bu_init_vscode
+    __bu_init_editor
     __bu_init_tmux
     __bu_init_autocomplete
 }
