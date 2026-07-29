@@ -58,22 +58,47 @@ if "$is_help"
 then
     bu_autohelp \
         --description "
-List bash builtins with their enabled status (structured enable -a).
-Each record: name, enabled (boolean). Builtins disabled with 'enable -n'
-show as false. Give a glob to filter by name. See also bu get-command
-for BashTab commands and bu get-alias for aliases.
+List bash builtins with enabled status and override detection (structured enable -a).
+Each record: name, enabled (boolean), overridden (boolean), override_type
+(\"alias\" or \"function\", null if not overridden).
+
+Builtins can be shadowed by aliases (first in lookup order), then by
+functions, and also explicitly disabled via 'enable -n' (shown as
+enabled=false). See also bu get-command for BashTab commands and
+bu get-alias for aliases.
 " \
         --example "All builtins" "" \
-        --example "One builtin" "printf"
+        --example "One builtin" "printf" \
+        --example "Find overridden builtins" "| bu where-object '.overridden'"
     return 0
 fi
 
+# Collect names that shadow builtins: function names and alias names.
+# We produce two space-separated lists for jq to check against.
+local override_functions override_aliases
+override_functions=$(compgen -A function 2>/dev/null | paste -sd ' ' -)
+override_aliases=$(alias 2>/dev/null | sed -n "s/^alias \([^=]*\)=.*/\1/p" | paste -sd ' ' -)
+
 # enable -a prints 'enable NAME' or 'enable -n NAME' (disabled)
-enable -a | jq -R -c --arg filter "$filter" '
+enable -a | jq -R -c \
+    --arg filter "$filter" \
+    --arg fns "$override_functions" \
+    --arg als "$override_aliases" \
+'
     select(. != "")
     | if startswith("enable -n ")
       then {name: .[10:], enabled: false}
       else sub("^enable "; "") | {name: ., enabled: true}
+      end
+    | . as $r
+    | ($als | split(" ") | index($r.name)) as $aliasIdx
+    | ($fns | split(" ") | index($r.name)) as $funcIdx
+    | if $aliasIdx != null then
+        $r + {overridden: true, override_type: "alias"}
+      elif $funcIdx != null then
+        $r + {overridden: true, override_type: "function"}
+      else
+        $r + {overridden: false, override_type: null}
       end
     | select($filter == "" or (.name | test($filter)))
 ' | bu_out --format "$format"
