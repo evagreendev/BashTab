@@ -442,6 +442,8 @@ bu_mark_load_complete                     # saves cache (no-op if loaded)
 - **Subsequent**: loads from cache, skips the `find` + `--is-compatible` probe entirely
 - **After adding/removing commands**: `bu clear-cache myproject` then re-activate
 - **List caches**: `bu get-cache`
+- **Disable caching**: set `export BU_COMMAND_CACHE_ENABLED=false` before sourcing (forces scan-always-fresh for dynamic module systems)
+- **Relocate output**: set `export BU_OUT_DIR=/path/to/dir` before sourcing; BU_CACHE_DIR, BU_LOG_DIR, BU_TMP_DIR, and BU_HISTORY all derive from it
 
 ## Code Documentation
 

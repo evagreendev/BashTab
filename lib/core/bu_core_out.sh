@@ -1116,7 +1116,8 @@ bu_format_table()
               end;
         fit($init) as $spec
         | (if ($spec | length) < ($cols | length) then
-              debug("showing \($spec | length) of \($cols | length) columns (use --columns or --format list)")
+              # 0-arity debug() for jq 1.6 compat (1-arity requires jq >= 1.7)
+              debug
            else . end)
         | ($spec | map(. as $s | ($s.header | ellipsize($s.width)) as $h | $bold + $h + $reset + (" " * ($s.width - ($h | length)))) | join("  ") | rtrim),
           ($spec | map("-" * .width) | join("  ") | rtrim),

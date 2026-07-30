@@ -30,6 +30,11 @@ declare -g BU_COMMAND_CACHE_LOADED=false
 # is re-sourced mid-session (e.g. by bu import-environment).
 declare -g __BU_COMMAND_CACHE_CHECKED=false
 
+# Set to false to force a full command scan on every activation.
+# Use in environments where available commands change per shell
+# (dynamic module systems, rapid development).
+BU_COMMAND_CACHE_ENABLED=${BU_COMMAND_CACHE_ENABLED:-true}
+
 # ── Prompt integration ───────────────────────────────────────────────
 
 # Saved original PROMPT_COMMAND before BashTab hooked it.
@@ -129,6 +134,10 @@ __bu_command_cache_file()
 # ```
 __bu_try_load_command_cache()
 {
+    if ! "$BU_COMMAND_CACHE_ENABLED"; then
+        return 0
+    fi
+
     # Only check once per session.  Re-sourcing bu_entrypoint.sh
     # (e.g. via bu import-environment) must not reload the cache
     # and overwrite any command dirs registered in between.
@@ -231,6 +240,10 @@ __bu_save_command_cache()
 # ```
 bu_mark_load_complete()
 {
+    if ! "$BU_COMMAND_CACHE_ENABLED"; then
+        return 0
+    fi
+
     local key=${BU_TOP_LEVEL_MODULE:-}
     if [[ -z "$key" ]]; then
         bu_log_warn "bu_mark_load_complete: BU_TOP_LEVEL_MODULE is not set."

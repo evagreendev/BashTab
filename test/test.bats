@@ -893,3 +893,36 @@ function test_function_registration_dispatches { #@test
 
     unset -f __test_func_cmd
 }
+
+# ===========================================================================
+# BU_OUT_DIR default-guard and BU_COMMAND_CACHE_ENABLED opt-out
+# ===========================================================================
+
+function test_bu_out_dir_survives_preset { #@test
+    # Setting BU_OUT_DIR before sourcing bu_entrypoint.sh must survive.
+    # The default in bu_config_static.sh is now guarded with :-.
+    run bash -c "
+        export BU_OUT_DIR=/tmp/test-custom-out-bats
+        source '$DIR/../bu_entrypoint.sh' || true
+        printf '%s' \"\$BU_OUT_DIR\"
+    "
+    assert_success
+    assert_output --partial '/tmp/test-custom-out-bats'
+}
+
+function test_command_cache_disabled_skips_load_and_save { #@test
+    # BU_COMMAND_CACHE_ENABLED=false must cause both
+    # __bu_try_load_command_cache and bu_mark_load_complete to no-op.
+    run bash -c "
+        export BU_TOP_LEVEL_MODULE=test-nocache-bats
+        export BU_COMMAND_CACHE_ENABLED=false
+        source '$DIR/../bu_entrypoint.sh' || true
+        [[ \"\$BU_COMMAND_CACHE_LOADED\" == false ]] && echo 'loaded-stays-false'
+        bu_mark_load_complete && echo 'mark-is-noop'
+        [[ \"\$BU_COMMAND_CACHE_LOADED\" == false ]] && echo 'still-false-after-mark'
+    "
+    assert_success
+    assert_output --partial 'loaded-stays-false'
+    assert_output --partial 'mark-is-noop'
+    assert_output --partial 'still-false-after-mark'
+}
