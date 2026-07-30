@@ -1768,7 +1768,9 @@ __bu_autocomplete_completion_func_master_impl()
 __bu_autocomplete_completion_func_cli_resolve_alias()
 {
     # shellcheck disable=SC2206
-    local -r bu_alias_spec=($1)
+    # Note: NOT readonly — bash 4.4 aborts on re-declaring a readonly
+    # array local in a recursive call (alias-of-alias chain)
+    local bu_alias_spec=($1)
     shift
     local -r bu_aliased_command=${bu_alias_spec[0]}
     local -r function_or_script_path=${BU_COMMANDS[$bu_aliased_command]}
@@ -1941,12 +1943,16 @@ __bu_autocomplete_completion_func_cli()
             return 1
         fi
         local -r comp_cword=$((${#BU_RET[@]} - 1))
-        local -r comp_words=("${BU_RET[@]}")
+        # Note: NOT readonly — bash 4.4 aborts on re-declaring a readonly
+        # array local on subsequent completion invocations
+        local comp_words=("${BU_RET[@]}")
         # bu_log_tty alias comp words: "${comp_words[@]}"
         __bu_autocomplete_completion_func_master_impl "${comp_words[0]}" "${comp_words[comp_cword]}" "${comp_words[comp_cword-1]}" "$comp_cword" "" "${comp_words[@]}"
     else
         local -r comp_cword=$((COMP_CWORD - 1))
-        local -r comp_words=(
+        # Note: NOT readonly — bash 4.4 aborts on re-declaring a readonly
+        # array local on subsequent completion invocations
+        local comp_words=(
             "$function_or_script_path"
             "${COMP_WORDS[@]:2}"
         )

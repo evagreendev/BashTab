@@ -676,3 +676,55 @@ function test_bu_env_is_in_tmux { #@test
     TMUX=$saved_tmux
     TERM=$saved_term
 }
+
+# ===========================================================================
+# bash 4.4 readonly array local regression tests
+#
+# bash 4.4 has a bug where `local -r arr=(...)` (readonly array local)
+# aborts with "readonly variable" when the same name is re-declared in a
+# sourced script or recursive call.  Scalar `local -r` is not affected.
+# These tests verify the fix: dropping -r from array locals at the
+# three known crash sites (bu_impl.sh, bu_core_autocomplete.sh).
+# ===========================================================================
+
+function test_bash44_source_type_command_no_readonly_abort { #@test
+    # Source-type commands are sourced from __bu_impl's scope.
+    # The standard command template declares `local remaining_options=("$@")`.
+    # Before the fix, __bu_impl's `local -r remaining_options` caused
+    # "readonly variable" abort on bash 4.4.
+    # `get-module` is a source-type (not executable, not a function) command.
+    run bu get-module
+    assert_success
+}
+
+function test_bash44_alias_chain_dispatch { #@test
+    # Two-hop alias chain: A -> B -> real command.
+    # Both __bu_impl_process_alias and __bu_autocomplete_completion_func_cli_resolve_alias
+    # recurse to resolve alias-of-alias chains.  Before the fix, their
+    # `local -r bu_alias_spec=($1)` aborted on bash 4.4.
+    local a1=__test_b44_chain_a
+    local a2=__test_b44_chain_b
+
+    # Register alias B -> get-module (source-type command)
+    bu_preinit_register_new_alias "$a2" get-module
+    # Register alias A -> B
+    bu_preinit_register_new_alias "$a1" "$a2"
+
+    # Dispatch through the alias chain
+    run bu "$a1"
+    assert_success
+}
+
+function test_bash44_alias_chain_completion { #@test
+    # Completion must resolve alias-of-alias chains without
+    # "readonly variable" abort.
+    local a1=__test_b44_comp_a
+    local a2=__test_b44_comp_b
+
+    bu_preinit_register_new_alias "$a2" get-module
+    bu_preinit_register_new_alias "$a1" "$a2"
+
+    # Trigger completion through the chain; should not abort
+    run bu_autocomplete_get_autocompletions bu "$a1" ""
+    assert_success
+}

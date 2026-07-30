@@ -5,7 +5,9 @@
 source "$BU_NULL"
 __bu_impl_process_alias()
 {
-    local -r bu_alias_spec=($1)
+    # Note: NOT readonly — bash 4.4 aborts on re-declaring a readonly
+    # array local in a recursive call (alias-of-alias chain)
+    local bu_alias_spec=($1)
     shift
 
     local -r bu_command=${bu_alias_spec[0]}
@@ -99,7 +101,9 @@ __bu_impl()
 
     local -r bu_command_raw=$1
     shift
-    local -r remaining_options=("$@")
+    # Note: NOT readonly — bash 4.4 aborts when a source-type command
+    # sourced from this scope re-declares 'remaining_options' locally
+    local remaining_options=("$@")
 
     # Resolve namespace-qualified commands: :<ns>:<verb-noun>
     local bu_command=$bu_command_raw
