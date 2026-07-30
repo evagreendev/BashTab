@@ -39,6 +39,20 @@ __bu_init_env_commands()
         if ! "${BU_COMMAND_SEARCH_DIR_RECURSIVE[$dir]:-true}"; then
             find_opts+=(-maxdepth 1)
         fi
+
+        # Per-directory ignore file: <dir>/.bashtabignore
+        # One glob pattern per line; # comments and blank lines are ignored.
+        local -a ignore_patterns=()
+        if [[ -f "$dir/.bashtabignore" ]]; then
+            local _line
+            while IFS= read -r _line; do
+                _line=${_line%%#*}               # strip # comments
+                _line=${_line#"${_line%%[![:space:]]*}"}  # ltrim
+                _line=${_line%"${_line##*[![:space:]]}"}  # rtrim
+                [[ -n "$_line" ]] && ignore_patterns+=("$_line")
+            done < "$dir/.bashtabignore"
+        fi
+
         for file in $(find "$dir" "${find_opts[@]}" -printf "%P\n")
         do
             bu_dirname "$file"
@@ -51,6 +65,7 @@ __bu_init_env_commands()
                 bu_gen_substitute BU_DIR <"$BU_LIB_TEMPLATE_DIR"/bu_entrypoint_decl_template.sh >"$dir"/"$file_dir"/__bu_entrypoint_decl.sh
             fi
 
+            # Builtin skip list: docs, dotfiles, internal helpers
             case "$file_name" in
             *.txt|README|README.*|*.md) 
                 continue
@@ -59,16 +74,41 @@ __bu_init_env_commands()
                 # 2 underscores in front can be used to hide scripts
                 continue
                 ;;
+            .*)
+                # Dotfiles (hidden files)
+                continue
+                ;;
             esac
+
+            # Per-directory .bashtabignore patterns: match against
+            # path-relative-to-dir ($file) or basename ($file_name)
+            local _skip=false
+            local _pat
+            for _pat in "${ignore_patterns[@]}"; do
+                if [[ "$file" == $_pat || "$file_name" == $_pat ]]; then
+                    _skip=true
+                    break
+                fi
+            done
+            "$_skip" && continue
 
             local script_path=$dir/$file
             command=${file%.sh}
             if [[ -n "$convert_file_to_subcommand" ]]
             then
-                if $convert_file_to_subcommand "$file"
-                then
-                    command=$BU_RET
-                fi
+                # Converter callback return codes:
+                #   0 — use BU_RET as the command name
+                #   1 — keep the default name (file name without .sh)
+                #   2 — REJECT: skip this file entirely, do not register
+                # The || capture is errexit-safe: prevents set -e from
+                # aborting when the converter returns non-zero.
+                local convert_rc=0
+                $convert_file_to_subcommand "$file" || convert_rc=$?
+                case $convert_rc in
+                0) command=$BU_RET ;;
+                2) continue ;;
+                # 1 or any other non-zero: keep default command name
+                esac
             fi
 
             # If the script declares --is-compatible, run it to check.

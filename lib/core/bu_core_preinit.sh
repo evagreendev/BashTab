@@ -65,7 +65,12 @@ bu_preinit_register_user_defined_completion_func()
 #
 # *Params*:
 # - `$1`: Directory path containing subcommand scripts
-# - `...` (optional): Conversion function to convert file names to command names
+# - `...` (optional): Conversion function to convert file names to command names.
+#   The callback receives the file path (relative to the search dir) and
+#   returns one of three codes:
+#     0 — use BU_RET as the command name
+#     1 — keep the default name (file name without .sh extension)
+#     2 — REJECT: skip this file entirely, do not register it
 #
 # *Returns*:
 # - Exit code 0 on success, 1 if directory does not exist
@@ -77,6 +82,9 @@ bu_preinit_register_user_defined_completion_func()
 #
 # *Notes*:
 # - The directory is added to `BU_COMMAND_SEARCH_DIRS` for dynamic command discovery. New commands can be added by re-sourcing the init script.
+# - If `<dir>/.bashtabignore` exists, it is read as glob patterns (one per
+#   line, # comments and blank lines ignored). Files whose path-relative-to-dir
+#   or basename match any pattern are skipped.
 # - If no conversion function is provided, file names are used as-is (after removing .sh extension)
 # ```
 bu_preinit_register_user_defined_subcommand_dir()
@@ -175,7 +183,7 @@ bu_preinit_register_user_defined_subcommand_function()
         command=$fn
     fi
 
-    BU_COMMANDS[$command]=$file
+    BU_COMMANDS[$command]=$fn
 
     if [[ -n "$type" ]]
     then

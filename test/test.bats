@@ -781,3 +781,115 @@ function test_options_of_function_no_blank_rows { #@test
     assert_equal "${COMPREPLY[1]}" "b"
     assert_equal "${COMPREPLY[2]}" "c"
 }
+
+# ===========================================================================
+# Command-directory scanner hardening
+# ===========================================================================
+
+function test_bashtabignore_hides_file { #@test
+    # .bashtabignore glob patterns should prevent matching files from
+    # being registered as commands.
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    # Pattern: hide any file starting with "hidden-"
+    echo 'hidden-*' > "$tmpdir/.bashtabignore"
+
+    # Two minimal scripts (no --is-compatible → assumed compatible)
+    printf '#!/usr/bin/env bash\necho visible\n' > "$tmpdir/visible-cmd.sh"
+    printf '#!/usr/bin/env bash\necho hidden\n' > "$tmpdir/hidden-cmd.sh"
+
+    # Scan this directory (only)
+    local -A saved_dirs=()
+    local _d; for _d in "${!BU_COMMAND_SEARCH_DIRS[@]}"; do saved_dirs[$_d]=${BU_COMMAND_SEARCH_DIRS[$_d]}; done
+    BU_COMMAND_SEARCH_DIRS=()
+    BU_COMMAND_SEARCH_DIRS[$tmpdir]=
+    __bu_init_env_commands
+
+    # visible-cmd should be registered, hidden-cmd should not
+    assert [ -n "${BU_COMMANDS[visible-cmd]:-}" ]
+    assert [ -z "${BU_COMMANDS[hidden-cmd]:-}" ]
+
+    # Restore
+    BU_COMMAND_SEARCH_DIRS=()
+    for _d in "${!saved_dirs[@]}"; do BU_COMMAND_SEARCH_DIRS[$_d]=${saved_dirs[$_d]}; done
+    rm -rf "$tmpdir"
+}
+
+function test_converter_reject_code_2 { #@test
+    # Converter returning 2 should REJECT the file entirely.
+    local tmpdir
+    tmpdir=$(mktemp -d)
+
+    printf '#!/usr/bin/env bash\necho ok\n' > "$tmpdir/keep-me.sh"
+    printf '#!/usr/bin/env bash\necho nope\n' > "$tmpdir/reject-me.sh"
+
+    # Converter: return 2 for reject-me, 1 for everything else (keep default name)
+    __test_reject_converter() {
+        [[ "$1" == reject-me.sh ]] && return 2
+        return 1
+    }
+
+    local -A saved_dirs=()
+    local _d; for _d in "${!BU_COMMAND_SEARCH_DIRS[@]}"; do saved_dirs[$_d]=${BU_COMMAND_SEARCH_DIRS[$_d]}; done
+    BU_COMMAND_SEARCH_DIRS=()
+    BU_COMMAND_SEARCH_DIRS[$tmpdir]=__test_reject_converter
+    __bu_init_env_commands
+
+    # keep-me should be registered, reject-me should not
+    assert [ -n "${BU_COMMANDS[keep-me]:-}" ]
+    assert [ -z "${BU_COMMANDS[reject-me]:-}" ]
+
+    # Restore
+    BU_COMMAND_SEARCH_DIRS=()
+    for _d in "${!saved_dirs[@]}"; do BU_COMMAND_SEARCH_DIRS[$_d]=${saved_dirs[$_d]}; done
+    unset -f __test_reject_converter
+    rm -rf "$tmpdir"
+}
+
+function test_converter_errexit_safe { #@test
+    # A converter returning non-zero (1 or 2) must not abort the scanner
+    # under set -e.
+    local tmpdir
+    tmpdir=$(mktemp -d)
+
+    printf '#!/usr/bin/env bash\necho ok\n' > "$tmpdir/some-cmd.sh"
+
+    __test_nonzero_converter() { return 1; }
+
+    local -A saved_dirs=()
+    local _d; for _d in "${!BU_COMMAND_SEARCH_DIRS[@]}"; do saved_dirs[$_d]=${BU_COMMAND_SEARCH_DIRS[$_d]}; done
+    BU_COMMAND_SEARCH_DIRS=()
+    BU_COMMAND_SEARCH_DIRS[$tmpdir]=__test_nonzero_converter
+
+    # Run under set -e in a subshell; must complete without aborting
+    run bash -c "
+        set -e
+        source '$DIR/../bu_entrypoint.sh' || true
+        # Override to scan only our dir
+        unset BU_COMMAND_SEARCH_DIRS
+        declare -A BU_COMMAND_SEARCH_DIRS=([$tmpdir]=__test_nonzero_converter)
+        __bu_init_env_commands
+    "
+    assert_success
+
+    # Restore
+    BU_COMMAND_SEARCH_DIRS=()
+    for _d in "${!saved_dirs[@]}"; do BU_COMMAND_SEARCH_DIRS[$_d]=${saved_dirs[$_d]}; done
+    unset -f __test_nonzero_converter
+    rm -rf "$tmpdir"
+}
+
+function test_function_registration_dispatches { #@test
+    # Bug fix: bu_preinit_register_user_defined_subcommand_function was
+    # using \$file (unset) instead of \$fn, silently breaking function
+    # registration. Verify a registered function dispatches.
+    __test_func_cmd() { echo 'it works'; }
+
+    bu_preinit_register_user_defined_subcommand_function __test_func_cmd __test-func-cmd function
+
+    run bu __test-func-cmd
+    assert_success
+    assert_output 'it works'
+
+    unset -f __test_func_cmd
+}
