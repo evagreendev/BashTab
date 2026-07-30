@@ -19,6 +19,7 @@ bu_run_log_command "$@"
 
 local is_help=false
 local format=auto
+local type_filter=
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -31,8 +32,17 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    -t|--type)# TYPE
+        # Filter by filesystem type (e.g. ext4, xfs, tmpfs, nfs)
+        bu_parse_positional $# --hint "Filesystem type"
+        type_filter=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         is_help=true
+        ;;
+    --)
+        shift
+        break
         ;;
     *)
         # Any unrecognized arg: pass through to the underlying command, replacing the default
@@ -61,7 +71,8 @@ if "$is_help"
 then
     bu_autohelp \
         --description "List mounted filesystems (jc mount parser wrapper)." \
-        --example "Default" "" \
+        --example "All mounts" "" \
+        --example "Filter by type" "--type ext4" \
         --example "With extra flags" "-- -la /var/log"
     return 0
 fi
@@ -76,9 +87,11 @@ fi
 
 # Build the command: use provided args if any, otherwise the default
 local -a cmd=()
-if ((${#remaining_options[@]} > 0))
+if [[ -n "$type_filter" ]] || ((${#remaining_options[@]} > 0))
 then
-    cmd=("${remaining_options[@]}")
+    cmd=(mount)
+    [[ -n "$type_filter" ]] && cmd+=(-t "$type_filter")
+    ((${#remaining_options[@]} > 0)) && cmd+=("${remaining_options[@]}")
 else
     cmd=(mount)
 fi

@@ -19,6 +19,8 @@ bu_run_log_command "$@"
 
 local is_help=false
 local format=auto
+local type_filter=
+local is_inodes=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -31,8 +33,21 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    -t|--type)# TYPE
+        # Filter by filesystem type (e.g. ext4, xfs, tmpfs)
+        bu_parse_positional $# --hint "Filesystem type"
+        type_filter=${!shift_by}
+        ;;
+    -i|--inodes)# _FLAG
+        # Show inode usage instead of block usage
+        is_inodes=true
+        ;;
     -h|--help)# _FLAG
         is_help=true
+        ;;
+    --)
+        shift
+        break
         ;;
     *)
         # Any unrecognized arg: pass through to the underlying command, replacing the default
@@ -62,6 +77,8 @@ then
     bu_autohelp \
         --description "Show disk usage by filesystem (jc df parser wrapper)." \
         --example "Default" "" \
+        --example "Filter by type" "--type ext4" \
+        --example "Inode usage" "--inodes" \
         --example "With extra flags" "-- -la /var/log"
     return 0
 fi
@@ -76,9 +93,12 @@ fi
 
 # Build the command: use provided args if any, otherwise the default
 local -a cmd=()
-if ((${#remaining_options[@]} > 0))
+if [[ -n "$type_filter" ]] || "$is_inodes" || ((${#remaining_options[@]} > 0))
 then
-    cmd=("${remaining_options[@]}")
+    cmd=(df -h)
+    [[ -n "$type_filter" ]] && cmd+=(-t "$type_filter")
+    "$is_inodes" && cmd+=(-i)
+    ((${#remaining_options[@]} > 0)) && cmd+=("${remaining_options[@]}")
 else
     cmd=(df -h)
 fi

@@ -18,6 +18,8 @@ bu_run_log_command "$@"
 
 local is_help=false
 local format=auto
+local table=filter
+local chain=
 local autocompletion=()
 local shift_by=
 while (($#))
@@ -28,8 +30,22 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    -t|--table)# TABLE
+        # iptables table (filter, nat, mangle, raw, security)
+        bu_parse_positional $# --enum filter nat mangle raw security enum-- --hint "iptables table"
+        table=${!shift_by}
+        ;;
+    --chain)# CHAIN
+        # Specific chain to list (e.g. INPUT, OUTPUT, FORWARD)
+        bu_parse_positional $# --hint "Chain name"
+        chain=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         is_help=true
+        ;;
+    --)
+        shift
+        break
         ;;
     *)
         break
@@ -39,6 +55,7 @@ do
     if (( $# < shift_by )); then bu_parse_error_argn "$1" $#; break; fi
     shift "$shift_by"
 done
+local remaining_options=("$@")
 if bu_env_is_in_autocomplete; then bu_autocomplete; return 0; fi
 
 if "$is_help"; then
@@ -47,11 +64,17 @@ if "$is_help"; then
 
 Wraps iptables -L -v -n and pipes through jc --iptables.  Works on any
 Linux system with iptables installed (including Alpine)." \
-        --example "Default" ""
+        --example "Filter table (default)" "" \
+        --example "NAT table" "--table nat" \
+        --example "Specific chain" "--chain INPUT"
     return 0
 fi
 
-iptables -L -v -n 2>/dev/null | jc --iptables 2>/dev/null \
+local -a cmd=(iptables -L -v -n -t "$table")
+[[ -n "$chain" ]] && cmd+=("$chain")
+if ((${#remaining_options[@]} > 0)); then cmd+=("${remaining_options[@]}"); fi
+
+"${cmd[@]}" 2>/dev/null | jc --iptables 2>/dev/null \
     | jq -c 'if type == "array" then .[] else . end' 2>/dev/null \
     | bu_out --format "$format"
 

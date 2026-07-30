@@ -19,6 +19,8 @@ bu_run_log_command "$@"
 local project_path=.
 local is_help=false
 local format=auto
+local is_production=false
+local level=
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -31,6 +33,15 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    --production)# _FLAG
+        # Skip devDependencies
+        is_production=true
+        ;;
+    --level)# LEVEL
+        # Minimum severity level (low, moderate, high, critical)
+        bu_parse_positional $# --enum low moderate high critical enum-- --hint "Severity threshold"
+        level=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         is_help=true
         ;;
@@ -38,8 +49,12 @@ do
         bu_parse_positional $# --hint "Project directory path"
         project_path=${!shift_by}
         ;;
+    --)
+        shift
+        break
+        ;;
     *)
-        bu_parse_error_enum "$1"
+        break
         ;;
     esac
     if "$is_help"
@@ -71,7 +86,8 @@ objects are extracted from the via array and string references are resolved.
 Fields: name, severity, is_direct, title, url, range, fix_version, fix_is_breaking, via
 " \
         --example "Current project" "" \
-        --example "Critical only" "| bu where-object '.severity == \"critical\"'" \
+        --example "Production only" "--production" \
+        --example "Critical only" "--level critical" \
         --example "Direct deps only" "| bu where-object '.is_direct'"
     return 0
 fi
@@ -87,7 +103,11 @@ fi
 # Run npm audit --json. npm exits non-zero when vulnerabilities are found,
 # which is expected. Capture stdout, ignore exit code.
 local npm_output
-npm_output=$(cd "$project_path" && npm audit --json 2>/dev/null) || true
+local -a audit_args=(audit --json)
+"$is_production" && audit_args+=(--production)
+[[ -n "$level" ]] && audit_args+=(--audit-level "$level")
+if ((${#remaining_options[@]} > 0)); then audit_args+=("${remaining_options[@]}"); fi
+npm_output=$(cd "$project_path" && npm "${audit_args[@]}" 2>/dev/null) || true
 
 if [[ -z "$npm_output" ]]
 then

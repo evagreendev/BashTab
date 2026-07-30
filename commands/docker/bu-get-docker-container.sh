@@ -17,6 +17,10 @@ bu_scope_push_function
 bu_run_log_command "$@"
 
 local is_all=false
+local is_quiet=false
+local is_latest=false
+local is_size=false
+local filter=
 local is_help=false
 local format=auto
 local error_msg=
@@ -31,15 +35,36 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
-    -h|--help)# _FLAG
-        is_help=true
+    -f|--filter)# FILTER
+        # Filter containers (e.g. status=running, name=web, ancestor=nginx)
+        bu_parse_positional $# --hint "key=value filter"
+        filter=${!shift_by}
         ;;
     -a|--all)# _FLAG
         # Show all containers (including stopped)
         is_all=true
         ;;
+    -q|--quiet)# _FLAG
+        # Only display container IDs
+        is_quiet=true
+        ;;
+    -l|--latest)# _FLAG
+        # Show the latest created container (including all states)
+        is_latest=true
+        ;;
+    -s|--size)# _FLAG
+        # Show total file sizes
+        is_size=true
+        ;;
+    -h|--help)# _FLAG
+        is_help=true
+        ;;
+    --)
+        shift
+        break
+        ;;
     *)
-        bu_parse_error_enum "$1"
+        break
         ;;
     esac
     if "$is_help"
@@ -69,8 +94,10 @@ List Docker containers as JSONL records (docker ps --format json wrapper).
 Fields: ID, Image, Command, CreatedAt, RunningFor, Ports, State, Status, Size, Names, Labels, Mounts, Networks
 " \
         --example "Running containers" "" \
-        --example "All containers" "-a" \
-        --example "Filter by image" "| bu where-object '.Image | startswith(\"nginx\")'" \
+        --example "All containers" "--all" \
+        --example "Filter by name" "--filter name=web" \
+        --example "Filter by status" "--filter status=exited" \
+        --example "Latest container" "--latest" \
         --example "Show names and ports" "| bu select-object Names,Ports,Status"
     return 0
 fi
@@ -85,6 +112,11 @@ fi
 
 local -a docker_args=(ps --format json)
 "$is_all" && docker_args+=(-a)
+"$is_quiet" && docker_args+=(-q)
+"$is_latest" && docker_args+=(-l)
+"$is_size" && docker_args+=(-s)
+[[ -n "$filter" ]] && docker_args+=(--filter "$filter")
+if ((${#remaining_options[@]} > 0)); then docker_args+=("${remaining_options[@]}"); fi
 ${BU_CAP[docker,sudo]} docker "${docker_args[@]}" 2>/dev/null | bu_format_jsonl | bu_out --format "$format"
 
 bu_scope_pop_function

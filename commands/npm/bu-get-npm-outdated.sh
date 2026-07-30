@@ -19,6 +19,8 @@ bu_run_log_command "$@"
 local project_path=.
 local is_help=false
 local format=auto
+local is_long=false
+local is_production=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -31,6 +33,14 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    --long)# _FLAG
+        # Show more detail (npm outdated --long)
+        is_long=true
+        ;;
+    --production)# _FLAG
+        # Skip devDependencies
+        is_production=true
+        ;;
     -h|--help)# _FLAG
         # Print help
         is_help=true
@@ -40,8 +50,12 @@ do
         bu_parse_positional $# --hint "Project directory path"
         project_path=${!shift_by}
         ;;
+    --)
+        shift
+        break
+        ;;
     *)
-        bu_parse_error_enum "$1"
+        break
         ;;
     esac
     if "$is_help"
@@ -72,6 +86,8 @@ Emits one record per outdated package.
 Fields: name, current, wanted, latest, dependent, location
 " \
         --example "Current project" "" \
+        --example "Long format" "--long" \
+        --example "Production only" "--production" \
         --example "Filter devDependencies" "| bu where-object '.location | test(\"node_modules\")'"
     return 0
 fi
@@ -86,7 +102,11 @@ fi
 
 # Run npm outdated --all --json from the project directory, flatten to JSONL
 local npm_output
-npm_output=$(cd "$project_path" && npm outdated --all --json 2>/dev/null) || true
+local -a outdated_args=(outdated --all --json)
+"$is_long" && outdated_args+=(--long)
+"$is_production" && outdated_args+=(--production)
+if ((${#remaining_options[@]} > 0)); then outdated_args+=("${remaining_options[@]}"); fi
+npm_output=$(cd "$project_path" && npm "${outdated_args[@]}" 2>/dev/null) || true
 
 if [[ -z "$npm_output" || "$npm_output" == "{}" ]]
 then

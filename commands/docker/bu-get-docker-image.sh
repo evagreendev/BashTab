@@ -17,6 +17,8 @@ bu_scope_push_function
 bu_run_log_command "$@"
 
 local is_all=false
+local is_quiet=false
+local filter=
 local is_help=false
 local format=auto
 local error_msg=
@@ -31,15 +33,28 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
-    -h|--help)# _FLAG
-        is_help=true
+    -f|--filter)# FILTER
+        # Filter images (e.g. dangling=true, reference=nginx*, before=IMAGE)
+        bu_parse_positional $# --hint "key=value filter"
+        filter=${!shift_by}
         ;;
     -a|--all)# _FLAG
         # Show all images (including intermediate)
         is_all=true
         ;;
+    -q|--quiet)# _FLAG
+        # Only display image IDs
+        is_quiet=true
+        ;;
+    -h|--help)# _FLAG
+        is_help=true
+        ;;
+    --)
+        shift
+        break
+        ;;
     *)
-        bu_parse_error_enum "$1"
+        break
         ;;
     esac
     if "$is_help"
@@ -69,7 +84,9 @@ List Docker images as JSONL records (docker images --format json wrapper).
 Fields: ID, Repository, Tag, CreatedAt, CreatedSince, Size
 " \
         --example "All images" "" \
-        --example "Filter by repository" "| bu where-object '.Repository == \"nginx\"'"
+        --example "Dangling images" "--filter dangling=true" \
+        --example "Filter by reference" "--filter reference=nginx*" \
+        --example "Quiet mode" "--quiet"
     return 0
 fi
 
@@ -83,6 +100,9 @@ fi
 
 local -a docker_args=(images --format json)
 "$is_all" && docker_args+=(-a)
+"$is_quiet" && docker_args+=(-q)
+[[ -n "$filter" ]] && docker_args+=(--filter "$filter")
+if ((${#remaining_options[@]} > 0)); then docker_args+=("${remaining_options[@]}"); fi
 ${BU_CAP[docker,sudo]} docker "${docker_args[@]}" 2>/dev/null | bu_format_jsonl | bu_out --format "$format"
 
 bu_scope_pop_function

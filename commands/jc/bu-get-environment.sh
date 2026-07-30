@@ -19,6 +19,7 @@ bu_run_log_command "$@"
 
 local is_help=false
 local format=auto
+local name=
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -31,8 +32,17 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    -n|--name)# NAME
+        # Filter to a specific variable (e.g. HOME, PATH)
+        bu_parse_positional $# --hint "Variable name"
+        name=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         is_help=true
+        ;;
+    --)
+        shift
+        break
         ;;
     *)
         break
@@ -60,8 +70,9 @@ if "$is_help"
 then
     bu_autohelp \
         --description "Show environment variables (jc env parser wrapper). ANSI escape sequences are stripped from values." \
-        --example "Default" "" \
-        --example "With extra flags" "-u /usr/bin/env"
+        --example "All variables" "" \
+        --example "Single variable" "--name HOME" \
+        --example "With extra flags" "-- -u /usr/bin/env"
     return 0
 fi
 
@@ -81,10 +92,15 @@ else
     cmd=(env)
 fi
 
+# When --name is given, pre-filter to that variable before jc parsing.
+# Use cat as a no-op when name is not set.
+local name_filter_cmd=(cat)
+[[ -n "$name" ]] && name_filter_cmd=(grep "^${name}=")
+
 # jc env parser emits an array of {name, value} records.
 # Strip ANSI escape sequences from values (CSI: ESC[params letter,
 # charset: ESC( or ESC) + single char) to prevent display corruption.
-"${cmd[@]}" 2>/dev/null | jc --env 2>/dev/null | jq -c '
+"${cmd[@]}" 2>/dev/null | "${name_filter_cmd[@]}" 2>/dev/null | jc --env 2>/dev/null | jq -c '
     if type == "array" then .[] else . end
     | .value |= gsub("\u001b\\[[0-9;?]*[a-zA-Z]"; "")
     | .value |= gsub("\u001b[()]."; "")

@@ -18,7 +18,11 @@ bu_run_log_command "$@"
 
 local is_help=false
 local format=auto
+local filter=
+local is_quiet=false
 local error_msg=
+local autocompletion=()
+local shift_by=
 while (($#))
 do
     bu_parse_multiselect $# "$1"
@@ -28,19 +32,38 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    -f|--filter)# FILTER
+        # Filter networks (e.g. driver=bridge, name=mynet, scope=swarm)
+        bu_parse_positional $# --hint "key=value filter"
+        filter=${!shift_by}
+        ;;
+    -q|--quiet)# _FLAG
+        # Only display network IDs
+        is_quiet=true
+        ;;
     -h|--help)# _FLAG
         is_help=true
         ;;
+    --)
+        shift
+        break
+        ;;
     *)
-        bu_parse_error_enum "$1"
+        break
         ;;
     esac
     if "$is_help"
     then
         break
     fi
-    shift
+    if (( $# < shift_by ))
+    then
+        bu_parse_error_argn "$1" $#
+        break
+    fi
+    shift "$shift_by"
 done
+local remaining_options=("$@")
 if bu_env_is_in_autocomplete
 then
     bu_autocomplete
@@ -55,7 +78,9 @@ List Docker networks as JSONL records (docker network ls --format json wrapper).
 
 Fields: ID, Name, Driver, Scope
 " \
-        --example "All networks" ""
+        --example "All networks" "" \
+        --example "Bridge networks" "--filter driver=bridge" \
+        --example "Quiet mode" "--quiet"
     return 0
 fi
 
@@ -67,7 +92,12 @@ then
     return 1
 fi
 
-${BU_CAP[docker,sudo]} docker network ls --format json 2>/dev/null | bu_format_jsonl | bu_out --format "$format"
+local -a docker_args=(network ls --format json)
+[[ -n "$filter" ]] && docker_args+=(--filter "$filter")
+"$is_quiet" && docker_args+=(-q)
+if ((${#remaining_options[@]} > 0)); then docker_args+=("${remaining_options[@]}"); fi
+
+${BU_CAP[docker,sudo]} docker "${docker_args[@]}" 2>/dev/null | bu_format_jsonl | bu_out --format "$format"
 
 bu_scope_pop_function
 }

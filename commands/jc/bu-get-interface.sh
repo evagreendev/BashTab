@@ -19,6 +19,7 @@ bu_run_log_command "$@"
 
 local is_help=false
 local format=auto
+local interface=
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -31,8 +32,17 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    -i|--interface)# INTERFACE
+        # Show a specific network interface (e.g. eth0, wlan0)
+        bu_parse_positional $# --hint "Interface name"
+        interface=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         is_help=true
+        ;;
+    --)
+        shift
+        break
         ;;
     *)
         # Any unrecognized arg: pass through to the underlying command, replacing the default
@@ -61,7 +71,8 @@ if "$is_help"
 then
     bu_autohelp \
         --description "Show network interface configuration (jc ifconfig parser wrapper)." \
-        --example "Default" "" \
+        --example "All interfaces" "" \
+        --example "Specific interface" "--interface eth0" \
         --example "With extra flags" "-- -la /var/log"
     return 0
 fi
@@ -76,9 +87,11 @@ fi
 
 # Build the command: use provided args if any, otherwise the default
 local -a cmd=()
-if ((${#remaining_options[@]} > 0))
+if [[ -n "$interface" ]] || ((${#remaining_options[@]} > 0))
 then
-    cmd=("${remaining_options[@]}")
+    cmd=(ifconfig)
+    [[ -n "$interface" ]] && cmd+=("$interface")
+    ((${#remaining_options[@]} > 0)) && cmd+=("${remaining_options[@]}")
 else
     cmd=(ifconfig)
 fi

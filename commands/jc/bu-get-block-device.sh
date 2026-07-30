@@ -19,6 +19,8 @@ bu_run_log_command "$@"
 
 local is_help=false
 local format=auto
+local output=
+local is_paths=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -30,6 +32,15 @@ do
         # Output format
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
+        ;;
+    -o|--output)# COLUMNS
+        # Select output columns (e.g. NAME,SIZE,TYPE,MOUNTPOINT)
+        bu_parse_positional $# --hint "Comma-separated columns"
+        output=${!shift_by}
+        ;;
+    -p|--paths)# _FLAG
+        # Print full device paths
+        is_paths=true
         ;;
     -h|--help)# _FLAG
         is_help=true
@@ -67,6 +78,8 @@ then
     bu_autohelp \
         --description "List block devices (PowerShell Get-Disk / Get-PhysicalDisk analog). Wraps lsblk; extra arguments replace the default arguments." \
         --example "Default" "" \
+        --example "Custom columns" "--output NAME,SIZE,TYPE,MOUNTPOINT" \
+        --example "Full paths" "--paths" \
         --example "With arguments" "--fs"
     return 0
 fi
@@ -81,12 +94,9 @@ fi
 
 # Build the command: base command + provided args, otherwise base + default args
 local -a cmd=(lsblk)
-if ((${#remaining_options[@]} > 0))
-then
-    cmd+=("${remaining_options[@]}")
-else
-    cmd+=()
-fi
+[[ -n "$output" ]] && cmd+=(-o "$output")
+"$is_paths" && cmd+=(-p)
+if ((${#remaining_options[@]} > 0)); then cmd+=("${remaining_options[@]}"); fi
 
 "${cmd[@]}" 2>/dev/null | jc --lsblk 2>/dev/null | jq -c 'if type == "array" then .[] else . end' 2>/dev/null | bu_out --format "$format"
 

@@ -19,6 +19,7 @@ bu_run_log_command "$@"
 
 local is_help=false
 local format=auto
+local unit=
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -31,8 +32,17 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    --unit)# UNIT
+        # Display unit: bytes, k, m, g, h (human-readable, default)
+        bu_parse_positional $# --enum bytes k m g h enum-- --hint "Display unit"
+        unit=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         is_help=true
+        ;;
+    --)
+        shift
+        break
         ;;
     *)
         # Any unrecognized arg: pass through to the underlying command, replacing the default
@@ -61,7 +71,9 @@ if "$is_help"
 then
     bu_autohelp \
         --description "Show memory usage (jc free parser wrapper)." \
-        --example "Default" "" \
+        --example "Human-readable (default)" "" \
+        --example "In megabytes" "--unit m" \
+        --example "In bytes" "--unit bytes" \
         --example "With extra flags" "-- -la /var/log"
     return 0
 fi
@@ -76,9 +88,17 @@ fi
 
 # Build the command: use provided args if any, otherwise the default
 local -a cmd=()
-if ((${#remaining_options[@]} > 0))
+if [[ -n "$unit" ]] || ((${#remaining_options[@]} > 0))
 then
-    cmd=("${remaining_options[@]}")
+    cmd=(free)
+    case "$unit" in
+    bytes) cmd+=(--bytes) ;;
+    k) cmd+=(-k) ;;
+    m) cmd+=(-m) ;;
+    g) cmd+=(-g) ;;
+    h|'') cmd+=(-h) ;;
+    esac
+    ((${#remaining_options[@]} > 0)) && cmd+=("${remaining_options[@]}")
 else
     cmd=(free -h)
 fi

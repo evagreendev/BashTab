@@ -19,6 +19,8 @@ bu_run_log_command "$@"
 
 local is_help=false
 local format=auto
+local is_verbose=false
+local is_kernel=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -30,6 +32,14 @@ do
         # Output format
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
+        ;;
+    -v|--verbose)# _FLAG
+        # Verbose output (show more detail)
+        is_verbose=true
+        ;;
+    -k|--kernel)# _FLAG
+        # Show kernel drivers handling each device
+        is_kernel=true
         ;;
     -h|--help)# _FLAG
         is_help=true
@@ -67,6 +77,8 @@ then
     bu_autohelp \
         --description "List PCI devices (PowerShell Get-PnpDevice analog). Wraps lspci; extra arguments replace the default arguments." \
         --example "Default" "" \
+        --example "Verbose" "--verbose" \
+        --example "With kernel drivers" "--kernel" \
         --example "With arguments" "-nn"
     return 0
 fi
@@ -81,12 +93,9 @@ fi
 
 # Build the command: base command + provided args, otherwise base + default args
 local -a cmd=(lspci)
-if ((${#remaining_options[@]} > 0))
-then
-    cmd+=("${remaining_options[@]}")
-else
-    cmd+=()
-fi
+"$is_verbose" && cmd+=(-v)
+"$is_kernel" && cmd+=(-k)
+if ((${#remaining_options[@]} > 0)); then cmd+=("${remaining_options[@]}"); fi
 
 "${cmd[@]}" 2>/dev/null | jc --lspci 2>/dev/null | jq -c 'if type == "array" then .[] else . end' 2>/dev/null | bu_out --format "$format"
 

@@ -20,6 +20,8 @@ bu_run_log_command "$@"
 
 local is_help=false
 local format=auto
+local is_explicit=false
+local is_foreign=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -32,8 +34,20 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    -e|--explicit)# _FLAG
+        # Only explicitly installed packages (not pulled as dependencies)
+        is_explicit=true
+        ;;
+    -m|--foreign)# _FLAG
+        # Only foreign/AUR packages (not from sync databases)
+        is_foreign=true
+        ;;
     -h|--help)# _FLAG
         is_help=true
+        ;;
+    --)
+        shift
+        break
         ;;
     *)
         break
@@ -50,6 +64,7 @@ do
     fi
     shift "$shift_by"
 done
+local remaining_options=("$@")
 if bu_env_is_in_autocomplete
 then
     bu_autocomplete
@@ -63,11 +78,18 @@ then
 
 Wraps pacman -Qi and pipes through jc --pacman for JSONL output.
 Works on Arch Linux and Arch-based distributions (Manjaro, EndeavourOS, etc.)." \
-        --example "Default" ""
+        --example "All packages" "" \
+        --example "Explicitly installed" "--explicit" \
+        --example "AUR/foreign packages" "--foreign"
     return 0
 fi
 
-pacman -Qi 2>/dev/null | jc --pacman 2>/dev/null | jq -c 'if type == "array" then .[] else . end' 2>/dev/null | bu_out --format "$format"
+local -a cmd=(pacman -Qi)
+if "$is_explicit"; then cmd=(pacman -Qei); fi
+if "$is_foreign"; then cmd=(pacman -Qmi); fi
+if ((${#remaining_options[@]} > 0)); then cmd+=("${remaining_options[@]}"); fi
+
+"${cmd[@]}" 2>/dev/null | jc --pacman 2>/dev/null | jq -c 'if type == "array" then .[] else . end' 2>/dev/null | bu_out --format "$format"
 
 bu_scope_pop_function
 }

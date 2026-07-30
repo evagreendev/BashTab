@@ -19,6 +19,7 @@ bu_run_log_command "$@"
 local is_help=false
 local format=auto
 local is_utc=false
+local date_format=
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -34,6 +35,11 @@ do
     --utc)# _FLAG
         # Report all fields in UTC instead of local time
         is_utc=true
+        ;;
+    -f|--date-format)# STRFTIME
+        # Custom strftime format for the iso field (default: %Y-%m-%dT%H:%M:%S)
+        bu_parse_positional $# --hint "strftime format"
+        date_format=${!shift_by}
         ;;
     -h|--help)# _FLAG
         is_help=true
@@ -65,19 +71,23 @@ then
     bu_autohelp \
         --description "Get the current date and time as a structured record (PowerShell Get-Date). No external dependencies beyond date(1)." \
         --example "Local time" "" \
-        --example "UTC" "--utc"
+        --example "UTC" "--utc" \
+        --example "Custom format" "--date-format '%Y-%m-%d %H:%M:%S'"
     return 0
 fi
 
 local -a tz_flag=()
 "$is_utc" && tz_flag=(-u)
 
+local date_fmt='%Y-%m-%dT%H:%M:%S'
+[[ -n "$date_format" ]] && date_fmt="$date_format"
+
 # Single date invocation emitting TSV; epoch taken from EPOCHREALTIME (bash 5+)
 local epoch=${EPOCHREALTIME%.*}
 [[ -z "$epoch" ]] && epoch=$(date +%s)
 
 local iso year month day hour minute second weekday tz_name tz_offset
-iso=$(date "${tz_flag[@]}" +%Y-%m-%dT%H:%M:%S)
+iso=$(date "${tz_flag[@]}" +"$date_fmt")
 IFS=$'\t' read -r year month day hour minute second weekday tz_name tz_offset < <(
     date "${tz_flag[@]}" '+%Y%t%m%t%d%t%H%t%M%t%S%t%A%t%Z%t%z'
 )

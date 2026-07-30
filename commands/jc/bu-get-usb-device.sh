@@ -19,6 +19,7 @@ bu_run_log_command "$@"
 
 local is_help=false
 local format=auto
+local is_verbose=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -30,6 +31,10 @@ do
         # Output format
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
+        ;;
+    -v|--verbose)# _FLAG
+        # Verbose output (show descriptors and details)
+        is_verbose=true
         ;;
     -h|--help)# _FLAG
         is_help=true
@@ -67,6 +72,7 @@ then
     bu_autohelp \
         --description "List USB devices (PowerShell Get-PnpDevice analog). Wraps lsusb; extra arguments replace the default arguments." \
         --example "Default" "" \
+        --example "Verbose" "--verbose" \
         --example "With arguments" "-v"
     return 0
 fi
@@ -81,12 +87,8 @@ fi
 
 # Build the command: base command + provided args, otherwise base + default args
 local -a cmd=(lsusb)
-if ((${#remaining_options[@]} > 0))
-then
-    cmd+=("${remaining_options[@]}")
-else
-    cmd+=()
-fi
+"$is_verbose" && cmd+=(-v)
+if ((${#remaining_options[@]} > 0)); then cmd+=("${remaining_options[@]}"); fi
 
 "${cmd[@]}" 2>/dev/null | jc --lsusb 2>/dev/null | jq -c 'if type == "array" then .[] else . end' 2>/dev/null | bu_out --format "$format"
 

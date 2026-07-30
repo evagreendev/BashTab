@@ -19,6 +19,7 @@ bu_run_log_command "$@"
 
 local is_help=false
 local format=auto
+local name=
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -31,8 +32,17 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    --name)# PATTERN
+        # Filter packages by name glob pattern (e.g. 'kernel*')
+        bu_parse_positional $# --hint "Package name glob"
+        name=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         is_help=true
+        ;;
+    --)
+        shift
+        break
         ;;
     *)
         break
@@ -64,12 +74,16 @@ then
 Wraps rpm -qa --queryformat to produce TSV output, then pipes through
 the standard BashTab structured-output pipeline.  Works on Fedora, RHEL,
 CentOS, openSUSE, and any RPM-based distribution." \
-        --example "Default" ""
+        --example "All packages" "" \
+        --example "Filter by name" "--name 'kernel*'"
     return 0
 fi
 
+local -a rpm_args=(-qa --queryformat '%{NAME}\t%{VERSION}\t%{RELEASE}\t%{ARCH}\t%{SUMMARY}\n')
+[[ -n "$name" ]] && rpm_args+=("$name")
+if ((${#remaining_options[@]} > 0)); then rpm_args+=("${remaining_options[@]}"); fi
 {
-    rpm -qa --queryformat '%{NAME}\t%{VERSION}\t%{RELEASE}\t%{ARCH}\t%{SUMMARY}\n' 2>/dev/null
+    rpm "${rpm_args[@]}" 2>/dev/null
 } | bu_out_from_tsv --columns name,version,release,arch,summary \
   | bu_out --format "$format"
 

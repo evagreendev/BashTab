@@ -19,6 +19,11 @@ bu_run_log_command "$@"
 
 local is_help=false
 local format=auto
+local is_tcp=false
+local is_udp=false
+local is_listening=false
+local is_all=false
+local is_numeric=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -31,8 +36,32 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    --tcp)# _FLAG
+        # Show TCP connections only (-t)
+        is_tcp=true
+        ;;
+    --udp)# _FLAG
+        # Show UDP connections only (-u)
+        is_udp=true
+        ;;
+    -l|--listening)# _FLAG
+        # Show only listening sockets (-l)
+        is_listening=true
+        ;;
+    -a|--all)# _FLAG
+        # Show both listening and non-listening sockets (-a)
+        is_all=true
+        ;;
+    -n|--numeric)# _FLAG
+        # Show numeric addresses instead of resolving hosts (-n)
+        is_numeric=true
+        ;;
     -h|--help)# _FLAG
         is_help=true
+        ;;
+    --)
+        shift
+        break
         ;;
     *)
         # Any unrecognized arg: pass through to the underlying command, replacing the default
@@ -61,7 +90,10 @@ if "$is_help"
 then
     bu_autohelp \
         --description "Show network connections (jc netstat parser wrapper)." \
-        --example "Default" "" \
+        --example "TCP listeners (default)" "" \
+        --example "All connections" "--all --numeric" \
+        --example "UDP only" "--udp --listening" \
+        --example "TCP, all states" "--tcp --all" \
         --example "With extra flags" "-- -la /var/log"
     return 0
 fi
@@ -74,11 +106,18 @@ then
     return 1
 fi
 
-# Build the command: use provided args if any, otherwise the default
+# Build the command: use explicit flags when provided, otherwise default
 local -a cmd=()
-if ((${#remaining_options[@]} > 0))
+if "$is_tcp" || "$is_udp" || "$is_listening" || "$is_all" || "$is_numeric" || ((${#remaining_options[@]} > 0))
 then
-    cmd=("${remaining_options[@]}")
+    cmd=(netstat)
+    "$is_tcp" && cmd+=(-t)
+    "$is_udp" && cmd+=(-u)
+    "$is_listening" && cmd+=(-l)
+    "$is_all" && cmd+=(-a)
+    "$is_numeric" && cmd+=(-n)
+    # Default to -p for process info unless user provided custom args
+    if ((${#remaining_options[@]} > 0)); then cmd+=("${remaining_options[@]}"); else cmd+=(-p); fi
 else
     cmd=(netstat -tlnp)
 fi

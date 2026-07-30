@@ -19,6 +19,9 @@ bu_run_log_command "$@"
 
 local is_help=false
 local format=auto
+local user=
+local pid=
+local command_name=
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -31,8 +34,27 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    -u|--user)# USER
+        # Filter by effective user (passes -u to ps)
+        bu_parse_positional $# --hint "Username or UID"
+        user=${!shift_by}
+        ;;
+    -p|--pid)# PID
+        # Filter by process ID (passes -p to ps)
+        bu_parse_positional $# --hint "Process ID"
+        pid=${!shift_by}
+        ;;
+    -C|--command)# COMMAND
+        # Filter by command name (passes -C to ps)
+        bu_parse_positional $# --hint "Command name"
+        command_name=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         is_help=true
+        ;;
+    --)
+        shift
+        break
         ;;
     *)
         # Any unrecognized arg: pass through to the underlying command, replacing the default
@@ -61,7 +83,10 @@ if "$is_help"
 then
     bu_autohelp \
         --description "List running processes (jc ps parser wrapper)." \
-        --example "Default" "" \
+        --example "All processes" "" \
+        --example "By user" "--user root" \
+        --example "By PID" "--pid 1234" \
+        --example "By command name" "--command nginx" \
         --example "With extra flags" "-- -la /var/log"
     return 0
 fi
@@ -76,9 +101,20 @@ fi
 
 # Build the command: use provided args if any, otherwise the default
 local -a cmd=()
-if ((${#remaining_options[@]} > 0))
+if [[ -n "$user" ]] || [[ -n "$pid" ]] || [[ -n "$command_name" ]] || ((${#remaining_options[@]} > 0))
 then
-    cmd=("${remaining_options[@]}")
+    # Use explicit ps invocation with flags
+    cmd=(ps)
+    [[ -n "$user" ]] && cmd+=(-u "$user")
+    [[ -n "$pid" ]] && cmd+=(-p "$pid")
+    [[ -n "$command_name" ]] && cmd+=(-C "$command_name")
+    # Default to aux output format unless user provided custom args
+    if ((${#remaining_options[@]} > 0))
+    then
+        cmd+=("${remaining_options[@]}")
+    else
+        cmd+=(aux)
+    fi
 else
     cmd=(ps aux)
 fi

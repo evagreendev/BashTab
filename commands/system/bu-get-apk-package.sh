@@ -19,6 +19,7 @@ bu_run_log_command "$@"
 
 local is_help=false
 local format=auto
+local search=
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -31,8 +32,17 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    --search)# PATTERN
+        # Filter packages by name glob pattern
+        bu_parse_positional $# --hint "Package name pattern"
+        search=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         is_help=true
+        ;;
+    --)
+        shift
+        break
         ;;
     *)
         break
@@ -49,6 +59,7 @@ do
     fi
     shift "$shift_by"
 done
+local remaining_options=("$@")
 if bu_env_is_in_autocomplete
 then
     bu_autocomplete
@@ -62,15 +73,19 @@ then
 
 Wraps apk info -v to list installed Alpine Linux packages.  Each line
 (name-version) is split into separate name and version fields." \
-        --example "Default" ""
+        --example "All packages" "" \
+        --example "Filter by name" "--search 'bash*'"
     return 0
 fi
 
 # apk info -v outputs "name-version" per line.
 # Split into name and version: version is everything after the first
 # dash that's followed by a digit (e.g. "busybox-1.36.1-r29").
+local -a apk_args=(info -v)
+[[ -n "$search" ]] && apk_args+=("$search")
+if ((${#remaining_options[@]} > 0)); then apk_args+=("${remaining_options[@]}"); fi
 {
-    apk info -v 2>/dev/null | while IFS= read -r line; do
+    apk "${apk_args[@]}" 2>/dev/null | while IFS= read -r line; do
         local name version
         name=$(echo "$line" | sed -E 's/-[0-9].*$//')
         version=${line#"$name-"}

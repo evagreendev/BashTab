@@ -19,6 +19,8 @@ bu_run_log_command "$@"
 
 local is_help=false
 local format=auto
+local record_type=
+local name=
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -31,8 +33,22 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    -t|--type)# TYPE
+        # DNS record type (A, AAAA, MX, NS, TXT, CNAME, SOA, etc.)
+        bu_parse_positional $# --enum A AAAA MX NS TXT CNAME SOA PTR SRV CAA enum-- --hint "Record type"
+        record_type=${!shift_by}
+        ;;
+    --name)# NAME
+        # Domain name to query
+        bu_parse_positional $# --hint "Domain name"
+        name=${!shift_by}
+        ;;
     -h|--help)# _FLAG
         is_help=true
+        ;;
+    --)
+        shift
+        break
         ;;
     *)
         # Any unrecognized arg: pass through to the underlying command, replacing the default
@@ -61,7 +77,9 @@ if "$is_help"
 then
     bu_autohelp \
         --description "Query DNS records (jc dig parser wrapper)." \
-        --example "Default" "" \
+        --example "Root hints" "" \
+        --example "A record" "--name example.com --type A" \
+        --example "MX records" "--name example.com --type MX" \
         --example "With extra flags" "-- -la /var/log"
     return 0
 fi
@@ -76,9 +94,12 @@ fi
 
 # Build the command: use provided args if any, otherwise the default
 local -a cmd=()
-if ((${#remaining_options[@]} > 0))
+if [[ -n "$name" ]] || [[ -n "$record_type" ]] || ((${#remaining_options[@]} > 0))
 then
-    cmd=("${remaining_options[@]}")
+    cmd=(dig)
+    [[ -n "$record_type" ]] && cmd+=(-t "$record_type")
+    [[ -n "$name" ]] && cmd+=("$name")
+    ((${#remaining_options[@]} > 0)) && cmd+=("${remaining_options[@]}")
 else
     cmd=(dig)
 fi

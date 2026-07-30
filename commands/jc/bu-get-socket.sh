@@ -19,6 +19,10 @@ bu_run_log_command "$@"
 
 local is_help=false
 local format=auto
+local is_tcp=false
+local is_udp=false
+local is_listening=false
+local is_all=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -31,8 +35,28 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    --tcp|tcp)# _FLAG
+        # Show TCP sockets only (-t)
+        is_tcp=true
+        ;;
+    --udp|udp)# _FLAG
+        # Show UDP sockets only (-u)
+        is_udp=true
+        ;;
+    -l|--listening)# _FLAG
+        # Show only listening sockets (-l)
+        is_listening=true
+        ;;
+    -a|--all)# _FLAG
+        # Show both listening and non-listening sockets (-a)
+        is_all=true
+        ;;
     -h|--help)# _FLAG
         is_help=true
+        ;;
+    --)
+        shift
+        break
         ;;
     *)
         # Any unrecognized arg: pass through to the underlying command, replacing the default
@@ -61,7 +85,10 @@ if "$is_help"
 then
     bu_autohelp \
         --description "Show socket statistics (jc ss parser wrapper)." \
-        --example "Default" "" \
+        --example "TCP listeners (default)" "" \
+        --example "All sockets" "--all" \
+        --example "UDP only" "--udp --listening" \
+        --example "TCP, all states" "--tcp --all" \
         --example "With extra flags" "-- -la /var/log"
     return 0
 fi
@@ -74,11 +101,17 @@ then
     return 1
 fi
 
-# Build the command: use provided args if any, otherwise the default
+# Build the command: use explicit flags when provided, otherwise default
 local -a cmd=()
-if ((${#remaining_options[@]} > 0))
+if "$is_tcp" || "$is_udp" || "$is_listening" || "$is_all" || ((${#remaining_options[@]} > 0))
 then
-    cmd=("${remaining_options[@]}")
+    cmd=(ss)
+    "$is_tcp" && cmd+=(-t)
+    "$is_udp" && cmd+=(-u)
+    "$is_listening" && cmd+=(-l)
+    "$is_all" && cmd+=(-a)
+    # Default to -p for process info unless user provided custom args
+    if ((${#remaining_options[@]} > 0)); then cmd+=("${remaining_options[@]}"); else cmd+=(-p); fi
 else
     cmd=(ss -tlnp)
 fi
