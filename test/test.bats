@@ -728,3 +728,56 @@ function test_bash44_alias_chain_completion { #@test
     run bu_autocomplete_get_autocompletions bu "$a1" ""
     assert_success
 }
+
+# ===========================================================================
+# --options-of / --options-at completion path bugs
+# ===========================================================================
+
+function test_options_at_multiline_alternation { #@test
+    # Bug 1: multi-line `opt1|\ ... optN)` groups lost all but one option.
+    # The v2 parser joined continuation lines with newlines, but the consumer
+    # only split on `|`. Fixed by translating newlines to `|` before splitting.
+    local tmpfile
+    tmpfile=$(mktemp)
+    cat > "$tmpfile" <<'EOF'
+    case "$1" in
+    --alpha|\
+    --beta|\
+    --gamma|\
+    --delta)
+        ;;
+    esac
+EOF
+    COMPREPLY=()
+    BU_COMPREPLY_METADATA=()
+    declare -A bu_parsed_multiselect_arguments=()
+    __bu_autocomplete_completion_func_master_helper "$tmpfile" "" "" --options-at "$tmpfile" 1
+    rm -f "$tmpfile"
+
+    # All 4 options must be present
+    assert_equal "${COMPREPLY[*]}" "--alpha --beta --gamma --delta"
+}
+
+function test_options_of_function_no_blank_rows { #@test
+    # Bug 3: `declare -f` pretty-prints case alternations with spaced pipes
+    # (a | b | c). Splitting on `|` yielded tokens with leading/trailing
+    # whitespace that passed the emptiness check, creating blank COMPREPLY rows.
+    # Fixed by trimming whitespace and dropping empty tokens after split.
+    function __test_sp_pipes() {
+        case "$1" in
+        a|b|c)
+            ;;
+        esac
+    }
+
+    COMPREPLY=()
+    BU_COMPREPLY_METADATA=()
+    declare -A bu_parsed_multiselect_arguments=()
+    __bu_autocomplete_completion_func_master_helper __test_sp_pipes "" "" --options-of __test_sp_pipes
+
+    # Must be exactly [a, b, c] with no empty entries
+    assert_equal "${#COMPREPLY[@]}" 3
+    assert_equal "${COMPREPLY[0]}" "a"
+    assert_equal "${COMPREPLY[1]}" "b"
+    assert_equal "${COMPREPLY[2]}" "c"
+}

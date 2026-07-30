@@ -296,7 +296,7 @@ bu_autocomplete_parse_case_block_options_v2()
     local function_or_script_path=$1
     local start_indicator=${2:-'case .* in'}
     local end_indicator=$3
-    local start_lineno=$4
+    local start_lineno=${4:-1}
 
     start_indicator=/$start_indicator/
     if [[ -z "$end_indicator" ]]
@@ -1389,8 +1389,24 @@ __bu_autocomplete_completion_func_master_helper()
 
             for ((i=0; i<${#bu_script_options[@]}; i++))
             do
-                bu_str_split '|' "${bu_script_options[i]}"
-                local -a line_options=("${BU_RET[@]}")
+                # Translate newlines (from multi-line `opt1|\ … optN)` groups)
+                # to pipes, then split. Also handle `declare -f` pretty-print
+                # (a | b | c) by trimming whitespace and dropping empties.
+                local _entry=${bu_script_options[i]//$'\n'/|}
+                bu_str_split '|' "$_entry"
+                local -a line_options=()
+                local _opt
+                for _opt in "${BU_RET[@]}"; do
+                    while [[ "$_opt" == ' '* || "$_opt" == *' ' ]]; do
+                        _opt=${_opt# }
+                        _opt=${_opt% }
+                    done
+                    [[ -n "$_opt" ]] && line_options+=("$_opt")
+                done
+                # Update BU_RET so the non-alias code path below also
+                # gets the cleaned tokens (avoids spaces breaking
+                # compgen -W splitting at the end of the helper).
+                BU_RET=("${line_options[@]}")
 
                 # Alias heuristic: alternatives equal modulo leading -/+ and
                 # case (--select, select, SELECT) are the same option. Show a
