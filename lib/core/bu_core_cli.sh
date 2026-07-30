@@ -252,21 +252,22 @@ __bu_cli_help()
     local -r rst="${BU_TPUT_RESET}"
     local -r em="${BU_TPUT_BOLD}"
     local -r ul="${BU_TPUT_UNDERLINE}"
+    local -r cli=$BU_CLI_COMMAND_NAME
 
     echo "$title"
     echo
-    echo "${em}bu${rst} is a ${em}Verb-Noun${rst} CLI with fzf-powered tab completion and a"
+    echo "${em}${cli}${rst} is a ${em}Verb-Noun${rst} CLI with fzf-powered tab completion and a"
     echo "PowerShell-inspired JSONL object pipeline."
     echo
     echo "${em}Getting started${rst}"
-    echo "  Type ${em}bu${rst} ${dim}<TAB>${rst} to explore commands in a fuzzy-search dropdown."
+    echo "  Type ${em}${cli}${rst} ${dim}<TAB>${rst} to explore commands in a fuzzy-search dropdown."
     echo "  Command names follow ${em}Verb-Noun${rst} — the verb is ${BU_TPUT_BOLD}${BU_TPUT_BLUE}blue${rst} and the"
     echo "  noun is ${BU_TPUT_BOLD}${BU_TPUT_GREEN}green${rst} in the listing below."
-    echo "  Run ${em}bu <command> --help${rst} for details on any subcommand."
+    echo "  Run ${em}${cli} <command> --help${rst} for details on any subcommand."
     echo
     echo "${em}Pipelines${rst}"
     echo "  Commands emit ${em}JSONL${rst} (one JSON object per line). Chain them with | :"
-    echo "    ${dim}bu get-command | bu where-object '.type == \"source\"' | bu format-table${rst}"
+    echo "    ${dim}${cli} get-command | ${cli} where-object '.type == \"source\"' | ${cli} format-table${rst}"
     echo "  Or use classic Unix pipes — jq, awk, etc. work on the JSONL stream."
     echo
     local ctrl_label alt_label

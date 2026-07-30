@@ -1814,6 +1814,11 @@ __bu_out_complete_pipeline_fields()
         printf -v producer_eval '%q ' "${producer_words[@]}"
     fi
     [[ -z "$producer_str" ]] && return 1
+
+    # Canonicalize for registry key matching ("xx get-command" → "bu get-command")
+    __bu_out_canonicalize_stage "$producer_str"
+    producer_str=$BU_CANONICAL_STAGE
+
     local -r producer_head=${producer_str%%[[:space:]]*}
 
     local -a fields=()
@@ -2020,10 +2025,45 @@ __bu_out_split_pipeline()
 # *Returns*:
 # - stdout: The resolved command name
 # ```
+# ```
+# *Description*:
+# Canonicalize a pipeline stage text for registry key matching.
+# When BU_CLI_COMMAND_NAME is renamed (e.g. "xx"), rewrites a leading
+# "<cli> " prefix to "bu " so that BU_OUT_PRODUCER_FIELDS and
+# BU_OUT_STAGE_EFFECT lookups (which are keyed on "bu <cmd>") still match.
+#
+# *Params*:
+# - `$1`: Stage text (e.g. "xx get-command --format json")
+#
+# *Returns*:
+# - BU_CANONICAL_STAGE: Canonicalized stage text
+# - stdout: Same canonicalized text (for \$(...) capture)
+# ```
+__bu_out_canonicalize_stage()
+{
+    local stage=$1
+    BU_CANONICAL_STAGE=$stage
+    if [[ "$BU_CLI_COMMAND_NAME" != bu ]]
+    then
+        local -a _canon_words=()
+        read -ra _canon_words <<< "$stage"
+        if [[ "${_canon_words[0]}" == "$BU_CLI_COMMAND_NAME" ]]
+        then
+            _canon_words[0]=bu
+            BU_CANONICAL_STAGE="${_canon_words[*]}"
+        fi
+    fi
+    printf '%s' "$BU_CANONICAL_STAGE"
+}
+
 __bu_out_extract_command()
 {
     local stage_text=$1
     [[ -z "$stage_text" ]] && return 1
+
+    # Canonicalize the stage text so "xx get-command" → "bu get-command"
+    __bu_out_canonicalize_stage "$stage_text"
+    stage_text=$BU_CANONICAL_STAGE
 
     # Split into words
     local -a words=()
@@ -2058,6 +2098,10 @@ __bu_out_parse_select_fields()
     local stage_text=$1
     local -n out_fields=$2
     out_fields=()
+
+    # Canonicalize for registry key matching ("xx select-object" → "bu select-object")
+    __bu_out_canonicalize_stage "$stage_text"
+    stage_text=$BU_CANONICAL_STAGE
 
     local -a words=()
     # shellcheck disable=SC2206
@@ -2120,15 +2164,19 @@ __bu_out_analyze_stage()
     local -n _out_fields=$3
     _out_fields=()
 
-    local cmd_name
-    cmd_name=$(__bu_out_extract_command "$stage_text") || return 1
+    # Canonicalize for registry key matching ("xx get-command" → "bu get-command")
+    __bu_out_canonicalize_stage "$stage_text"
+    local canon=$BU_CANONICAL_STAGE
 
-    # Look up effect: longest prefix match on stage text so flags don't break it
+    local cmd_name
+    cmd_name=$(__bu_out_extract_command "$canon") || return 1
+
+    # Look up effect: longest prefix match on canonical stage text so flags don't break it
     local effect=
     local key best_key=
     for key in "${!BU_OUT_STAGE_EFFECT[@]}"
     do
-        if [[ "$stage_text" == "$key" || "$stage_text" == "$key "* ]] && (( ${#key} > ${#best_key} ))
+        if [[ "$canon" == "$key" || "$canon" == "$key "* ]] && (( ${#key} > ${#best_key} ))
         then
             best_key=$key
         fi
@@ -2148,7 +2196,7 @@ __bu_out_analyze_stage()
         local best_producer=
         for key in "${!BU_OUT_PRODUCER_FIELDS[@]}"
         do
-            if [[ "$stage_text" == "$key" || "$stage_text" == "$key "* ]] && (( ${#key} > ${#best_producer} ))
+            if [[ "$canon" == "$key" || "$canon" == "$key "* ]] && (( ${#key} > ${#best_producer} ))
             then
                 best_producer=$key
             fi
@@ -2163,7 +2211,7 @@ __bu_out_analyze_stage()
         _out_fields=("${_in_fields[@]}")
         ;;
     project)
-        __bu_out_parse_select_fields "$stage_text" _out_fields || _out_fields=("${_in_fields[@]}")
+        __bu_out_parse_select_fields "$canon" _out_fields || _out_fields=("${_in_fields[@]}")
         ;;
     query)
         # Run the stage with --debug appended to get the query plan.

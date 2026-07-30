@@ -1864,10 +1864,21 @@ __bu_autocomplete_completion_func_cli()
     local -r completion_command=$1
     local -r cur_word=$2
     local -r prev_word=$3
-    case "$completion_command" in
-    "$BU_CLI_COMMAND_NAME");;
-    *) return 1;;
-    esac
+
+    # Accept the primary CLI name or any registered alias
+    if [[ "$completion_command" != "$BU_CLI_COMMAND_NAME" ]]
+    then
+        local _accepted=false
+        local _alias
+        for _alias in "${BU_CLI_COMMAND_ALIASES[@]}"; do
+            if [[ "$completion_command" == "$_alias" ]]
+            then
+                _accepted=true
+                break
+            fi
+        done
+        "$_accepted" || return 1
+    fi
     
     COMPREPLY=()
     if ((COMP_CWORD == 1))

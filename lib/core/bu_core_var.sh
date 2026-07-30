@@ -11,6 +11,16 @@ if [[ -n "${BU_CORE_VAR_SOURCED:-}" ]]; then return; fi
 declare -g BU_CORE_VAR_SOURCED=1
 
 # ```
+# Additional names that the CLI completion function should accept beyond
+# BU_CLI_COMMAND_NAME.  Projects that alias the CLI (e.g. a single-letter
+# wrapper `j` for `jr`) populate this array and then register the
+# completion themselves:
+#   BU_CLI_COMMAND_ALIASES+=(j)
+#   complete -F __bu_autocomplete_completion_func_cli j
+# ```
+declare -a -g BU_CLI_COMMAND_ALIASES=()
+
+# ```
 # This mapping will be passed directly to `complete -F`
 # ```
 declare -A -g BU_AUTOCOMPLETE_COMPLETION_FUNCS=(
