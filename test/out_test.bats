@@ -736,8 +736,9 @@ function test_bu_query_object_multiple_where_anded { #@test
 
 function test_bu_query_object_desc { #@test
     local out
-    out=$(bu get-command | bu query-object order-by name desc first 2 select name --format tsv --columns name)
-    assert_equal "$out" $'where-object\ntrace-route'
+    out=$(BU_MODULE_LIST="alpha:1.0.0:/a;zeta:2.0.0:/z;beta:3.0.0:/b" bu get-module | bu query-object order-by name desc first 2 select name --format tsv --columns name)
+    # descending: zeta, beta, alpha → first 2: zeta, beta
+    assert_equal "$out" $'zeta\nbeta'
 }
 
 function test_bu_query_object_invalid_first { #@test
