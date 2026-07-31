@@ -29,6 +29,7 @@ bu_run_log_command "$@"
 
 local key=
 local is_all=false
+local is_dry_run=false
 local is_help=false
 local error_msg=
 local autocompletion=()
@@ -40,6 +41,9 @@ do
     --all)# _FLAG
         # Invalidate all project caches
         is_all=true
+        ;;
+    --dry-run|--what-if)# _FLAG
+        is_dry_run=true
         ;;
     -h|--help)# _FLAG
         # Print help
@@ -78,7 +82,13 @@ then
     return 0
 fi
 
-if "$is_all"; then
+if "$is_dry_run"; then
+    if "$is_all"; then
+        bu_log_info "Would invalidate all command caches"
+    elif [[ -n "$key" ]]; then
+        bu_log_info "Would invalidate cache for: $key"
+    fi
+elif "$is_all"; then
     __bu_invalidate_command_cache --all
 elif [[ -n "$key" ]]; then
     __bu_invalidate_command_cache "$key"

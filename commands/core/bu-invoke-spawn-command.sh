@@ -30,6 +30,7 @@ bu_run_log_command "$@"
 local bu_spawn_args=()
 
 local is_help=false
+local is_dry_run=false
 local error_msg=
 local options_finished=false
 local autocompletion=()
@@ -80,6 +81,9 @@ do
         # REPL mode (send Ctrl-D to exit)
         bu_spawn_args+=("$1")
         ;;
+    --dry-run|--what-if) # _FLAG
+        is_dry_run=true
+        ;;
     -h|--help)
         # Print help
         is_help=true
@@ -128,6 +132,11 @@ fi
 bu_spawn_args+=("${remaining_options[@]}")
 
 bu_scope_pop_function
+
+if "$is_dry_run"; then
+    bu_log_info "Would spawn: ${bu_spawn_args[*]}"
+    return 0
+fi
 
 bu_spawn "${bu_spawn_args[@]}"
 }

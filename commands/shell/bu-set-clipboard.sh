@@ -22,6 +22,7 @@ bu_run_log_command "$@"
 
 local text=
 local is_help=false
+local is_dry_run=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -33,6 +34,9 @@ do
         # Text to copy to the clipboard (also accepts pipeline input by structural typing)
         bu_parse_positional $# --hint "Clipboard text"
         text=${!shift_by}
+        ;;
+    --dry-run|--what-if) # _FLAG
+        is_dry_run=true
         ;;
     -h|--help)# _FLAG
         # Print help
@@ -99,6 +103,12 @@ then
     else
         text=$(cat)
     fi
+fi
+
+if "$is_dry_run"; then
+    bu_log_info "Would copy to clipboard: $(echo "$text" | head -c 100)"
+    bu_scope_pop_function
+    return 0
 fi
 
 if command -v pbcopy &>/dev/null

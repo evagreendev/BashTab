@@ -13,6 +13,7 @@ local module_name=
 local commands_dir=
 local is_cache=false
 local is_bash_tab=false
+local is_dry_run=false
 local is_help=false
 local error_msg=
 local autocompletion=()
@@ -41,6 +42,9 @@ do
     --bash-tab)# _FLAG
         # BashTab installation root (BU_DIR)
         is_bash_tab=true
+        ;;
+    --dry-run|--what-if) # _FLAG
+        is_dry_run=true
         ;;
     -h|--help)# _FLAG
         # Print help
@@ -106,11 +110,19 @@ else
     # Default: --module with optional name
     local key=${module_name:-${BU_TOP_LEVEL_MODULE:-}}
     if [[ -z "$key" ]]; then
+        if "$is_dry_run"; then
+            bu_log_info "Would cd to module root (no BU_TOP_LEVEL_MODULE set)"
+            bu_scope_pop_function; return 0
+        fi
         bu_log_err "No module specified and BU_TOP_LEVEL_MODULE is not set"
         return 1
     fi
     local entry=${BU_MODULE_REGISTRY[$key]:-}
     if [[ -z "$entry" ]]; then
+        if "$is_dry_run"; then
+            bu_log_info "Would cd to module '$key' (not currently loaded)"
+            bu_scope_pop_function; return 0
+        fi
         bu_log_err "Module '$key' not found in BU_MODULE_REGISTRY"
         local mod
         bu_log_info "Loaded modules:"
@@ -126,6 +138,12 @@ fi
 if [[ -z "$dir" ]]; then
     bu_log_err "Specify a location: --module, --commands-dir, --cache, or --bash-tab"
     return 1
+fi
+
+if "$is_dry_run"; then
+    bu_log_info "Would cd to: $dir"
+    bu_scope_pop_function
+    return 0
 fi
 
 if [[ ! -d "$dir" ]]; then

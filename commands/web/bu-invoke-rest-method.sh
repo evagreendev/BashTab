@@ -23,6 +23,7 @@ local data=
 local timeout=
 local format=auto
 local is_help=false
+local is_dry_run=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -59,6 +60,9 @@ do
         # Target URL (also accepts pipeline input by structural typing)
         bu_parse_positional $# --hint "https://..."
         url=${!shift_by}
+        ;;
+    --dry-run|--what-if) # _FLAG
+        is_dry_run=true
         ;;
     -h|--help)# _FLAG
         # Print help
@@ -134,6 +138,12 @@ do
     curl_args+=(-H "$h")
 done
 [[ -n "$timeout" ]] && curl_args+=(--max-time "$timeout")
+
+if "$is_dry_run"; then
+    bu_out_record url="$url" method="$method" status="would-send" dry_run:=true | bu_out --format "$format"
+    bu_scope_pop_function
+    return 0
+fi
 
 local http_code
 if ! http_code=$(curl "${curl_args[@]}" "$url")

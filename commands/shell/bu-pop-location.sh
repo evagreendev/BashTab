@@ -11,6 +11,7 @@ bu_run_log_command "$@"
 
 local format=auto
 local is_help=false
+local is_dry_run=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -22,6 +23,9 @@ do
         # Output format
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
+        ;;
+    --dry-run|--what-if) # _FLAG
+        is_dry_run=true
         ;;
     -h|--help)# _FLAG
         # Print help
@@ -61,6 +65,9 @@ has only the current directory. Emits the new location as a record.
     return 0
 fi
 
+if "$is_dry_run"; then
+    bu_out_record action="would-pop" dry_run:=true | bu_out --format "$format"
+else
 # Runs sourced, so popd affects the current shell's directory stack
 if ! popd &>/dev/null
 then
@@ -72,6 +79,7 @@ fi
 
 bu_out_record path="$PWD" | bu_out --format "$format"
 
+fi
 bu_scope_pop_function
 }
 

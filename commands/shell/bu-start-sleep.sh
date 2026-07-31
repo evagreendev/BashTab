@@ -12,6 +12,7 @@ bu_run_log_command "$@"
 local seconds=
 local is_countdown=false
 local is_help=false
+local is_dry_run=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -22,6 +23,9 @@ do
     --countdown)# _FLAG
         # Show a per-second countdown on stderr while sleeping
         is_countdown=true
+        ;;
+    --dry-run|--what-if) # _FLAG
+        is_dry_run=true
         ;;
     -h|--help)# _FLAG
         # Print help
@@ -82,6 +86,9 @@ then
     return 1
 fi
 
+if "$is_dry_run"; then
+    bu_log_info "Would sleep for $seconds seconds"
+else
 if "$is_countdown"
 then
     # Count down in whole-second steps, then sleep off the remainder
@@ -98,6 +105,7 @@ else
     sleep "$seconds"
 fi
 
+fi
 bu_scope_pop_function
 }
 

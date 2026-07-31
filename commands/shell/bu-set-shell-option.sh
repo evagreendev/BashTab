@@ -13,6 +13,7 @@ local name=
 local value=
 local format=auto
 local is_help=false
+local is_dry_run=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -37,6 +38,9 @@ do
         # Shell option name (also accepts pipeline input by structural typing)
         bu_parse_positional $# --ret __bu_bu_set_shell_option_complete_names ret-- --hint "Option name"
         name=${!shift_by}
+        ;;
+    --dry-run|--what-if) # _FLAG
+        is_dry_run=true
         ;;
     -h|--help)# _FLAG
         # Print help
@@ -150,6 +154,9 @@ then
     return 1
 fi
 
+if "$is_dry_run"; then
+    bu_out_record name="$name" value:="$([[ "$value" == on ]] && echo true || echo false)" action="would-set" dry_run:=true | bu_out --format "$format"
+else
 # Runs sourced, so the change sticks in the current shell
 if [[ "$value" == on ]]
 then
@@ -164,6 +171,7 @@ set -o | jq -R -c --arg name "$name" '
     | select(.name == $name)
     | .value |= (. == "on")
 ' | bu_out --format "$format"
+fi
 
 bu_scope_pop_function
 }

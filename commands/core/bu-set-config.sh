@@ -16,6 +16,7 @@ local var=
 local value=
 local is_unset=false
 local is_help=false
+local is_dry_run=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -26,6 +27,9 @@ do
     -u|--unset)# _FLAG
         # Remove VAR's assignments from the settings file (registered default restored)
         is_unset=true
+        ;;
+    --dry-run|--what-if) # _FLAG
+        is_dry_run=true
         ;;
     -h|--help)# _FLAG
         # Print help
@@ -119,6 +123,16 @@ then
     bu_log_err "Usage: bu set-config BU_SOME_SETTING value | --unset BU_SOME_SETTING"
     bu_scope_pop_function
     return 1
+fi
+
+if "$is_dry_run"; then
+    if "$is_unset"; then
+        bu_log_info "Would unset $var in $file"
+    else
+        bu_log_info "Would set $var=$value in $file"
+    fi
+    bu_scope_pop_function
+    return 0
 fi
 
 if "$is_unset"

@@ -12,6 +12,7 @@ bu_run_log_command "$@"
 local path=
 local format=auto
 local is_help=false
+local is_dry_run=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -23,6 +24,9 @@ do
         # Output format
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
+        ;;
+    --dry-run|--what-if) # _FLAG
+        is_dry_run=true
         ;;
     -h|--help)# _FLAG
         # Print help
@@ -73,6 +77,13 @@ bu pop-location and inspect with bu get-location-stack.
     return 0
 fi
 
+if "$is_dry_run"; then
+    if [[ -n "$path" ]]; then
+        bu_out_record path="$path" action="would-push" dry_run:=true | bu_out --format "$format"
+    else
+        bu_out_record action="would-swap-top-two" dry_run:=true | bu_out --format "$format"
+    fi
+else
 # Runs sourced, so pushd affects the current shell's directory stack
 local rc=0
 if [[ -n "$path" ]]
@@ -92,6 +103,7 @@ fi
 
 bu_out_record path="$PWD" | bu_out --format "$format"
 
+fi
 bu_scope_pop_function
 }
 

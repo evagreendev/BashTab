@@ -12,6 +12,7 @@ bu_run_log_command "$@"
 local name=
 local action=
 local format=auto
+local is_dry_run=false
 local is_help=false
 local error_msg=
 local autocompletion=()
@@ -37,6 +38,9 @@ do
         # shopt option name (also accepts pipeline input by structural typing)
         bu_parse_positional $# --ret __bu_bu_set_shopt_complete_names ret-- --hint "Option name"
         name=${!shift_by}
+        ;;
+    --dry-run|--what-if) # _FLAG
+        is_dry_run=true
         ;;
     -h|--help)# _FLAG
         # Print help
@@ -133,6 +137,12 @@ then
 fi
 
 action=${action:-set}
+
+if "$is_dry_run"; then
+    bu_out_record name="$name" value:="$([[ "$action" == set ]] && echo true || echo false)" action="would-${action}" dry_run:=true | bu_out --format "$format"
+    bu_scope_pop_function
+    return 0
+fi
 
 # Runs sourced, so the change sticks in the current shell.
 # Note: no command substitution here — it would run shopt in a subshell
