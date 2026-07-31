@@ -20,6 +20,7 @@ bu_run_log_command "$@"
 local is_help=false
 local format=auto
 local search=
+local is_remote=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -36,6 +37,10 @@ do
         # Filter packages by name glob pattern
         bu_parse_positional $# --hint "Package name pattern"
         search=${!shift_by}
+        ;;
+    --remote)# _FLAG
+        # Search remote repositories instead of listing installed packages
+        is_remote=true
         ;;
     -h|--help)# _FLAG
         is_help=true
@@ -69,14 +74,40 @@ fi
 if "$is_help"
 then
     bu_autohelp \
-        --description "List installed APK packages as structured records.
+        --description "List APK packages (installed by default, --remote for repository search).
 
-Wraps apk info -v to list installed Alpine Linux packages.  Each line
-(name-version) is split into separate name and version fields." \
-        --example "All packages" "" \
-        --example "Filter by name" "--search 'bash*'"
+Wraps apk info -v for installed, apk search for remote.  Each line
+(name-version or name-description) is split into name and version fields." \
+        --example "Installed packages" "" \
+        --example "Filter by name" "--search 'bash*'" \
+        --example "Search repos" "--remote --search nginx"
     return 0
 fi
+
+if "$is_remote"; then
+    # Remote repository search: apk search outputs "name-version description"
+    local -a apk_args=(search)
+    [[ -n "$search" ]] && apk_args+=("$search")
+    if ((${#remaining_options[@]} > 0)); then apk_args+=("${remaining_options[@]}"); fi
+    {
+        apk "${apk_args[@]}" 2>/dev/null | while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            local name version description
+            name="${line%%-*}"
+            local rest="${line#*-}"
+            # Try to extract version: digits followed by something before space
+            if [[ "$rest" =~ ^([0-9][^[:space:]]*)[[:space:]](.*) ]]; then
+                version="${BASH_REMATCH[1]}"
+                description="${BASH_REMATCH[2]}"
+            else
+                version=
+                description="$rest"
+            fi
+            printf '%s\t%s\t%s\n' "$name" "$version" "$description"
+        done
+    } | bu_out_from_tsv --columns name,version,description \
+      | bu_out --format "$format"
+else
 
 # apk info -v outputs "name-version" per line.
 # Split into name and version: version is everything after the first
@@ -93,6 +124,7 @@ if ((${#remaining_options[@]} > 0)); then apk_args+=("${remaining_options[@]}");
     done
 } | bu_out_from_tsv --columns name,version \
   | bu_out --format "$format"
+fi
 
 bu_scope_pop_function
 }

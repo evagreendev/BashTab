@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+function __bu_bu_remove_pacman_package_main()
+{
+if [[ "$1" == "--is-compatible" ]]; then
+    command -v pacman &>/dev/null || { echo "pacman is required" >&2; exit 1; }
+    exit 0
+fi
+local -r invocation_dir=$PWD
+source "$BU_NULL"
+bu_scope_push_function
+bu_run_log_command "$@"
+
+local -a names=()
+local is_yes=false
+local is_recursive=false
+local is_dry_run=false
+local is_help=false
+local error_msg=
+local autocompletion=()
+local shift_by=
+while (($#)); do
+    bu_parse_multiselect $# "$1"
+    case "$1" in
+    -y|--yes) # _FLAG
+        is_yes=true
+        ;;
+    -r|--recursive) # _FLAG
+        is_recursive=true
+        ;;
+    --dry-run|--what-if) # _FLAG
+        is_dry_run=true
+        ;;
+    -h|--help) # _FLAG
+        is_help=true
+        ;;
+    *)
+        names+=("$1")
+        ;;
+    esac
+    if "$is_help"; then break; fi
+    if (( $# < shift_by )); then bu_parse_error_argn "$1" $#; break; fi
+    shift "$shift_by"
+done
+if bu_env_is_in_autocomplete; then bu_autocomplete; return 0; fi
+if "$is_help"; then
+    bu_autohelp --description "Uninstall Arch packages (pacman -R).  --recursive removes unneeded deps too (pacman -Rs)." \
+        --example "Remove" "nginx vim" --example "With deps" "--recursive nginx" --example "Dry run" "--dry-run nginx"
+    return 0
+fi
+if ((${#names[@]} == 0)) && read -t 0 2>/dev/null; then
+    local line; while IFS= read -r line; do
+        local n; n=$(jq -r '.name // empty' <<<"$line" 2>/dev/null) || true
+        [[ -n "$n" ]] && names+=("$n")
+    done
+fi
+if ((${#names[@]} == 0)); then error_msg="No packages specified."; bu_autohelp; bu_scope_pop_function; return 1; fi
+
+local -a cmd=(pacman -R)
+"$is_recursive" && cmd=(pacman -Rs)
+"$is_yes" && cmd+=(--noconfirm)
+if "$is_dry_run"; then
+    for n in "${names[@]}"; do bu_out_record name="$n" action="would-remove" dry_run:=true | bu_out --format jsonl; done
+else
+    "${cmd[@]}" "${names[@]}" 2>/dev/null || { error_msg="pacman -R failed (try with sudo?)"; bu_autohelp; bu_scope_pop_function; return 1; }
+    for n in "${names[@]}"; do bu_out_record name="$n" action="removed" | bu_out --format jsonl; done
+fi
+bu_scope_pop_function
+}
+__bu_bu_remove_pacman_package_main "$@"

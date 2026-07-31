@@ -23,6 +23,8 @@ local -r invocation_dir=$PWD
 
 local is_help=false
 local format=auto
+local search=
+local is_remote=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -35,8 +37,21 @@ do
         bu_parse_positional $# --enum ${BU_OUT_FORMATS[@]} enum-- --hint "Output format"
         format=${!shift_by}
         ;;
+    --search)# PATTERN
+        # Search query (searches remote repos with --remote, filters installed otherwise)
+        bu_parse_positional $# --hint "Search term"
+        search=${!shift_by}
+        ;;
+    --remote)# _FLAG
+        # Search remote repositories (apt-cache search) instead of listing installed
+        is_remote=true
+        ;;
     -h|--help)# _FLAG
         is_help=true
+        ;;
+    --)
+        shift
+        break
         ;;
     *)
         # Any unrecognized arg: pass through to the underlying command, replacing the default
@@ -64,30 +79,44 @@ fi
 if "$is_help"
 then
     bu_autohelp \
-        --description "List installed Debian packages (jc dpkg-l parser wrapper)." \
-        --example "Default" "" \
+        --description "List Debian packages (installed by default, --remote for apt-cache search)." \
+        --example "Installed packages" "" \
+        --example "Search repos" "--remote --search nginx" \
         --example "With extra flags" "-- -la /var/log"
     return 0
 fi
 
-if ! command -v jc &>/dev/null
-then
-    error_msg="jc is required. Install with: pip install jc"
-    bu_autohelp
-    bu_scope_pop_function
-    return 1
-fi
-
-# Build the command: use provided args if any, otherwise the default
-local -a cmd=()
-if ((${#remaining_options[@]} > 0))
-then
-    cmd=("${remaining_options[@]}")
+if "$is_remote"; then
+    # Remote search via apt-cache: name - description
+    local -a apt_args=(apt-cache search)
+    [[ -n "$search" ]] && apt_args+=("$search")
+    if ((${#remaining_options[@]} > 0)); then apt_args+=("${remaining_options[@]}"); fi
+    {
+        "${apt_args[@]}" 2>/dev/null | while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            local name="${line%% -*}"
+            local description="${line#* - }"
+            printf '%s\t%s\n' "$name" "$description"
+        done
+    } | bu_out_from_tsv --columns name,description \
+      | bu_out --format "$format"
 else
-    cmd=(dpkg -l)
+    if ! command -v jc &>/dev/null; then
+        error_msg="jc is required. Install with: pip install jc"
+        bu_autohelp
+        bu_scope_pop_function
+        return 1
+    fi
+    local -a cmd=()
+    if [[ -n "$search" ]] || ((${#remaining_options[@]} > 0)); then
+        cmd=(dpkg -l)
+        [[ -n "$search" ]] && cmd+=("$search")
+        ((${#remaining_options[@]} > 0)) && cmd+=("${remaining_options[@]}")
+    else
+        cmd=(dpkg -l)
+    fi
+    "${cmd[@]}" 2>/dev/null | jc --dpkg-l 2>/dev/null | jq -c 'if type == "array" then .[] else . end' 2>/dev/null | bu_out --format "$format"
 fi
-
-"${cmd[@]}" 2>/dev/null | jc --dpkg-l 2>/dev/null | jq -c 'if type == "array" then .[] else . end' 2>/dev/null | bu_out --format "$format"
 
 bu_scope_pop_function
 }

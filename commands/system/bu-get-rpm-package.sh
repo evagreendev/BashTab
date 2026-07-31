@@ -20,6 +20,8 @@ bu_run_log_command "$@"
 local is_help=false
 local format=auto
 local name=
+local search=
+local is_remote=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -36,6 +38,15 @@ do
         # Filter packages by name glob pattern (e.g. 'kernel*')
         bu_parse_positional $# --hint "Package name glob"
         name=${!shift_by}
+        ;;
+    --search)# PATTERN
+        # Search query (searches repos with --remote)
+        bu_parse_positional $# --hint "Search term"
+        search=${!shift_by}
+        ;;
+    --remote)# _FLAG
+        # Search remote repositories (dnf search) instead of listing installed
+        is_remote=true
         ;;
     -h|--help)# _FLAG
         is_help=true
@@ -69,15 +80,27 @@ fi
 if "$is_help"
 then
     bu_autohelp \
-        --description "List installed RPM packages as structured records.
-
-Wraps rpm -qa --queryformat to produce TSV output, then pipes through
-the standard BashTab structured-output pipeline.  Works on Fedora, RHEL,
-CentOS, openSUSE, and any RPM-based distribution." \
+        --description "List RPM packages (installed by default, --remote for dnf search)." \
         --example "All packages" "" \
-        --example "Filter by name" "--name 'kernel*'"
+        --example "Filter by name" "--name 'kernel*'" \
+        --example "Search repos" "--remote --search nginx"
     return 0
 fi
+
+if "$is_remote"; then
+    local dnf_cmd
+    dnf_cmd=$(command -v dnf 2>/dev/null || command -v yum 2>/dev/null || echo "dnf")
+    local -a cmd=("$dnf_cmd" search)
+    [[ -n "$search" ]] && cmd+=("$search")
+    if ((${#remaining_options[@]} > 0)); then cmd+=("${remaining_options[@]}"); fi
+    # dnf search output: "name.arch  summary" or "name  :  summary"
+    "${cmd[@]}" 2>/dev/null | awk -F' : |  ' '{
+        name = $1; sub(/\.[^.]+$/, "", name)
+        summary = $2
+        if (name) printf "%s\t%s\n", name, summary
+    }' | bu_out_from_tsv --columns name,summary \
+      | bu_out --format "$format"
+else
 
 local -a rpm_args=(-qa --queryformat '%{NAME}\t%{VERSION}\t%{RELEASE}\t%{ARCH}\t%{SUMMARY}\n')
 [[ -n "$name" ]] && rpm_args+=("$name")
@@ -86,6 +109,7 @@ if ((${#remaining_options[@]} > 0)); then rpm_args+=("${remaining_options[@]}");
     rpm "${rpm_args[@]}" 2>/dev/null
 } | bu_out_from_tsv --columns name,version,release,arch,summary \
   | bu_out --format "$format"
+fi
 
 bu_scope_pop_function
 }
