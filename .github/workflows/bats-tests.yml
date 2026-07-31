@@ -10,6 +10,23 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test-file:
+          - test/api_contract_test.bats
+          - test/cli_rename_test.bats
+          - test/config_test.bats
+          - test/first_test.bats
+          - test/fzf_dims_test.bats
+          - test/integration_test.bats
+          - test/new_commands_test.bats
+          - test/npm_test.bats
+          - test/out_test.bats
+          - test/parse_bash_test.bats
+          - test/smoke_test.bats
+          - test/test.bats
+          - test/ts_test.bats
 
     steps:
       - name: Checkout repository
@@ -19,19 +36,17 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Bash
-        run: |
-          bash --version
+        run: bash --version
 
       - name: Install BATS
-        run: |
-          # Install BATS from the submodule
-          sudo ./test/bats/install.sh /usr/local
+        run: sudo ./test/bats/install.sh /usr/local
 
-      - name: Run BATS tests
+      - name: Run ${{ matrix.test-file }}
         # Problem: https://github.com/actions/runner/issues/241
         # Solution: https://github.com/gfx/example-github-actions-with-tty?tab=readme-ov-file
         shell: 'script -q -e -c "bash {0}" /dev/null'
         env:
           TERM: xterm-256color
         run: |
-          ./bu_run_tests.sh
+          source ./activate -t
+          bats --jobs "$(nproc)" "${{ matrix.test-file }}"
