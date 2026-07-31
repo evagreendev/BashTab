@@ -659,7 +659,7 @@ source "$DIR/../bu_entrypoint.sh" >/dev/null 2>&1
 BU_MODULE_LIST="a:1.0.0:/x" bu get-module | bu select-object name,version
 EOF
     local out
-    out=$(script -qec "bash $helper" /dev/null | tr -d '\r\000' | sed 's/\x1b\[[0-9;]*m//g;s/\x1b(B//g')
+    out=$(script -qec "bash $helper" /dev/null </dev/null | tr -d '\r\000' | sed 's/\x1b\[[0-9;]*m//g;s/\x1b(B//g')
     assert_equal "$out" 'name  version
 ----  -------
 a     1.0.0'
@@ -681,7 +681,7 @@ source "$DIR/../bu_entrypoint.sh" >/dev/null 2>&1
 BU_MODULE_LIST="a:1.0.0:/x;b:2.0.0:/y" bu get-module | bu where-object '.name == "b"' | bu convert-to-tsv --columns name
 EOF
     local out
-    out=$(script -qec "bash $helper" /dev/null | tr -d '\r\000')
+    out=$(script -qec "bash $helper" /dev/null </dev/null | tr -d '\r\000')
     assert_equal "$out" 'b'
 }
 
@@ -1105,7 +1105,7 @@ export BU_TABLE_PAGER="preset:marker"
 printf '{"name":"test"}\n' | bu_format_table
 SCRIPT_EOF
     local out
-    out=$(HELPER_DIR="$DIR" script -qec "bash $helper" /dev/null | tr -d '\r\000')
+    out=$(HELPER_DIR="$DIR" script -qec "bash $helper" /dev/null </dev/null | tr -d '\r\000')
     # The sed pager should have prepended "PAGED:" to every line
     [[ "$out" == *PAGED:* ]]
 }
@@ -1122,7 +1122,7 @@ export BU_TABLE_PAGER="sed s/^/CUSTOM:/"
 printf '{"name":"test"}\n' | bu_format_table
 SCRIPT_EOF
     local out
-    out=$(HELPER_DIR="$DIR" script -qec "bash $helper" /dev/null | tr -d '\r\000')
+    out=$(HELPER_DIR="$DIR" script -qec "bash $helper" /dev/null </dev/null | tr -d '\r\000')
     [[ "$out" == *CUSTOM:* ]]
 }
 
@@ -1138,7 +1138,7 @@ export BU_TABLE_PAGER="preset:never"
 printf '{"name":"test"}\n' | bu_format_table
 SCRIPT_EOF
     local out
-    out=$(HELPER_DIR="$DIR" script -qec "bash $helper" /dev/null | tr -d '\r\000')
+    out=$(HELPER_DIR="$DIR" script -qec "bash $helper" /dev/null </dev/null | tr -d '\r\000')
     # Table should render normally (header, separator, data)
     [[ "$out" == *name* ]]
     [[ "$out" == *test* ]]
