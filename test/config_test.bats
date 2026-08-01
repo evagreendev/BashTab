@@ -57,14 +57,14 @@ function test_set_config_dedupe_last_wins { #@test
     local count
     count=$(grep -c "^BU_LOG_LVL=" "$BU_CONFIG_LOCAL_FILE")
     assert_equal "$count" 1
-    assert_equal "$(grep "^BU_LOG_LVL=" "$BU_CONFIG_LOCAL_FILE")" "BU_LOG_LVL=2"
+    assert_equal "$(grep "^BU_LOG_LVL=" "$BU_CONFIG_LOCAL_FILE")" "BU_LOG_LVL=3"
     # Immediate effect in the current shell
-    assert_equal "$BU_LOG_LVL" 2
+    assert_equal "$BU_LOG_LVL" 3
 }
 
 function test_set_config_unset_restores_registered_default { #@test
     bu set-config BU_LOG_LVL debug >/dev/null
-    assert_equal "$BU_LOG_LVL" 0
+    assert_equal "$BU_LOG_LVL" 1
     bu set-config --unset BU_LOG_LVL >/dev/null
     assert_equal "$BU_LOG_LVL" "$BU_LOG_LVL_WARN"
     [[ "$(grep -c "^BU_LOG_LVL=" "$BU_CONFIG_LOCAL_FILE")" == 0 ]]
@@ -81,7 +81,7 @@ function test_set_config_rejects_bad_input { #@test
 
 function test_config_completion_helpers { #@test
     __bu_config_completion_values BU_LOG_LVL
-    assert_equal "${BU_RET[*]}" "debug info warn err silence"
+    assert_equal "${BU_RET[*]}" "trace debug info warn err silence"
 
     bu_config_register BU_TEST_FLAG2 --bool
     __bu_config_completion_values BU_TEST_FLAG2

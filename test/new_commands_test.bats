@@ -559,7 +559,7 @@ ZZ_B'
 function test_bu_get_builtin_lists_printf { #@test
     local out
     out=$(bu get-builtin printf)
-    assert_equal "$out" '{"name":"printf","enabled":true}'
+    assert_equal "$out" '{"name":"printf","enabled":true,"overridden":false,"override_type":null}'
 }
 
 function test_bu_get_completion_has_bu { #@test
