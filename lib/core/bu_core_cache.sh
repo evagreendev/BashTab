@@ -59,7 +59,7 @@ __bu_prompt_command_hook()
     fi
 
     # Only prepend if not already there (handles re-entrant / nested cases)
-    if [[ "$PS1" != "$indicator"* ]]; then
+    if [[ "$PS1" != *"$indicator"* ]]; then
         PS1="${indicator}${PS1}"
     fi
 }
