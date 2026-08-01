@@ -696,6 +696,19 @@ bu_log_info()
 
 # ```
 # *Description*:
+# Log a trace message (lowest level, hidden unless BU_LOG_LVL=trace)
+#
+# *Params*:
+# - `-i|--idx <index>` (optional): Stacktrace index offset for the logging context
+# - `...`: Log message
+# ```
+bu_log_trace()
+{
+    __bu_log "$BU_TPUT_GREY" "$BU_LOG_LVL_TRACE" TRACE "[${EPOCHREALTIME}] $*"
+}
+
+# ```
+# *Description*:
 # Log a debug message
 #
 # *Params*:

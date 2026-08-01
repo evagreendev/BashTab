@@ -22,11 +22,13 @@ if [[ -z "$COMP_CWORD" ]]
 then
 source ../../bu_entrypoint.sh
 fi
+bu_log_trace "after entrypoint"
 
 bu_exit_handler_setup
 bu_scope_push_function
 bu_scope_add_cleanup bu_popd_silent
 bu_run_log_command "$@"
+bu_log_trace "after init+run_log"
 
 local path=
 local content=
@@ -90,6 +92,7 @@ do
     fi
     shift "$shift_by"
 done
+bu_log_trace "after while loop"
 if bu_env_is_in_autocomplete
 then
     bu_autocomplete
@@ -98,6 +101,7 @@ fi
 
 if "$is_help"
 then
+    bu_log_trace "before bu_autohelp"
     bu_autohelp \
         --description "
 Append content to a file (PowerShell Add-Content analog).
@@ -110,6 +114,7 @@ path, bytes_appended, appended (boolean).
         --example "Append a line" "--path /tmp/log.txt '[ERROR] something went wrong'" \
         --example "Bare positionals" "/tmp/log.txt '[ERROR] something went wrong'" \
         --example "Pipeline from get-content" "| bu where-object '.line | test(\"ERROR\")' | bu add-content --path /tmp/errors.log"
+    bu_log_trace "after bu_autohelp"
 
     return 0
 fi

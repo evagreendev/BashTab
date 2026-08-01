@@ -17,7 +17,7 @@ BU_INVALIDATE_CACHE=${BU_INVALIDATE_CACHE:-${BU_CONFIG_PROPERTIES[BU_INVALIDATE_
 # The log-level when running commands
 # ```
 bu_config_register BU_LOG_LVL --default "$BU_LOG_LVL_WARN" \
-    --enum debug:"$BU_LOG_LVL_DEBUG" info:"$BU_LOG_LVL_INFO" warn:"$BU_LOG_LVL_WARN" err:"$BU_LOG_LVL_ERR" silence:"$BU_LOG_LVL_SILENCE" enum-- \
+    --enum trace:"$BU_LOG_LVL_TRACE" debug:"$BU_LOG_LVL_DEBUG" info:"$BU_LOG_LVL_INFO" warn:"$BU_LOG_LVL_WARN" err:"$BU_LOG_LVL_ERR" silence:"$BU_LOG_LVL_SILENCE" enum-- \
     --hint "Log level when running commands"
 BU_LOG_LVL=${BU_LOG_LVL:-${BU_CONFIG_PROPERTIES[BU_LOG_LVL,default]}}
 
@@ -27,7 +27,7 @@ BU_LOG_LVL=${BU_LOG_LVL:-${BU_CONFIG_PROPERTIES[BU_LOG_LVL,default]}}
 # autocomplete suggestions.
 # ```
 bu_config_register BU_AUTOCOMPLETE_LOG_LVL --default "$BU_LOG_LVL_ERR" \
-    --enum debug:"$BU_LOG_LVL_DEBUG" info:"$BU_LOG_LVL_INFO" warn:"$BU_LOG_LVL_WARN" err:"$BU_LOG_LVL_ERR" silence:"$BU_LOG_LVL_SILENCE" enum-- \
+    --enum trace:"$BU_LOG_LVL_TRACE" debug:"$BU_LOG_LVL_DEBUG" info:"$BU_LOG_LVL_INFO" warn:"$BU_LOG_LVL_WARN" err:"$BU_LOG_LVL_ERR" silence:"$BU_LOG_LVL_SILENCE" enum-- \
     --hint "Log level during autocomplete (keep at err to avoid cluttering suggestions)"
 BU_AUTOCOMPLETE_LOG_LVL=${BU_AUTOCOMPLETE_LOG_LVL:-${BU_CONFIG_PROPERTIES[BU_AUTOCOMPLETE_LOG_LVL,default]}}
 

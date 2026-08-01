@@ -385,6 +385,7 @@ __bu_cli_help()
 bu_autohelp()
 {
     set +e
+    bu_log_trace "bu_autohelp start"
     local description=
     local example_purposes=()
     local example_command_lines=()
@@ -442,7 +443,9 @@ bu_autohelp()
     local -a bu_script_options=()
     local -a bu_script_option_synopsis=()
     local -a bu_script_option_docs=()
+    bu_log_trace "bu_autohelp before parse_case"
     eval "$(bu_autohelp_parse_case_block_help "${script_path}" "" "" "${BASH_LINENO[0]}")"
+    bu_log_trace "bu_autohelp after parse_case"
 
     printf '%s\n' "${BU_TPUT_BOLD}NAME${BU_TPUT_RESET}"
     printf "$padding%s\n" "${command:+$BU_CLI_COMMAND_NAME }${command}${command:+ - }${script_path}"  

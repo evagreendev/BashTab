@@ -446,6 +446,7 @@ EOF
 
 bu_autohelp_parse_case_block_help()
 {
+    bu_log_trace "parse_case start"
     local function_or_script_path=$1
     local start_indicator=${2:-'case .* in'}
     local end_indicator=$3
@@ -466,6 +467,7 @@ EOF
     local start_row=0
     if [[ -n "$end_lineno" ]]
     then
+        bu_log_trace "parse_case before awk1 (find start_row)"
         start_row=$(
             if bu_symbol_is_function "$function_or_script_path"
             then
@@ -494,10 +496,12 @@ EOF
             }
             '
         )
+        bu_log_trace "parse_case after awk1"
     fi
 
     # bu_log_debug "end_lineno[$end_lineno] start_row[$start_row]"
 
+    bu_log_trace "parse_case before awk2 (extract options)"
     if bu_symbol_is_function "$function_or_script_path"
     then
         declare -f "$function_or_script_path"
@@ -627,6 +631,7 @@ EOF
 
     '"$end_indicator"' && !case_count { exit 0 }
     '
+    bu_log_trace "parse_case after awk2"
 }
 
 bu_parse_multiselect()
