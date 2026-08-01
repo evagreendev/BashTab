@@ -51,14 +51,19 @@ function __bu_compat_macos()
     else
         bu_log_warn "gfind not found, -printf will break"
     fi
+}
 
+# Always prefer gawk over mawk (mawk's regex engine catastrophically backtracks
+# on patterns like __BU_AUTOCOMPLETE_OPTION_REGEX, turning 1ms awk calls into 15s)
+# BSD awk also doesn't support certain features
+function __bu_compat_gawk()
+{
     if command -v gawk &>/dev/null; then
         __bu_compat_shim_install awk gawk
-    else
-        bu_log_warn "gawk not found" >&2
     fi
 }
 
+__bu_compat_gawk
 
 if "$BU_ENV_IS_MACOS"
 then
