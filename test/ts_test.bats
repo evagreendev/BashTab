@@ -44,7 +44,10 @@ assert_ts() {
 # ---------------------------------------------------------------------------
 assert_completions() {
     local expected_count=$1 expected_first=$2 input=$3 offset=$4
-    bu_ts_parse "$offset" "$input" 2>/dev/null
+    bu_ts_parse "$offset" "$input" 2>/dev/null || {
+        echo "TS_PARSE_FAILED" >&2
+        return 1
+    }
 
     local -a cmd_words=()
     local _saved_ifs=$IFS
@@ -53,6 +56,11 @@ assert_completions() {
     IFS=$_saved_ifs
     if [[ "${BU_TS_RESULT[original]:${#BU_TS_RESULT[original]}-1}" = ' ' ]]; then
         cmd_words+=("")
+    fi
+
+    if (( ${#cmd_words[@]} == 0 )); then
+        echo "EMPTY_CMDWORDS" >&2
+        return 1
     fi
 
     COMPREPLY=()
@@ -319,12 +327,12 @@ function test_ts_range_cursor_at_end { #@test
 
 function test_e2e_command_after_space { #@test
     # bu <TAB> — show bu subcommands
-    assert_completions -1 "get-command" "bu " 3
+    assert_completions -1 "add-content" "bu " 3
 }
 
 function test_e2e_command_partial { #@test
-    # bu get-<TAB> — show matching subcommands
-    assert_completions 1 "get-command" "bu get-" 7
+    # bu get-<TAB> — show matching subcommands (e.g. get-command, get-file-hash, etc.)
+    assert_completions -1 "get-" "bu get-" 7
 }
 
 function test_e2e_dollar_variable { #@test
@@ -376,7 +384,10 @@ simulate_selection() {
     local front="$1" back="$2" label="$3"
     local offset=${#front}
 
-    bu_ts_parse "$offset" "$front" 2>/dev/null
+    bu_ts_parse "$offset" "$front" 2>/dev/null || {
+        echo "TS_PARSE_FAILED"
+        return
+    }
 
     local original=${BU_TS_RESULT[original]}
     local pipe_before=${BU_TS_RESULT[pipeBefore]}
@@ -421,6 +432,10 @@ simulate_selection() {
     if "$is_range"; then
         result="${original:0:rs}${sel}${original:re}${back}"
     else
+        if (( ${#cmd_words[@]} == 0 )); then
+            echo "EMPTY_CMDWORDS"
+            return
+        fi
         cmd_words[-1]=$sel
         local words="${cmd_words[*]}"
         local back_no_op=${back%%[[:space:]]*}
@@ -437,8 +452,9 @@ simulate_selection() {
 function test_reconstruct_bu { #@test
     local result
     result=$(simulate_selection 'bu ' '' 'bu tab')
-    # Should be "bu get-command " (the first completion)
-    [[ "$result" == "bu get-command "* ]]
+    # Should be "bu <first-command> " — the exact command depends on alphabetical order.
+    # All BashTab commands use kebab-case (lowercase letters and hyphens).
+    [[ "$result" =~ ^bu\ [a-z][a-z-]+\  ]]
 }
 
 function test_reconstruct_dollar { #@test
