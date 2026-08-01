@@ -41,6 +41,9 @@ jobs:
       - name: Install system dependencies
         run: sudo apt-get update -qq && sudo apt-get install -y -qq jc
 
+      - name: Install Node.js dependencies (tree-sitter)
+        run: npm ci
+
       - name: Install BATS
         run: sudo ./test/bats/install.sh /usr/local
 
