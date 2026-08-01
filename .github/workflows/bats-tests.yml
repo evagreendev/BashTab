@@ -38,6 +38,9 @@ jobs:
       - name: Set up Bash
         run: bash --version
 
+      - name: Install system dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq jc
+
       - name: Install BATS
         run: sudo ./test/bats/install.sh /usr/local
 
