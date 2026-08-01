@@ -501,13 +501,16 @@ function test_reconstruct_pipe { #@test
 # ===========================================================================
 
 function test_e2e_var_count_dollar { #@test
-    assert_completions 3 '$HOME' 'echo $HO' 8
+    # Expect at least $HOME — exact count varies by environment (HOSTNAME, HOSTTYPE, etc.)
+    assert_completions -1 '$HOME' 'echo $HO' 8
 }
 
 function test_e2e_var_count_dollar_brace { #@test
-    assert_completions 3 '${HOME}' 'echo ${HO' 9
+    # Expect at least ${HOME} — exact count varies by environment
+    assert_completions -1 '${HOME}' 'echo ${HO' 9
 }
 
 function test_e2e_var_count_quoted { #@test
-    assert_completions 3 '$HOME' 'echo "$HO' 9
+    # Expect at least $HOME — exact count varies by environment
+    assert_completions -1 '$HOME' 'echo "$HO' 9
 }
