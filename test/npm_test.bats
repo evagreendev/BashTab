@@ -133,30 +133,28 @@ function test_bu_get_npm_outdated_pipeline { #@test
 }
 
 # ===========================================================================
-# bu get-pnpm-package
+# bu get-pnpm-package (uses BashTab itself as the pnpm project)
 # ===========================================================================
 
 function test_bu_get_pnpm_package_schema { #@test
-    cd "$FIXTURE"
+    # Verify the output schema fields
     local keys
     keys=$(bu get-pnpm-package | head -1 | jq -r 'keys_unsorted[]' | sort | tr '\n' ' ')
     assert_equal "$keys" "_parent_path _path depth description from license name path resolved version "
 }
 
-function test_bu_get_pnpm_package_depth_counts { #@test
-    cd "$FIXTURE"
-    local depth0 depth1
-    depth0=$(bu get-pnpm-package | jq -c 'select(.depth == 0)' | wc -l)
-    depth1=$(bu get-pnpm-package | jq -c 'select(.depth == 1)' | wc -l)
-    assert_equal "$depth0" "1"
-    assert_equal "$depth1" "2"
+function test_bu_get_pnpm_package_root { #@test
+    local root
+    root=$(bu get-pnpm-package | head -1 | jq -c .)
+    assert_equal "$(jq -r .name <<<"$root")" "bashtab"
+    assert_equal "$(jq -r .depth <<<"$root")" "0"
 }
 
-function test_bu_get_pnpm_package_metadata { #@test
-    cd "$FIXTURE"
-    local chalk
-    chalk=$(bu get-pnpm-package | jq -c 'select(.name == "chalk")')
-    assert_equal "$(jq -r .license <<<"$chalk")" "MIT"
-    assert_regex "$(jq -r .path <<<"$chalk")" 'node_modules'
-    assert_equal "$(jq -r .depth <<<"$chalk")" "1"
+function test_bu_get_pnpm_package_known_dep { #@test
+    # tree-sitter is a direct dependency of BashTab
+    local ts
+    ts=$(bu get-pnpm-package | jq -c 'select(.name == "tree-sitter")' | head -1)
+    assert_equal "$(jq -r .depth <<<"$ts")" "1"
+    assert_equal "$(jq -r .license <<<"$ts")" "MIT"
+    assert_equal "$(jq -r ._parent_path <<<"$ts")" "bashtab"
 }
