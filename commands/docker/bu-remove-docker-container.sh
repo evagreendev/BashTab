@@ -12,17 +12,37 @@ __bu_bu_remove_docker_container_complete_containers()
 
 function __bu_bu_remove_docker_container_main()
 {
+set -e
 # --is-compatible: magic flag checked by the framework at registration time.
 if [[ "$1" == "--is-compatible" ]]; then
     command -v docker &>/dev/null || { echo "docker is required" >&2; exit 1; }
     exit 0
 fi
 local -r invocation_dir=$PWD
+local script_name
+local script_dir
+case "$BASH_SOURCE" in
+*/*)
+    script_name=${BASH_SOURCE##*/}
+    script_dir=${BASH_SOURCE%/*}
+    ;;
+*)
+    script_name=$BASH_SOURCE
+    script_dir=.
+    ;;
+esac
+pushd "$script_dir" &>/dev/null
+script_dir=$PWD
 
+if [[ -z "$COMP_CWORD" ]]
+then
 # shellcheck source=./__bu_entrypoint_decl.sh
-source "$BU_NULL"
+source "$BU_DIR"/bu_entrypoint.sh
+fi
 
+bu_exit_handler_setup
 bu_scope_push_function
+bu_scope_add_cleanup bu_popd_silent
 bu_run_log_command "$@"
 
 local -a containers=()
