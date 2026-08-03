@@ -240,6 +240,7 @@ __bu_set_config_read_pairs()
 __bu_set_config_write_block()
 {
     local new_body=$1
+    mkdir -p "${file%/*}"
     local tmpfile
     tmpfile=$(mktemp "$file.XXXXXX")
 
