@@ -120,15 +120,51 @@ bu_basic_log_err()
 # --list, completion) consumes the registry. Modules can register their own
 # settings the same way.
 #
+# Acceptable setting-name prefixes. Embedders can pre-seed this array before
+# sourcing the entrypoint or append to it afterward to allow their own
+# namespaced settings (e.g. BU_CONFIG_NAME_PREFIXES+=(MYAPP_)).
+# Declared guarded so a pre-seeded value survives.
+if ! declare -p BU_CONFIG_NAME_PREFIXES &>/dev/null
+then
+    declare -a -g BU_CONFIG_NAME_PREFIXES=(BU_)
+fi
+
 # Storage mirrors BU_COMMAND_PROPERTIES: keys are "$name,field".
 declare -A -g BU_CONFIG_PROPERTIES=()
+
+# ```
+# *Description*:
+# Validate a setting name against the configured name prefixes.
+# Returns 0 if the name starts with one of the prefixes listed in
+# BU_CONFIG_NAME_PREFIXES and contains only uppercase letters, digits,
+# and underscores after the prefix.
+#
+# *Params*:
+# - `$1`: Setting name to validate
+#
+# *Returns*:
+# - 0 if the name is valid, 1 otherwise
+# ```
+bu_config_name_is_valid()
+{
+    local -r name=$1
+    local prefix
+    for prefix in "${BU_CONFIG_NAME_PREFIXES[@]}"
+    do
+        if [[ "$name" =~ ^${prefix}[A-Z0-9_]*$ ]]
+        then
+            return 0
+        fi
+    done
+    return 1
+}
 
 # ```
 # *Description*:
 # Register a runtime setting with metadata.
 #
 # *Params*:
-# - `$1`: Setting name (must match BU_[A-Z0-9_]*)
+# - `$1`: Setting name (must start with one of the configured prefixes)
 # - `...`: DSL specifiers, processed left to right:
 #   - `--default VALUE`: value restored by `bu set-config --unset`
 #   - `--bool`: value must be `true` or `false`
@@ -147,9 +183,10 @@ bu_config_register()
 {
     local name=$1
     shift
-    if [[ ! "$name" =~ ^BU_[A-Z0-9_]*$ ]]
+    if ! bu_config_name_is_valid "$name"
     then
-        bu_basic_log_err "bu_config_register: invalid setting name[$name], must match BU_[A-Z0-9_]*"
+        local _prefix_list="${BU_CONFIG_NAME_PREFIXES[*]}"
+        bu_basic_log_err "bu_config_register: invalid setting name[$name], must match ^(${_prefix_list// /|})[A-Z0-9_]*$"
         return 1
     fi
     local default= enum= hint=

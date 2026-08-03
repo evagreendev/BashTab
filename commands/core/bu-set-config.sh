@@ -117,9 +117,10 @@ __bu_set_config_strip_var()
 }
 
 # ── Validate VAR ────────────────────────────────────────────
-if [[ ! "$var" =~ ^BU_[A-Z0-9_]+$ ]]
+if ! bu_config_name_is_valid "$var"
 then
-    bu_log_err "Setting name must match BU_[A-Z0-9_]+ (got: '${var:-<empty>}')"
+    local _prefix_list="${BU_CONFIG_NAME_PREFIXES[*]}"
+    bu_log_err "Setting name must match ^(${_prefix_list// /|})[A-Z0-9_]+\$ (got: '${var:-<empty>}')"
     bu_log_err "Usage: bu set-config BU_SOME_SETTING value | --unset BU_SOME_SETTING"
     bu_scope_pop_function
     return 1
