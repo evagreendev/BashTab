@@ -130,9 +130,19 @@ function test_bu_format_table_truncates_to_terminal_width { #@test
 bashtab  /a/very/long/path/th…'
 }
 
-function test_bu_format_table_empty_input_no_output { #@test
+function test_bu_format_table_empty_input_explicit_columns_shows_header { #@test
+    # With explicit --columns, render header + separator even for zero rows
     local out
     out=$(printf '' | bu_format_table --columns name,version)
+    # header line + separator line, no data rows
+    local expected="name  version"$'\n'"----  -------"
+    assert_equal "$out" "$expected"
+}
+
+function test_bu_format_table_empty_input_no_columns_silent { #@test
+    # Without --columns and zero rows, nothing to render → silent
+    local out
+    out=$(printf '' | bu_format_table)
     assert_equal "$out" ''
 }
 

@@ -1094,7 +1094,7 @@ bu_format_table()
         --arg bold "$bold" --arg reset "$reset" --arg ellipsis "…" \
         "$__BU_OUT_JQ_PRELUDE"'
         . as $rows
-        | if ($rows | length) == 0 then empty
+        | if ($rows | length) == 0 and ($cols | length) == 0 then empty
         else
         ($cols | if length == 0 then $rows[0] | keys_unsorted | map({key: ., header: .}) else . end) as $cols
         | (if ($rainbow | length) > 0 then
