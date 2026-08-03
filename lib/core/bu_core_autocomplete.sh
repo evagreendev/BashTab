@@ -1392,12 +1392,12 @@ __bu_autocomplete_completion_func_master_helper()
             local -a bu_script_options bu_script_option_synopsis bu_script_option_docs
             eval "$(bu_autocomplete_parse_case_block_options_v2 "$script_path" "" "" "$script_lineno")"
 
-            for ((i=0; i<${#bu_script_options[@]}; i++))
+            for ((_opt_row=0; _opt_row<${#bu_script_options[@]}; _opt_row++))
             do
                 # Translate newlines (from multi-line `opt1|\ … optN)` groups)
                 # to pipes, then split. Also handle `declare -f` pretty-print
                 # (a | b | c) by trimming whitespace and dropping empties.
-                local _entry=${bu_script_options[i]//$'\n'/|}
+                local _entry=${bu_script_options[_opt_row]//$'\n'/|}
                 bu_str_split '|' "$_entry"
                 local -a line_options=()
                 local _opt
@@ -1462,8 +1462,8 @@ __bu_autocomplete_completion_func_master_helper()
                     done
 
                     COMPREPLY+=("${current_ansi_color}${display_option}${reset_ansi_color}")
-                    local _syn=${bu_script_option_synopsis[i]}
-                    local _desc=${bu_script_option_docs[i]}
+                    local _syn=${bu_script_option_synopsis[_opt_row]}
+                    local _desc=${bu_script_option_docs[_opt_row]}
                     _desc=${_desc%"${_desc##*[![:space:]]}"} # rtrim: extracted docs carry a trailing newline
                     _desc=${_desc//$'\n'/"\n"}
                     _desc=${_desc//$'\t'/}
@@ -1501,8 +1501,8 @@ __bu_autocomplete_completion_func_master_helper()
                     case "${bu_parsed_multiselect_arguments[$option]}" in
                     '') 
                         COMPREPLY+=("${current_ansi_color}${option}${reset_ansi_color}")
-                        local _syn=${bu_script_option_synopsis[i]}
-                        local _desc=${bu_script_option_docs[i]}
+                        local _syn=${bu_script_option_synopsis[_opt_row]}
+                        local _desc=${bu_script_option_docs[_opt_row]}
                         _desc=${_desc%"${_desc##*[![:space:]]}"} # rtrim: extracted docs carry a trailing newline
                         _desc=${_desc//$'\n'/"\n"}
                         _desc=${_desc//$'\t'/}
