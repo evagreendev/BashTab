@@ -23,7 +23,7 @@ do
     case "$1" in
     --key)# KEY
         # Compare records by this key field instead of by whole-record equality
-        bu_parse_positional $# --ret __bu_out_complete_pipeline_fields ret-- --hint "key field (from pipeline producer)"
+        bu_parse_positional $# --hint "key field" --pipeline-fields pipeline-fields--
         key=${!shift_by}
         ;;
     --include-equal)# _FLAG

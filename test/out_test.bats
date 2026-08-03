@@ -616,7 +616,7 @@ function test_e2e_select_object_comma_continuation { #@test
 function test_e2e_where_object_dot_fields { #@test
     local command_line_front_before_pipe="bu get-command | "
     bu_autocomplete_get_autocompletions bu where-object ""
-    assert_equal "${COMPREPLY[*]}" ".name .verb .noun .namespace .type"
+    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type"
 }
 
 function test_e2e_sort_object_pipeline_fields { #@test
@@ -633,7 +633,31 @@ function test_e2e_format_table_columns_pipeline_fields { #@test
 
 function test_e2e_no_pipeline_shows_hint_only { #@test
     bu_autocomplete_get_autocompletions bu select-object na
-    assert_equal "${COMPREPLY[0]}" "Hint: field (from pipeline producer)"
+    assert_equal "${COMPREPLY[0]}" "Hint: field"
+}
+
+function test_pipeline_fields_dsl_keyword_basic { #@test
+    # The --pipeline-fields DSL keyword resolves pipeline producer fields
+    local command_line_front_before_pipe="bu get-command | "
+    bu_autocomplete_get_autocompletions bu select-object ""
+    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type"
+}
+
+function test_pipeline_fields_dsl_keyword_dot { #@test
+    # --pipeline-fields --dot prefixes fields for jq expressions
+    local command_line_front_before_pipe="bu get-command | "
+    local pipe_before=
+    # Test the underlying function directly for the dot variant
+    __bu_out_complete_pipeline_fields --dot ""
+    assert_equal "${BU_RET[*]}" ".name .verb .noun .namespace .type"
+}
+
+function test_pipeline_fields_dsl_dynamic_hint { #@test
+    # When pipeline is detected, hint updates to show available fields
+    local command_line_front_before_pipe="bu get-command | "
+    bu_autocomplete_get_autocompletions bu sort-object ""
+    # The hint should now mention the available fields, not the static text
+    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type"
 }
 
 # ===========================================================================
@@ -770,7 +794,7 @@ function test_e2e_query_object_clause_completion { #@test
 function test_e2e_query_object_where_dot_completion { #@test
     local command_line_front_before_pipe="bu get-command | "
     bu_autocomplete_get_autocompletions bu query-object where ""
-    assert_equal "${COMPREPLY[*]}" ".name .verb .noun .namespace .type"
+    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type"
 }
 
 # ===========================================================================

@@ -37,7 +37,7 @@ do
         then
             # Raw jq expression (backward compatible)
             if bu_env_is_in_autocomplete; then
-                autocompletion=(--ret __bu_out_complete_pipeline_fields --dot ret-- --hint "jq expression (from pipeline producer)")
+                autocompletion=(--hint "jq expression" --pipeline-fields --dot pipeline-fields--)
             fi
             expression=$1
         elif [[ "$1" != -* ]]
@@ -50,7 +50,7 @@ do
             local _ws_field=$1
             local _ws_complete=false
             if bu_env_is_in_autocomplete; then
-                autocompletion=(--ret __bu_out_complete_pipeline_fields ret-- --hint "Field name, or jq expression")
+                autocompletion=(--hint "Field name" --pipeline-fields pipeline-fields--)
             fi
 
             while true; do
@@ -149,14 +149,14 @@ do
                 # Have a field name AND cursor is past it → show operators
                 autocompletion=(--enum -eq -ne -gt -lt -ge -le -like -notlike -match -notmatch -contains -notcontains -in -notin -isnull -isnotnull enum-- --hint "Comparison operator")
             elif [[ -z "$_ws_op" && -z "$_ws_field" ]] && ((${#_ws_connectors[@]} > 0)); then
-                autocompletion=(--ret __bu_out_complete_pipeline_fields ret-- --hint "Field name (after ${_ws_connectors[-1]})")
+                autocompletion=(--hint "Field name (after ${_ws_connectors[-1]})" --pipeline-fields pipeline-fields--)
             elif [[ "$_ws_complete" == true ]]; then
                 autocompletion=(--enum and or enum-- --hint "Logical connector (and/or)")
             elif [[ -n "$_ws_op" && -z "$_ws_val" && "$_ws_op" != -isnull && "$_ws_op" != -isnotnull ]]; then
                 autocompletion=(--hint "Value for $_ws_field $_ws_op")
             fi
             if [[ -z "$_ws_op" && -z "$_ws_field" ]] && ((${#_ws_connectors[@]} == 0)); then
-                autocompletion=(--ret __bu_out_complete_pipeline_fields ret-- --hint "Field name")
+                autocompletion=(--hint "Field name" --pipeline-fields pipeline-fields--)
             fi
 
             # Build combined jq expression

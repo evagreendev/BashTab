@@ -494,6 +494,19 @@ bu_autohelp()
         printf "$padding%s\n" "${description_lines[@]}"
     fi
 
+    # Pipeline context section: show the command's role in a JSONL pipeline
+    if [[ -n "$command" ]]
+    then
+        local _plh_cmd_name="${BU_CLI_COMMAND_NAME} ${command}"
+        local _plh_text=
+        __bu_out_pipeline_help "$_plh_cmd_name" "$padding" _plh_text
+        if [[ -n "$_plh_text" ]]
+        then
+            printf '\n%s\n\n' "${BU_TPUT_BOLD}PIPELINE${BU_TPUT_RESET}"
+            printf '%s\n' "$_plh_text"
+        fi
+    fi
+
     printf '\n%s\n\n' "${BU_TPUT_BOLD}OPTIONS${BU_TPUT_RESET}"
     local i
     local option

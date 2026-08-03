@@ -21,7 +21,7 @@ do
     case "$1" in
     --columns)# COLUMNS
         # Fields to emit, in order (comma-separated). Default: union of keys across all records.
-        bu_parse_positional $# --ret __bu_out_complete_pipeline_fields ret-- --hint "Comma-separated columns (from pipeline producer)"
+        bu_parse_positional $# --hint "Comma-separated columns" --pipeline-fields pipeline-fields--
         columns=${!shift_by}
         ;;
     --no-header)# _FLAG

@@ -1947,6 +1947,13 @@ declare -A -g BU_OUT_STAGE_EFFECT=(
     ["bu get-memory-stat"]=producer
     ["bu get-open-file"]=producer
     ["bu get-count"]=producer
+    ["bu format-list"]=passthrough
+    ["bu foreach-object"]=passthrough
+    ["bu measure-object"]=passthrough
+    ["bu group-object"]=query
+    ["bu compare-object"]=project
+    ["bu convert-to-tsv"]=passthrough
+    ["bu convert-to-csv"]=passthrough
     ["bu get-dpkg-package"]=producer
 )
 
@@ -2026,6 +2033,108 @@ __bu_out_split_pipeline()
 # *Returns*:
 # - stdout: The resolved command name
 # ```
+# *Description*:
+# Generate a pipeline context help string for use in bu_autohelp.
+# Describes the command's role in a JSONL pipeline and, when pipeline
+# context variables are available (during autocomplete), lists the
+# upstream producer's fields.
+#
+# *Params*:
+# - `$1`: Command name (e.g. "bu select-object")
+# - `$2`: Indent string (e.g. "\t")
+# - nameref `$3`: Output variable (receives the help text)
+#
+# *Returns*:
+# - Sets the nameref variable to the pipeline help text, or empty
+#   if the command has no known stage effect.
+# ```
+__bu_out_pipeline_help()
+{
+    local -r cmd_name=$1
+    local -r indent=$2
+    local -n _plh_out=$3
+    _plh_out=
+
+    # Canonicalize for registry key matching
+    __bu_out_canonicalize_stage "$cmd_name"
+    local canon=$BU_CANONICAL_STAGE
+
+    local effect=
+    local key best_key=
+    for key in "${!BU_OUT_STAGE_EFFECT[@]}"
+    do
+        if [[ "$canon" == "$key" || "$canon" == "$key "* ]] && (( ${#key} > ${#best_key} ))
+        then
+            best_key=$key
+        fi
+    done
+    if [[ -n "$best_key" ]]
+    then
+        effect=${BU_OUT_STAGE_EFFECT[$best_key]}
+    fi
+    [[ -z "$effect" ]] && return 0
+
+    local role=
+    case "$effect" in
+    producer)
+        role="Produces JSONL records from its own data sources."
+        ;;
+    passthrough)
+        role="Reads JSONL records from stdin, applies a transformation, and emits JSONL to stdout."
+        ;;
+    project)
+        role="Reads JSONL records from stdin, projects selected fields, and emits JSONL to stdout."
+        ;;
+    query)
+        role="Reads JSONL records from stdin, applies SQL-style clauses (where, group-by, select, order-by, ...), and emits JSONL to stdout."
+        ;;
+    recordify_tsv)
+        role="Converts TSV from stdin to JSONL records."
+        ;;
+    recordify_lines)
+        role="Converts line-oriented text from stdin to JSONL records."
+        ;;
+    recordify_new)
+        role="Constructs a single JSONL record from key=value arguments. Standalone — does not read stdin."
+        ;;
+    recordify_jc)
+        role="Converts structured text from stdin to JSONL records via jc parsers."
+        ;;
+    *)
+        return 0
+        ;;
+    esac
+
+    local help_text="${indent}${role}"
+
+    # Check for pipeline context (available during autocomplete via dynamic scope)
+    local producer_str=${command_line_front_before_pipe:-${pipe_before:-}}
+    if [[ -n "$producer_str" ]]
+    then
+        producer_str=${producer_str%"${producer_str##*[![:space:]]}"}
+        producer_str=${producer_str%|}
+        producer_str=${producer_str%"${producer_str##*[![:space:]]}"}
+        if [[ -n "$producer_str" ]]
+        then
+            # Resolve upstream fields (but don't pollute BU_RET for callers)
+            local -a _plh_saved_ret=("${BU_RET[@]:-}")
+            local -a _plh_fields=()
+            if __bu_out_complete_pipeline_fields "" 2>/dev/null
+            then
+                _plh_fields=("${BU_RET[@]}")
+            fi
+            BU_RET=("${_plh_saved_ret[@]:-}")
+            if ((${#_plh_fields[@]} > 0))
+            then
+                local _plh_joined="${_plh_fields[*]}"
+                help_text+=$'\n'"${indent}Upstream fields: ${_plh_joined// /, }"
+            fi
+        fi
+    fi
+
+    _plh_out=$help_text
+}
+
 # ```
 # *Description*:
 # Canonicalize a pipeline stage text for registry key matching.
@@ -2038,7 +2147,6 @@ __bu_out_split_pipeline()
 #
 # *Returns*:
 # - BU_CANONICAL_STAGE: Canonicalized stage text
-# - stdout: Same canonicalized text (for \$(...) capture)
 # ```
 __bu_out_canonicalize_stage()
 {
@@ -2054,7 +2162,6 @@ __bu_out_canonicalize_stage()
             BU_CANONICAL_STAGE="${_canon_words[*]}"
         fi
     fi
-    printf '%s' "$BU_CANONICAL_STAGE"
 }
 
 __bu_out_extract_command()

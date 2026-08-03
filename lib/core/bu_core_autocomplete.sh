@@ -1520,7 +1520,7 @@ __bu_autocomplete_completion_func_master_helper()
             cd "${args[i+1]}"
             shift_by=2
             ;;
-        --sh|--enum|--stdout|--ret|--as-if)
+        --sh|--enum|--stdout|--ret|--as-if|--pipeline-fields)
             # Generic completion utilities
             terminator=${args[i]#--}--
             for (( offset = 1; i + offset < "${#args[@]}"; offset++ ))
@@ -1568,6 +1568,41 @@ __bu_autocomplete_completion_func_master_helper()
                 ;;
             --as-if)
                 bu_autocomplete_add_autocompletions "${sub_args[@]}" "${opt_cur_word[@]}"
+                ;;
+            --pipeline-fields)
+                # Shorthand for --ret __bu_out_complete_pipeline_fields [--dot] ret--
+                # Resolves record fields from the upstream pipeline producer.
+                # Optional --dot prefix for jq-style completions (.name, .verb, ...).
+                # When fields are found, dynamically updates bu_autocomplete_hint to
+                # show the available field names. Place --hint BEFORE --pipeline-fields
+                # in the DSL array so the dynamic hint can override the static one.
+                local _pf_is_dot=false
+                local _pf_arg
+                for _pf_arg in "${sub_args[@]}"
+                do
+                    if [[ "$_pf_arg" == --dot ]]
+                    then
+                        _pf_is_dot=true
+                        break
+                    fi
+                done
+                local -a _pf_call_args=()
+                "$_pf_is_dot" && _pf_call_args+=(--dot)
+                if __bu_out_complete_pipeline_fields "${_pf_call_args[@]}" "${opt_cur_word[@]}"
+                then
+                    if [[ -n "$current_ansi_color" ]]
+                    then
+                        BU_RET=("${BU_RET[@]/#/$current_ansi_color}")
+                        BU_RET=("${BU_RET[@]/%/$reset_ansi_color}")
+                    fi
+                    COMPREPLY+=("${BU_RET[@]}")
+                    # Dynamic hint: show the actual available field names
+                    # (overrides any static --hint set earlier in the DSL array)
+                    local _pf_hint_prefix="field"
+                    "$_pf_is_dot" && _pf_hint_prefix="jq expression"
+                    local _pf_field_list="${BU_RET[*]}"
+                    bu_autocomplete_hint="$_pf_hint_prefix: ${_pf_field_list// /, }"
+                fi
                 ;;
             --sh)
                 # Exec any arbitrary command

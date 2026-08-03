@@ -52,7 +52,7 @@ do
         if bu_env_is_in_autocomplete && [[ "$1" != -* ]]
         then
             # Bare positional: suggest fields of the pipeline producer's records
-            autocompletion=(--ret __bu_out_complete_pipeline_fields ret-- --hint "numeric field (from pipeline producer)")
+            autocompletion=(--hint "numeric field" --pipeline-fields pipeline-fields--)
         fi
         if [[ -z "$field" ]]
         then

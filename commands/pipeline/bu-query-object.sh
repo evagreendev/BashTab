@@ -33,7 +33,7 @@ do
     case "$1" in
     --select|select)# SELECT
         # Fields to keep, in order (comma-separated; new=old renames)
-        bu_parse_positional $# --ret __bu_out_complete_pipeline_fields ret-- --hint "Fields (from pipeline producer), new=old renames"
+        bu_parse_positional $# --hint "Fields, new=old renames" --pipeline-fields pipeline-fields--
         select_fields=${!shift_by}
         ;;
     --from|from)# FROM
@@ -53,7 +53,7 @@ do
         # Repeatable; multiple where clauses are ANDed together.
         # Save shift_by BEFORE bu_parse_positional to detect early return.
         local _w_saved_shift_by=$shift_by
-        bu_parse_positional $# --ret __bu_out_complete_pipeline_fields ret-- --hint "Field name, or jq expression"
+        bu_parse_positional $# --hint "Field name, or jq expression" --pipeline-fields pipeline-fields--
         local where_raw=${!shift_by}
         if [[ "$where_raw" == .* || "$where_raw" == \(* || "$where_raw" == select\(* ]]; then
             where_exprs+=("$where_raw")
@@ -61,7 +61,7 @@ do
             # bu_parse_positional returned early — no positional arg to
             # consume.  where_raw is bogus (resolved to the flag itself).
             # Force field-name completions.
-            autocompletion=(--ret __bu_out_complete_pipeline_fields ret-- --hint "Field name")
+            autocompletion=(--hint "Field name" --pipeline-fields pipeline-fields--)
             :
         else
             # Structured comparison with optional and/or chaining.
@@ -185,7 +185,7 @@ do
                 autocompletion=(--enum -eq -ne -gt -lt -ge -le -like -notlike -match -notmatch -contains -notcontains -in -notin -isnull -isnotnull enum-- --hint "Comparison operator")
             elif [[ -z "$_w_op" && -z "$_w_field" ]] && ((${#_w_connectors[@]} > 0)); then
                 # After and/or connector, waiting for next field name
-                autocompletion=(--ret __bu_out_complete_pipeline_fields ret-- --hint "Field name (after ${_w_connectors[-1]})")
+                autocompletion=(--hint "Field name (after ${_w_connectors[-1]})" --pipeline-fields pipeline-fields--)
             elif [[ "$_w_complete" == true ]]; then
                 # Have a complete condition; suggest and/or
                 autocompletion=(--enum and or enum-- --hint "Logical connector (and/or)")
@@ -195,7 +195,7 @@ do
             fi
             if [[ -z "$_w_op" && -z "$_w_field" ]] && ((${#_w_connectors[@]} == 0)); then
                 # Waiting for first field name — force field completions
-                autocompletion=(--ret __bu_out_complete_pipeline_fields ret-- --hint "Field name")
+                autocompletion=(--hint "Field name" --pipeline-fields pipeline-fields--)
             fi
 
             # --- Build combined jq expression ---
@@ -212,7 +212,7 @@ do
     --group-by|group-by)# GROUP_BY
         # Group records by key fields (comma-separated), collapsing each group
         # into one record. Use agg to add aggregates; no agg emits distinct keys.
-        bu_parse_positional $# --ret __bu_out_complete_pipeline_fields ret-- --hint "Group key fields (from pipeline producer)"
+        bu_parse_positional $# --hint "Group key fields" --pipeline-fields pipeline-fields--
         group_keys=${!shift_by}
         ;;
     --agg|agg)# AGG
@@ -231,13 +231,13 @@ do
         # (same operator syntax and and/or chaining as --where).
         # Repeatable; multiple expressions are ANDed together.
         local _h_saved_shift_by=$shift_by
-        bu_parse_positional $# --ret __bu_out_complete_pipeline_fields ret-- --hint "Field name, or jq expression (group fields)"
+        bu_parse_positional $# --hint "Field name, or jq expression (group fields)" --pipeline-fields pipeline-fields--
         local having_raw=${!shift_by}
         if [[ "$having_raw" == .* || "$having_raw" == \(* || "$having_raw" == select\(* ]]; then
             having_exprs+=("$having_raw")
         elif (( shift_by == _h_saved_shift_by )); then
             # bu_parse_positional returned early — no positional arg.
-            autocompletion=(--ret __bu_out_complete_pipeline_fields ret-- --hint "Field name")
+            autocompletion=(--hint "Field name" --pipeline-fields pipeline-fields--)
             :
             :
         else
@@ -343,14 +343,14 @@ do
             if [[ -z "$_h_op" && -n "$_h_field" ]] && "$_h_cursor_past_field"; then
                 autocompletion=(--enum -eq -ne -gt -lt -ge -le -like -notlike -match -notmatch -contains -notcontains -in -notin -isnull -isnotnull enum-- --hint "Comparison operator")
             elif [[ -z "$_h_op" && -z "$_h_field" ]] && ((${#_h_connectors[@]} > 0)); then
-                autocompletion=(--ret __bu_out_complete_pipeline_fields ret-- --hint "Field name (after ${_h_connectors[-1]})")
+                autocompletion=(--hint "Field name (after ${_h_connectors[-1]})" --pipeline-fields pipeline-fields--)
             elif [[ "$_h_complete" == true ]]; then
                 autocompletion=(--enum and or enum-- --hint "Logical connector (and/or)")
             elif [[ -n "$_h_op" && -z "$_h_val" && "$_h_op" != -isnull && "$_h_op" != -isnotnull ]]; then
                 autocompletion=(--hint "Value for $_h_field $_h_op")
             fi
             if [[ -z "$_h_op" && -z "$_h_field" ]] && ((${#_h_connectors[@]} == 0)); then
-                autocompletion=(--ret __bu_out_complete_pipeline_fields ret-- --hint "Field name")
+                autocompletion=(--hint "Field name" --pipeline-fields pipeline-fields--)
             fi
 
             if ((${#_h_segments[@]} > 0)); then
@@ -365,7 +365,7 @@ do
         ;;
     --order-by|order-by)# ORDER_BY
         # Field to sort by (refers to output field names, after any renames)
-        bu_parse_positional $# --ret __bu_out_complete_pipeline_fields ret-- --hint "Sort field (from pipeline producer)"
+        bu_parse_positional $# --hint "Sort field" --pipeline-fields pipeline-fields--
         order_by=${!shift_by}
         ;;
     --outfile|outfile)# OUTFILE
@@ -395,7 +395,7 @@ do
         ;;
     --columns)# COLUMNS
         # Display columns as key:Label (comma-separated). Forwarded to table/list/tsv.
-        bu_parse_positional $# --ret __bu_out_complete_pipeline_fields ret-- --hint "Comma-separated columns, key:Label renames headers"
+        bu_parse_positional $# --hint "Comma-separated columns, key:Label renames headers" --pipeline-fields pipeline-fields--
         columns=${!shift_by}
         ;;
     -h|--help)# _FLAG
