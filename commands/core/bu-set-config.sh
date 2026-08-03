@@ -12,6 +12,10 @@ bu_run_log_command "$@"
 # Machine-local settings file. Overridable for tests.
 local file=${BU_CONFIG_LOCAL_FILE:-"$BU_DIR"/config/bu_config_local.sh}
 
+# Managed block markers
+local -r __BU_SET_CONFIG_OPENER='# >>> bu set-config managed block -- do not hand-edit inside'
+local -r __BU_SET_CONFIG_CLOSER='# <<< bu set-config managed block'
+
 local var=
 local value=
 local is_unset=false
@@ -89,33 +93,6 @@ then
     return 0
 fi
 
-# ── Helpers ─────────────────────────────────────────────────
-__bu_set_config_ensure_file()
-{
-    if [[ ! -f "$file" ]]
-    then
-        cat > "$file" <<'EOF'
-# BashTab local settings (machine-local, not committed).
-# Managed by `bu set-config`; manual edits are fine — later assignments win.
-EOF
-    fi
-}
-
-# Remove existing assignment lines for $1 from the settings file (dedupe:
-# appending later would win anyway, this just keeps the file short).
-__bu_set_config_strip_var()
-{
-    local name=$1
-    local kept
-    kept=$(grep -v -E "^(export )?${name}=" "$file" 2>/dev/null || true)
-    if [[ -n "$kept" ]]
-    then
-        printf '%s\n' "$kept" > "$file"
-    else
-        : > "$file"
-    fi
-}
-
 # ── Validate VAR ────────────────────────────────────────────
 if ! bu_config_name_is_valid "$var"
 then
@@ -126,43 +103,16 @@ then
     return 1
 fi
 
-if "$is_dry_run"; then
-    if "$is_unset"; then
-        bu_log_info "Would unset $var in $file"
-    else
-        bu_log_info "Would set $var=$value in $file"
-    fi
-    bu_scope_pop_function
-    return 0
-fi
-
-if "$is_unset"
-then
-    __bu_set_config_ensure_file
-    __bu_set_config_strip_var "$var"
-    if [[ -n "${BU_CONFIG_PROPERTIES[$var,default]:-}" ]]
-    then
-        # Registered default restored immediately
-        declare -g "$var=${BU_CONFIG_PROPERTIES[$var,default]}"
-    else
-        unset "$var"
-        # Re-apply repo defaults for anything the dynamic config owns
-        source "$BU_DIR"/config/bu_config_dynamic.sh
-    fi
-    printf 'Unset %s in %s (default applies)\n' "$var" "$file"
-    bu_scope_pop_function
-    return 0
-fi
-
-if [[ -z "$value" ]]
+# ── Registry-driven value validation ─────────────────────────
+# Validate BEFORE touching the file.
+if ! "$is_unset" && [[ -z "$value" ]]
 then
     bu_log_err "Missing value. Usage: bu set-config $var VALUE (see also: bu get-config)"
     bu_scope_pop_function
     return 1
 fi
 
-# ── Registry-driven validation + value mapping ──────────────
-if [[ "${BU_CONFIG_PROPERTIES[$var,registered]:-}" == true ]]
+if ! "$is_unset" && [[ "${BU_CONFIG_PROPERTIES[$var,registered]:-}" == true ]]
 then
     if bu_config_validate_value "$var" "$value"
     then
@@ -172,13 +122,250 @@ then
         bu_scope_pop_function
         return 1
     fi
-else
+elif ! "$is_unset" && [[ "${BU_CONFIG_PROPERTIES[$var,registered]:-}" != true ]]
+then
     bu_log_warn "$var is not a registered setting; storing anyway (register it with bu_config_register)"
 fi
 
-__bu_set_config_ensure_file
-__bu_set_config_strip_var "$var"
-printf '%s=%q\n' "$var" "$value" >> "$file"
+if "$is_dry_run"
+then
+    if "$is_unset"; then
+        bu_log_info "Would unset $var in $file"
+    else
+        bu_log_info "Would set $var=$value in $file"
+    fi
+    bu_scope_pop_function
+    return 0
+fi
+
+# ── Managed block file helpers ───────────────────────────────
+
+# Parse the managed block from file content. Reads $file into a string
+# and locates the opener/closer marker lines.
+#
+# Sets these locals directly (caller must declare them):
+#   _mb_before   – content before the opener (may be empty)
+#   _mb_inside   – content between opener and closer (the old block body)
+#   _mb_after    – content after the closer (may be empty)
+#   _mb_ok       – true if markers are valid (0/0 or 1/1), false on degeneracy
+__bu_set_config_parse_block()
+{
+    local content
+    if [[ -f "$file" ]]
+    then
+        content=$(cat "$file")
+    fi
+
+    _mb_before=
+    _mb_inside=
+    _mb_after=
+    _mb_ok=true
+
+    local oc cc
+    oc=$(grep -cF "$__BU_SET_CONFIG_OPENER" <<<"$content" || true)
+    cc=$(grep -cF "$__BU_SET_CONFIG_CLOSER" <<<"$content" || true)
+
+    if (( oc == 0 && cc == 0 ))
+    then
+        _mb_before=$content
+        return 0
+    fi
+
+    if (( oc != 1 || cc != 1 ))
+    then
+        _mb_ok=false
+        _mb_oc=$oc
+        _mb_cc=$cc
+        return 0
+    fi
+
+    # Find line numbers of markers
+    local ol cl
+    ol=$(grep -nF "$__BU_SET_CONFIG_OPENER" <<<"$content" | head -1 | cut -d: -f1)
+    cl=$(grep -nF "$__BU_SET_CONFIG_CLOSER" <<<"$content" | head -1 | cut -d: -f1)
+
+    if (( cl <= ol ))
+    then
+        _mb_ok=false
+        return 0
+    fi
+
+    # Split: before, inside, after
+    local total_lines
+    total_lines=$(wc -l <<<"$content")
+
+    if (( ol > 1 ))
+    then
+        _mb_before=$(head -n $((ol - 1)) <<<"$content")
+        # head strips trailing blank lines; preserve the trailing newline
+        if [[ "$_mb_before" != *$'\n' ]]
+        then
+            _mb_before+=$'\n'
+        fi
+    fi
+
+    if (( cl > ol + 1 ))
+    then
+        # Lines between opener and closer
+        _mb_inside=$(sed -n "$((ol + 1)),$((cl - 1))p" <<<"$content")
+        if [[ -n "$_mb_inside" && "$_mb_inside" != *$'\n' ]]
+        then
+            _mb_inside+=$'\n'
+        fi
+    fi
+
+    if (( cl < total_lines ))
+    then
+        _mb_after=$(tail -n $((total_lines - cl)) <<<"$content")
+    fi
+}
+
+# Read managed pairs from the inside block content.
+# Sets _mb_pairs as an associative array: NAME → value
+__bu_set_config_read_pairs()
+{
+    local inside=$1
+    local line name val
+    while IFS= read -r line
+    do
+        [[ -z "$line" ]] && continue
+        name=${line%%=*}
+        val=${line#*=}
+        [[ -n "$name" ]] && _mb_pairs[$name]=$val
+    done <<<"$inside"
+}
+
+# Build the new file content and write atomically.
+# Args: the new managed block body (one NAME=value per line, sorted).
+__bu_set_config_write_block()
+{
+    local new_body=$1
+    local tmpfile
+    tmpfile=$(mktemp "$file.XXXXXX")
+
+    {
+        if [[ -n "$_mb_before" ]]
+        then
+            printf '%s' "$_mb_before"
+            # Ensure before content ends with exactly one newline
+            [[ "$_mb_before" != *$'\n' ]] && printf '\n'
+        fi
+        printf '%s\n' "$__BU_SET_CONFIG_OPENER"
+        if [[ -n "$new_body" ]]
+        then
+            printf '%s' "$new_body"
+            [[ "$new_body" != *$'\n' ]] && printf '\n'
+        fi
+        printf '%s\n' "$__BU_SET_CONFIG_CLOSER"
+        if [[ -n "$_mb_after" ]]
+        then
+            printf '%s' "$_mb_after"
+            [[ "$_mb_after" != *$'\n' ]] && printf '\n'
+        fi
+    } > "$tmpfile"
+
+    mv "$tmpfile" "$file"
+}
+
+# Check for hand-written assignments of $var OUTSIDE the managed block
+# and emit an advisory warning. Never blocks the write.
+__bu_set_config_warn_outside_assignments()
+{
+    local name=$1
+    local content_to_check="${_mb_before}"$'\n'"${_mb_after}"
+    local pattern='^[[:space:]]*(export[[:space:]]+)?'"$name"'='
+    local match_line
+    match_line=$(grep -nE "$pattern" <<<"$content_to_check" 2>/dev/null | head -1 || true)
+    if [[ -n "$match_line" ]]
+    then
+        local lineno=${match_line%%:*}
+        bu_log_warn "note: $name also assigned outside the managed block (line $lineno); the managed value wins by source order"
+    fi
+}
+
+# ── Main file operation ──────────────────────────────────────
+
+local -A _mb_pairs=()
+local _mb_before _mb_inside _mb_after _mb_ok _mb_oc _mb_cc
+
+__bu_set_config_parse_block
+
+if ! "$_mb_ok"
+then
+    bu_log_err "Managed block markers in $file are inconsistent (expected 0 or 1 opener+closer pair, found ${_mb_oc:-0} opener(s) and ${_mb_cc:-0} closer(s))."
+    bu_log_err "Please hand-edit the file to fix or remove the markers, then retry."
+    bu_scope_pop_function
+    return 1
+fi
+
+# Read existing managed pairs
+if [[ -n "$_mb_inside" ]]
+then
+    __bu_set_config_read_pairs "$_mb_inside"
+fi
+
+if "$is_unset"
+then
+    # Remove the pair from the managed block
+    unset '_mb_pairs[$var]'
+
+    # Rebuild block body: sorted NAME=value lines
+    local -a _sorted_keys=()
+    local _key
+    for _key in "${!_mb_pairs[@]}"
+    do
+        [[ -n "${_mb_pairs[$_key]}" ]] && _sorted_keys+=("$_key")
+    done
+    local _new_body=
+    if ((${#_sorted_keys[@]} > 0))
+    then
+        local _sorted
+        _sorted=$(printf '%s\n' "${_sorted_keys[@]}" | sort)
+        while IFS= read -r _key
+        do
+            _new_body+="${_key}=${_mb_pairs[$_key]}"$'\n'
+        done <<<"$_sorted"
+    fi
+
+    __bu_set_config_write_block "$_new_body"
+
+    if [[ -n "${BU_CONFIG_PROPERTIES[$var,default]:-}" ]]
+    then
+        declare -g "$var=${BU_CONFIG_PROPERTIES[$var,default]}"
+    else
+        unset "$var"
+        source "$BU_DIR"/config/bu_config_dynamic.sh
+    fi
+    printf 'Unset %s in %s (default applies)\n' "$var" "$file"
+    bu_scope_pop_function
+    return 0
+fi
+
+# Set: update/add the pair
+_mb_pairs[$var]=$value
+
+# Warn about outside assignments
+__bu_set_config_warn_outside_assignments "$var"
+
+# Rebuild block body: sorted NAME=value lines
+local -a _sorted_keys=()
+local _key
+for _key in "${!_mb_pairs[@]}"
+do
+    [[ -n "${_mb_pairs[$_key]}" ]] && _sorted_keys+=("$_key")
+done
+local _new_body=
+if ((${#_sorted_keys[@]} > 0))
+then
+    local _sorted
+    _sorted=$(printf '%s\n' "${_sorted_keys[@]}" | sort)
+    while IFS= read -r _key
+    do
+        _new_body+="${_key}=${_mb_pairs[$_key]}"$'\n'
+    done <<<"$_sorted"
+fi
+
+__bu_set_config_write_block "$_new_body"
 
 # Take effect immediately in the current shell (this command is sourced).
 declare -g "$var=$value"
