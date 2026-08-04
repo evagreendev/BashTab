@@ -19,8 +19,8 @@ __bu_init_env_commands()
         # Command cache was loaded — BU_COMMAND_UNAVAILABLE is already
         # populated.  Use it to skip --is-compatible probes.
         compat_cache_valid=true
-    elif bu_cap_cache_fingerprint; then
-        # Try the legacy per-environment compat cache
+    elif "$BU_COMMAND_CACHE_ENABLED" && bu_cap_cache_fingerprint; then
+        # Try the per-environment compat cache (only when caching is enabled)
         fingerprint=$BU_RET
         if bu_cap_cache_load "$fingerprint"; then
             compat_cache_valid=true
@@ -126,6 +126,7 @@ __bu_init_env_commands()
                     local reason
                     if ! reason=$(bash "$script_path" --is-compatible 2>&1); then
                         BU_COMMAND_UNAVAILABLE[$command]=$reason
+                        BU_COMMAND_PROPERTIES[$command,unavailable_path]=$script_path
                         continue
                     fi
                 fi
@@ -135,8 +136,9 @@ __bu_init_env_commands()
         done
     done
 
-    # Save compat cache if we probed fresh (only when command cache not loaded)
-    if ! "$BU_COMMAND_CACHE_LOADED" && ! $compat_cache_valid && [[ -n "$fingerprint" ]]; then
+    # Save compat cache if we probed fresh (only when caching is enabled
+    # and the command cache wasn't loaded)
+    if "$BU_COMMAND_CACHE_ENABLED" && ! "$BU_COMMAND_CACHE_LOADED" && ! $compat_cache_valid && [[ -n "$fingerprint" ]]; then
         bu_cap_cache_save "$fingerprint"
     fi
 }

@@ -133,6 +133,18 @@ __bu_impl()
         fi
     else
         function_or_script_path=${BU_COMMANDS[$bu_command_raw]}
+        if [[ -z "$function_or_script_path" ]] && [[ -n "${BU_COMMAND_UNAVAILABLE[$bu_command_raw]:-}" ]]
+        then
+            # Command is known but unavailable — try to re-probe
+            if bu_cap_reprobe_unavailable "$bu_command_raw"
+            then
+                function_or_script_path=${BU_COMMANDS[$bu_command_raw]}
+                bu_command=$bu_command_raw
+            else
+                bu_log_err "Command[$bu_command_raw] is unavailable: ${BU_COMMAND_UNAVAILABLE[$bu_command_raw]}"
+                return 1
+            fi
+        fi
     fi
     __bu_cli_command_type "$bu_command"
     local -r type=$BU_RET

@@ -270,6 +270,20 @@ bu_cap_cache_fingerprint()
         for cap in $(printf '%s\n' "${!BU_CAP[@]}" | sort); do
             printf 'CAP:%s=%s\n' "$cap" "${BU_CAP[$cap]:-}"
         done
+        # Hash the sorted list of gated script paths so adding/removing
+        # a gated command invalidates the cache.
+        local dir
+        for dir in "${!BU_COMMAND_SEARCH_DIRS[@]}"; do
+            local find_opts=()
+            if ! "${BU_COMMAND_SEARCH_DIR_RECURSIVE[$dir]:-true}"; then
+                find_opts+=(-maxdepth 1)
+            fi
+            find_opts+=(-type f)
+            local _gated_path
+            while IFS= read -r _gated_path; do
+                printf 'GATED:%s\n' "$_gated_path"
+            done < <(find "$dir" "${find_opts[@]}" -exec grep -lE -- '--is-compatible[)"]' {} \; 2>/dev/null | sort)
+        done
     )
     BU_RET=$(echo "$hash_input" | md5sum | cut -d' ' -f1)
 }
@@ -404,6 +418,69 @@ bu_cap_cache_invalidate()
             bu_log_info "Compat cache invalidated ($count file(s) removed)"
             ;;
     esac
+}
+
+# ```
+# *Description*:
+# Re-run --is-compatible probes for unavailable commands that have a
+# recorded script path.  On success, the command is registered, removed
+# from BU_COMMAND_UNAVAILABLE, and the active compat cache is re-saved.
+#
+# *Params*:
+# - `$1` (optional): Specific command to re-probe.  If omitted, reprobes
+#   all currently unavailable commands with a recorded path.
+#
+# *Returns*:
+# - 0 if at least one command was recovered, 1 otherwise
+# ```
+bu_cap_reprobe_unavailable()
+{
+    local target=${1:-}
+    local recovered=0
+    local cmd script_path reason
+
+    local -a _cmds_to_probe=()
+    if [[ -n "$target" ]]
+    then
+        if [[ -n "${BU_COMMAND_UNAVAILABLE[$target]:-}" && -n "${BU_COMMAND_PROPERTIES[$target,unavailable_path]:-}" ]]
+        then
+            _cmds_to_probe=("$target")
+        fi
+    else
+        for cmd in "${!BU_COMMAND_UNAVAILABLE[@]}"
+        do
+            [[ -n "${BU_COMMAND_PROPERTIES[$cmd,unavailable_path]:-}" ]] && _cmds_to_probe+=("$cmd")
+        done
+    fi
+
+    for cmd in "${_cmds_to_probe[@]}"
+    do
+        script_path=${BU_COMMAND_PROPERTIES[$cmd,unavailable_path]}
+        if [[ ! -f "$script_path" ]]
+        then
+            # Script is gone — keep it unavailable
+            continue
+        fi
+        if reason=$(bash "$script_path" --is-compatible 2>&1)
+        then
+            # Probe passed — register the command
+            BU_COMMANDS[$cmd]=$script_path
+            unset 'BU_COMMAND_UNAVAILABLE[$cmd]'
+            unset 'BU_COMMAND_PROPERTIES[$cmd,unavailable_path]'
+            # Clear cached type so it gets re-resolved
+            unset 'BU_COMMAND_PROPERTIES[$cmd,type]'
+            bu_log_info "Reprobe recovered $cmd"
+            ((recovered++))
+        fi
+    done
+
+    # Re-save the active compat cache if we recovered anything
+    if (( recovered > 0 )) && [[ -n "${BU_COMPAT_CACHE_HASH:-}" ]]
+    then
+        bu_cap_cache_save "$BU_COMPAT_CACHE_HASH"
+    fi
+
+    return $(( recovered > 0 ? 0 : 1 ))
 }
 
 # ── Initialization ────────────────────────────────────────────────────
