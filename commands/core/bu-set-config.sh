@@ -270,17 +270,35 @@ __bu_set_config_write_block()
 
 # Check for hand-written assignments of $var OUTSIDE the managed block
 # and emit an advisory warning. Never blocks the write.
+# Position-aware: after-block lines override the managed value;
+# before-block lines lose to it.
 __bu_set_config_warn_outside_assignments()
 {
     local name=$1
-    local content_to_check="${_mb_before}"$'\n'"${_mb_after}"
     local pattern='^[[:space:]]*(export[[:space:]]+)?'"$name"'='
     local match_line
-    match_line=$(grep -nE "$pattern" <<<"$content_to_check" 2>/dev/null | head -1 || true)
-    if [[ -n "$match_line" ]]
+
+    # 1. Check AFTER the block first — these override the managed value
+    if [[ -n "$_mb_after" ]]
     then
-        local lineno=${match_line%%:*}
-        bu_log_warn "note: $name also assigned outside the managed block (line $lineno); the managed value wins by source order"
+        match_line=$(grep -nE "$pattern" <<<"$_mb_after" 2>/dev/null | head -1 || true)
+        if [[ -n "$match_line" ]]
+        then
+            local lineno=${match_line%%:*}
+            bu_log_warn "note: $name is also assigned AFTER the managed block (line $lineno in the after-block region) — that hand-written line overrides the value just set (file order wins)"
+            return 0
+        fi
+    fi
+
+    # 2. Check BEFORE the block — the managed value wins
+    if [[ -n "$_mb_before" ]]
+    then
+        match_line=$(grep -nE "$pattern" <<<"$_mb_before" 2>/dev/null | head -1 || true)
+        if [[ -n "$match_line" ]]
+        then
+            local lineno=${match_line%%:*}
+            bu_log_warn "note: $name also assigned before the managed block (line $lineno); the managed value wins by source order"
+        fi
     fi
 }
 
