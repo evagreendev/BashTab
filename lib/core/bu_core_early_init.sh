@@ -35,10 +35,11 @@ __bu_init_env_commands()
     do
         bu_env_append_path "$dir"
         convert_file_to_subcommand=${BU_COMMAND_SEARCH_DIRS[$dir]}
-        local find_opts=(-type f)
+        local find_opts=()
         if ! "${BU_COMMAND_SEARCH_DIR_RECURSIVE[$dir]:-true}"; then
             find_opts+=(-maxdepth 1)
         fi
+        find_opts+=(-type f)
 
         # Per-directory ignore file: <dir>/.bashtabignore
         # One glob pattern per line; # comments and blank lines are ignored.
