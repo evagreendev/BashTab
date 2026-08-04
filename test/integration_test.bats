@@ -116,3 +116,18 @@ function test_set_location_module { #@test
     assert_success
     assert_line "PWD=$TEST_MODULE_DIR"
 }
+
+function test_activation_no_find_warnings { #@test
+    # GNU find warns when positional options like -maxdepth appear after
+    # non-positional ones like -type. Activation must not leak these.
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=ittest
+        export BU_MODULE_LIST="ittest:0.1.0:$1/test_preinit.sh;"
+        source "$2"/bu_entrypoint.sh
+    ' _ "$TEST_MODULE_DIR" "$DIR"/..
+    assert_success
+    # GNU find warning: "warning: you have used the -maxdepth option after a
+    # non-option argument -type, but options are not positional"
+    refute_output --partial "maxdepth"
+    refute_output --partial "warning"
+}
