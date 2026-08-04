@@ -555,6 +555,27 @@ EOF
         next
     }
 
+
+    # Documented positional catch-all: *)# SYNOPSIS (autohelp only, not v2)
+    state < pre_documentation && /^[[:space:]]*\*\)#/ {
+        if (debug_print) {
+            printf "# pos: %s\n", NR
+        }
+        if ( state == outside ) {
+            idx = idx + 1
+            printf "bu_script_options[%d]=\"*\"\n", idx
+
+            option_parameter_description = $0
+            if (! sub(/.*\) *# */, "", option_parameter_description)) {
+                option_parameter_description = ""
+            }
+            printf "bu_script_option_synopsis[%d]=\"%s\"\n", idx, option_parameter_description
+
+            printf "bu_script_option_docs[%d]=\"", idx, line
+            state = pre_documentation
+        }
+        next
+    }
     state < pre_documentation && ( \
         ( /^[[:space:]]*'"$__BU_AUTOCOMPLETE_OPTION_REGEX"'\)/ && gsub( /\).*/, "", line) ) \
     ) {

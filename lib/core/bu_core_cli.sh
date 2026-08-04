@@ -462,17 +462,23 @@ bu_autohelp()
         option_parameter_description="${option_parameter_description#"${option_parameter_description%%[![:space:]]*}"}"
         option_parameter_description="${option_parameter_description%"${option_parameter_description##*[![:space:]]}"}"
         bu_script_option_synopsis[i]=$option_parameter_description
-        case "$option_parameter_description" in
-        '')
-            printf "[%s ?] " "${BU_TPUT_BOLD}$option${BU_TPUT_RESET}"
-            ;;
-        _FLAG)
-            printf "[%s] " "${BU_TPUT_BOLD}$option${BU_TPUT_RESET}"
-            ;;
-        *)
-            printf "[%s %s] " "${BU_TPUT_BOLD}$option${BU_TPUT_RESET}" "${BU_TPUT_UNDERLINE}$option_parameter_description${BU_TPUT_NO_UNDERLINE}" 
-            ;;
-        esac
+        if [[ "$option" == '*' ]]
+        then
+            # Positional catch-all: print the synopsis as an underlined argument
+            printf '%s ' "${BU_TPUT_UNDERLINE}$option_parameter_description${BU_TPUT_NO_UNDERLINE}"
+        else
+            case "$option_parameter_description" in
+            '')
+                printf "[%s ?] " "${BU_TPUT_BOLD}$option${BU_TPUT_RESET}"
+                ;;
+            _FLAG)
+                printf "[%s] " "${BU_TPUT_BOLD}$option${BU_TPUT_RESET}"
+                ;;
+            *)
+                printf "[%s %s] " "${BU_TPUT_BOLD}$option${BU_TPUT_RESET}" "${BU_TPUT_UNDERLINE}$option_parameter_description${BU_TPUT_NO_UNDERLINE}" 
+                ;;
+            esac
+        fi
     done
     printf "\n"
 
@@ -516,7 +522,20 @@ bu_autohelp()
         option=${bu_script_options[i]}
         option_parameter_description=${bu_script_option_synopsis[i]}
         option_docs=${bu_script_option_docs[i]}
-        option=${option//\|/${BU_TPUT_BLUE},${BU_TPUT_RESET}${BU_TPUT_BOLD}}
+
+        if [[ "$option" == '*' ]]
+        then
+            # Positional catch-all: show synopsis as the name, labeled (positional)
+            local _pos_name="${BU_TPUT_BOLD}${option_parameter_description}${BU_TPUT_RESET}"
+            local _pos_label="${BU_TPUT_GREY}(positional)${BU_TPUT_RESET}"
+            if [[ -z "$option_docs" ]]
+            then
+                printf "$padding%s %s (No additional help)\n\n" "$_pos_name" "$_pos_label"
+            else
+                printf "$padding%s %s\n$padding$padding%s\n" "$_pos_name" "$_pos_label" "${option_docs//$'\n'/$'\n'$padding$padding}"
+            fi
+        else
+            option=${option//\|/${BU_TPUT_BLUE},${BU_TPUT_RESET}${BU_TPUT_BOLD}}
 
         case "$option_parameter_description" in
         '')
@@ -534,6 +553,7 @@ bu_autohelp()
             printf "$padding%s%s (No additional help)\n\n" "${BU_TPUT_BOLD}$option${BU_TPUT_RESET}" "${option_parameter_description:+ ${BU_TPUT_UNDERLINE}$option_parameter_description${BU_TPUT_NO_UNDERLINE}}"
         else
             printf "$padding%s%s\n$padding$padding%s\n" "${BU_TPUT_BOLD}$option${BU_TPUT_RESET}" "${option_parameter_description:+ ${BU_TPUT_UNDERLINE}$option_parameter_description${BU_TPUT_NO_UNDERLINE}}" "${option_docs//$'\n'/$'\n'$padding$padding}"
+        fi
         fi
     done
 
