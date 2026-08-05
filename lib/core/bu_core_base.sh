@@ -1638,7 +1638,18 @@ __bu_exit_handler()
     else
         dev=/dev/stdout
     fi
-    if "$debug" || [[ $- =~ e && "$exit_code" != 0 ]]
+    # Two failure classes reach here with non-zero exit under errexit:
+    # 1. A command genuinely failed → ERR trap captured BU_ERR_COMMAND
+    #    and BU_ERR_LINENO.  A traceback is useful for debugging.
+    # 2. The script validated input and bailed (bu_log_err + return 1).
+    #    No command "failed", the ERR trap never fired, and the logged
+    #    error is the diagnostic.  Printing empty-frame traceback noise
+    #    here buries the real message and trains users to ignore them.
+    #
+    # Gate: only print the traceback block when the ERR trap actually
+    # fired (BU_ERR_COMMAND is non-empty).  debug mode bypasses the gate
+    # and always prints for troubleshooting.
+    if "$debug" || { [[ $- =~ e && "$exit_code" != 0 && -n "${BU_ERR_COMMAND:-}" ]]; }
     then
         set +e
         {
@@ -1655,6 +1666,12 @@ __bu_exit_handler()
                     "$BU_TPUT_BOLD" "$BU_ERR_COMMAND" "$BU_TPUT_RESET" \
                     "$BU_TPUT_UNDERLINE" "$(basename -- "${BASH_SOURCE[i+1]}")" "$BU_ERR_LINENO" "$BU_TPUT_NO_UNDERLINE"
             else
+                # Skip top-of-stack frames that carry no information
+                # (no function name and line 0 — remnant of the root
+                # frame when the ERR trap never fired).
+                if [[ -z "${FUNCNAME[i+1]:-}" && "${BASH_LINENO[i]:-}" == "0" ]]; then
+                    continue
+                fi
                 printf "    %s: %s%s%s at %s%s:%s%s\n" \
                     "$i" \
                     "$BU_TPUT_BOLD" "${FUNCNAME[i+1]}" "$BU_TPUT_RESET" \
