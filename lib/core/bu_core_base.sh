@@ -1267,8 +1267,13 @@ bu_scope_handle_add_cleanup()
     local handle=$1
     shift
     local -n deferred=BU_SCOPE_CLEANUPS_"$handle"
-    printf -v BU_RET "%q " "$@"
-    deferred+=("$BU_RET")
+    # Use a local scratch variable, not BU_RET.  Callers commonly
+    # produce a value in BU_RET and then register a cleanup that frees
+    # the resource identified by that value — clobbering BU_RET here
+    # would corrupt the returned handle.
+    local _cmd
+    printf -v _cmd "%q " "$@"
+    deferred+=("$_cmd")
 }
 
 # ```
