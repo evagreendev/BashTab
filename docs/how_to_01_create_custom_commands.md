@@ -168,6 +168,24 @@ bu_scope_pop_function
 __bu_buex_get_envvars_main "$@"
 ```
 
+### The `# Synopsis` header
+
+Notice the `# Synopsis: TODO` line near the top of the generated scaffold.
+Replace it with a one-sentence description of your command:
+
+```bash
+# Synopsis: Print shell and environment variables in the specified format
+```
+
+Guidelines:
+- One sentence, imperative mood, under 100 characters, no trailing period.
+- Plain text only — no variable interpolation, no ANSI codes.
+- Must appear within the first 30 lines of the script (first match wins).
+
+This synopsis powers command discovery: `bu get-command --format jsonl`
+returns it alongside name, verb, noun, and pipeline metadata so that
+agents and scripts can enumerate available capabilities in a single fast call.
+
 We can now plan out which options to support.
 - `--all` / `-a`: include both exported environment variables and non-exported shell variables.
 - `--exported` / `--env`: show only exported environment variables (default behavior).

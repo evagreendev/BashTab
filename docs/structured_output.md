@@ -235,6 +235,52 @@ verb=`convert-to`, noun=`jsonl`. Extend the array for custom multi-word verbs.
 **Dependency**: `jq` (≥1.6) is required for all of the above; the module
 checks at source time and errors with install instructions otherwise.
 
+## Command discovery and the `# Synopsis` convention
+
+Every command may declare a static one-line description via a `# Synopsis:`
+comment in the first 30 lines of its script file:
+
+```bash
+#!/usr/bin/env bash
+# Synopsis: List registered commands and their properties
+```
+
+Rules:
+- One sentence, imperative, <100 characters, no trailing period.
+- Plain text only — no variable interpolation, no command substitution,
+  no ANSI color codes. The text is extracted verbatim.
+- First match within the first 30 lines wins; scanning stops there.
+- Non-file commands (aliases, functions) get synopses from the registry
+  (set via `--synopsis` on registration functions) or auto-synthesized
+  for aliases (`alias for: <expansion>`).
+
+### Agent and script integration
+
+Agents and scripts should enumerate capabilities via:
+
+```bash
+bu get-command --format jsonl
+```
+
+Each record includes all eight fields:
+
+```json
+{"name":"get-command","verb":"get","noun":"command","namespace":"bu",
+ "type":"source","synopsis":"List registered commands and their properties",
+ "fields":"name verb noun namespace type synopsis fields stage","stage":"producer"}
+```
+
+- `synopsis` — one-line description (static, safe to parse)
+- `fields` — output fields this command produces (space-joined, for pipeline composition)
+- `stage` — pipeline stage effect: `producer`, `passthrough`, `project`, `query`,
+  `recordify_*`, or empty if unregistered
+
+This is a single fast call (~7ms awk scan) that gives agents a complete
+manifest of available commands — no per-command `--help` forks needed.
+
+New commands created with `bu new-command` get a placeholder `# Synopsis:` line
+in the template so they never ship without one.
+
 ## Testing
 
 `test/out_test.bats` (126 tests, run via `./bu_run_tests.sh`):
