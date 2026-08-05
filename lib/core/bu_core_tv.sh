@@ -13,40 +13,40 @@
 #     bu get-command | bu tv --columns name,type
 
 # ── Terminal escape sequences (computed once at source time) ─────────────
-declare -r __BU_TV_ESC=$'\e'
-declare -r __BU_TV_ALT_SCREEN_ON="${__BU_TV_ESC}[?1049h"
-declare -r __BU_TV_ALT_SCREEN_OFF="${__BU_TV_ESC}[?1049l"
-declare -r __BU_TV_CURSOR_HOME="${__BU_TV_ESC}[H"
-declare -r __BU_TV_CURSOR_HIDE="${__BU_TV_ESC}[?25l"
-declare -r __BU_TV_CURSOR_SHOW="${__BU_TV_ESC}[?25h"
-declare -r __BU_TV_CLEAR_SCREEN="${__BU_TV_ESC}[2J"
-declare -r __BU_TV_CLEAR_LINE="${__BU_TV_ESC}[K"
-declare -r __BU_TV_REVERSE="${__BU_TV_ESC}[7m"
-declare -r __BU_TV_REVERSE_OFF="${__BU_TV_ESC}[27m"
-declare -r __BU_TV_DIM="${__BU_TV_ESC}[2m"
-declare -r __BU_TV_RESET="${BU_TPUT_RESET:-${__BU_TV_ESC}[0m}"
-declare -r __BU_TV_BOLD="${BU_TPUT_BOLD:-${__BU_TV_ESC}[1m}"
+declare -g -r __BU_TV_ESC=$'\e'
+declare -g -r __BU_TV_ALT_SCREEN_ON="${__BU_TV_ESC}[?1049h"
+declare -g -r __BU_TV_ALT_SCREEN_OFF="${__BU_TV_ESC}[?1049l"
+declare -g -r __BU_TV_CURSOR_HOME="${__BU_TV_ESC}[H"
+declare -g -r __BU_TV_CURSOR_HIDE="${__BU_TV_ESC}[?25l"
+declare -g -r __BU_TV_CURSOR_SHOW="${__BU_TV_ESC}[?25h"
+declare -g -r __BU_TV_CLEAR_SCREEN="${__BU_TV_ESC}[2J"
+declare -g -r __BU_TV_CLEAR_LINE="${__BU_TV_ESC}[K"
+declare -g -r __BU_TV_REVERSE="${__BU_TV_ESC}[7m"
+declare -g -r __BU_TV_REVERSE_OFF="${__BU_TV_ESC}[27m"
+declare -g -r __BU_TV_DIM="${__BU_TV_ESC}[2m"
+declare -g -r __BU_TV_RESET="${BU_TPUT_RESET:-${__BU_TV_ESC}[0m}"
+declare -g -r __BU_TV_BOLD="${BU_TPUT_BOLD:-${__BU_TV_ESC}[1m}"
 
 # ── State ────────────────────────────────────────────────────────────────
-declare -a _TV_ROWS=()           # Raw JSON strings, one per record
-declare -a _TV_COLUMNS=()        # Column keys (e.g. name, version)
-declare -a _TV_HEADERS=()        # Display labels (parsed from key:Label)
-declare -A _TV_COLORS=()         # key → ANSI escape code (or empty)
-declare -a _TV_CELLS=()          # Flat cell cache: [row * ncols + col] → string value
-declare -i _TV_NUM_ROWS=0
-declare -i _TV_NUM_COLS=0
-declare -a _TV_COL_WIDTHS=()     # Content-based width per column (capped)
-declare -i _TV_ROW_OFFSET=0      # First visible row (0-indexed)
-declare -i _TV_COL_OFFSET=0      # First visible column (0-indexed)
-declare    _TV_SORT_COL=         # Column key for sort, empty = unsorted
-declare    _TV_SORT_DIR=         # "asc" or "desc"
-declare    _TV_SEARCH_QUERY=     # Current search string
-declare -a _TV_MATCHED_ROWS=()   # Indices of rows matching _TV_SEARCH_QUERY
-declare -i _TV_MATCH_IDX=-1      # Current position in _TV_MATCHED_ROWS
-declare -i _TV_TERM_ROWS=24
-declare -i _TV_TERM_COLS=80
-declare -i _TV_HIGHLIGHT_COL=0   # Leftmost visible column index (for sort hint)
-declare    _TV_SAVED_STTY=       # Saved stty settings for cleanup
+declare -g -a _TV_ROWS=()           # Raw JSON strings, one per record
+declare -g -a _TV_COLUMNS=()        # Column keys (e.g. name, version)
+declare -g -a _TV_HEADERS=()        # Display labels (parsed from key:Label)
+declare -g -A _TV_COLORS=()         # key → ANSI escape code (or empty)
+declare -g -a _TV_CELLS=()          # Flat cell cache: [row * ncols + col] → string value
+declare -g -i _TV_NUM_ROWS=0
+declare -g -i _TV_NUM_COLS=0
+declare -g -a _TV_COL_WIDTHS=()     # Content-based width per column (capped)
+declare -g -i _TV_ROW_OFFSET=0      # First visible row (0-indexed)
+declare -g -i _TV_COL_OFFSET=0      # First visible column (0-indexed)
+declare -g    _TV_SORT_COL=         # Column key for sort, empty = unsorted
+declare -g    _TV_SORT_DIR=         # "asc" or "desc"
+declare -g    _TV_SEARCH_QUERY=     # Current search string
+declare -g -a _TV_MATCHED_ROWS=()   # Indices of rows matching _TV_SEARCH_QUERY
+declare -g -i _TV_MATCH_IDX=-1      # Current position in _TV_MATCHED_ROWS
+declare -g -i _TV_TERM_ROWS=24
+declare -g -i _TV_TERM_COLS=80
+declare -g -i _TV_HIGHLIGHT_COL=0   # Leftmost visible column index (for sort hint)
+declare -g    _TV_SAVED_STTY=       # Saved stty settings for cleanup
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
