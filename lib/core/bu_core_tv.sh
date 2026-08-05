@@ -52,6 +52,26 @@ declare -g    _TV_SAVED_STTY=       # Saved stty settings for cleanup
 
 # ```
 # *Description*:
+# Strip ANSI escape sequences from a string in place.  Handles both CSI
+# sequences (ESC [ params letter — colors, bold, reverse) and charset
+# selection sequences (ESC ( X / ESC ) X, e.g. the \e(B emitted by
+# tput sgr0 as part of BU_TPUT_RESET).
+#
+# *Params*:
+# - `$1`: Nameref to the variable to strip
+# ```
+__bu_tv_strip_ansi()
+{
+    local -n __bu_tv_strip_ref=$1
+    local -r __bu_tv_ansi_re=$'\e'"(\\[[0-9;]*[a-zA-Z]|[()].)"
+    while [[ $__bu_tv_strip_ref =~ $__bu_tv_ansi_re ]]
+    do
+        __bu_tv_strip_ref=${__bu_tv_strip_ref//"${BASH_REMATCH[0]}"/}
+    done
+}
+
+# ```
+# *Description*:
 # Read all JSONL from stdin into _TV_ROWS.  Skips blank lines.
 #
 # *Returns*:
@@ -173,6 +193,9 @@ __bu_tv_rebuild_cache()
         for (( i = 0; i < _TV_NUM_ROWS; i++ ))
         do
             cell_val=${_TV_CELLS[$((i * _TV_NUM_COLS + j))]}
+            # JSONL values may embed ANSI (e.g. colored producers);
+            # measure the visible width only.
+            __bu_tv_strip_ansi cell_val
             if (( ${#cell_val} > wid )); then wid=${#cell_val}; fi
         done
         if (( wid < 4 )); then wid=4; fi
@@ -507,12 +530,9 @@ __bu_tv_render_line()
             local cell
             cell=$(__bu_tv_format_cell $row_idx $j)
 
-            # Measure visible width (strip ANSI)
+            # Measure visible width (strip ANSI, incl. \e(B charset resets)
             local stripped="$cell"
-            while [[ $stripped =~ $'\e'\[[0-9\;]*[a-zA-Z] ]]
-            do
-                stripped=${stripped//"${BASH_REMATCH[0]}"/}
-            done
+            __bu_tv_strip_ansi stripped
             local -i cell_len=${#stripped}
             local pad=$((col_w - cell_len))
             local spacer=
