@@ -1116,8 +1116,11 @@ bu_format_table()
               end;
         fit($init) as $spec
         | (if ($spec | length) < ($cols | length) then
-              # 0-arity debug() for jq 1.6 compat (1-arity requires jq >= 1.7)
-              debug
+              # Emit a short diagnostic to stderr when columns are dropped.
+              # WARNING: do NOT pipe . through debug — 0-arity debug() dumps
+              # the entire dataset (thousands of records) to stderr.  Use the
+              # (msg | debug | empty), . pattern for jq 1.6 compat instead.
+              (("table " + (($cols | length) - ($spec | length) | tostring) + " column(s) hidden (terminal too narrow); use --format tsv/jsonl for all fields" | debug | empty), .)
            else . end)
         | ($spec | map(. as $s | ($s.header | ellipsize($s.width)) as $h | $bold + $h + $reset + (" " * ($s.width - ($h | length)))) | join("  ") | rtrim),
           ($spec | map("-" * .width) | join("  ") | rtrim),
