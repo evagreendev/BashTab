@@ -18,6 +18,8 @@ esac
 pushd "$script_dir" &>/dev/null
 script_dir=$PWD
 
+# Synopsis: TODO -- one line for the command catalog
+
 if [[ -z "$COMP_CWORD" ]]
 then
 # shellcheck source=./__bu_entrypoint_decl.sh

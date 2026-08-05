@@ -447,8 +447,43 @@ bu_autohelp()
     eval "$(bu_autohelp_parse_case_block_help "${script_path}" "" "" "${BASH_LINENO[0]}")"
     bu_log_trace "bu_autohelp after parse_case"
 
+    # ── Resolve static synopsis ──
+    # Precedence: registry → file scan → alias synthesis → empty
+    local autohelp_synopsis=${BU_COMMAND_PROPERTIES[$command,synopsis]:-}
+    if [[ -z "$autohelp_synopsis" && -n "$command" ]]
+    then
+        local _ah_type
+        __bu_cli_command_type "$command"
+        _ah_type=$BU_RET
+        case "$_ah_type" in
+        execute|source)
+            # Scan script_path (which is BU_COMMANDS[$command]) for # Synopsis:
+            if [[ -f "$script_path" ]]
+            then
+                autohelp_synopsis=$(awk '
+                    FNR > 30 { exit }
+                    /^#[[:space:]]*Synopsis:[[:space:]]/ {
+                        line = $0
+                        sub(/^#[[:space:]]*Synopsis:[[:space:]]*/, "", line)
+                        sub(/[[:space:]]+$/, "", line)
+                        print line
+                        exit
+                    }
+                ' "$script_path" 2>/dev/null)
+            fi
+            ;;
+        alias)
+            autohelp_synopsis="alias for: ${BU_COMMANDS[$command]}"
+            ;;
+        esac
+    fi
+
     printf '%s\n' "${BU_TPUT_BOLD}NAME${BU_TPUT_RESET}"
-    printf "$padding%s\n" "${command:+$BU_CLI_COMMAND_NAME }${command}${command:+ - }${script_path}"  
+    printf "$padding%s\n" "${command:+$BU_CLI_COMMAND_NAME }${command}${command:+ - }${script_path}"
+    if [[ -n "$autohelp_synopsis" ]]
+    then
+        printf "$padding%s\n" "$autohelp_synopsis"
+    fi
 
     printf '\n%s\n\n' "${BU_TPUT_BOLD}SYNOPSIS${BU_TPUT_RESET}"
     

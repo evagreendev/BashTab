@@ -134,7 +134,23 @@ bu_preinit_register_user_defined_subcommand_file()
 {
     local -r file=$1
     local command=$2
-    local -r type=$3
+    local type=$3
+    local synopsis=
+
+    # Parse --synopsis from remaining positional args
+    shift 3 2>/dev/null || shift $#
+    while (($#))
+    do
+        case "$1" in
+        --synopsis)
+            synopsis=$2
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+        esac
+    done
 
     if [[ -z "$command" ]]
     then
@@ -148,6 +164,11 @@ bu_preinit_register_user_defined_subcommand_file()
     if [[ -n "$type" ]]
     then
         BU_COMMAND_PROPERTIES[$command,type]=$type
+    fi
+
+    if [[ -n "$synopsis" ]]
+    then
+        BU_COMMAND_PROPERTIES[$command,synopsis]=$synopsis
     fi
 }
 
@@ -176,7 +197,23 @@ bu_preinit_register_user_defined_subcommand_function()
 {
     local -r fn=$1
     local command=$2
-    local -r type=$3
+    local type=$3
+    local synopsis=
+
+    # Parse --synopsis from remaining positional args
+    shift 3 2>/dev/null || shift $#
+    while (($#))
+    do
+        case "$1" in
+        --synopsis)
+            synopsis=$2
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+        esac
+    done
 
     if [[ -z "$command" ]]
     then
@@ -188,6 +225,11 @@ bu_preinit_register_user_defined_subcommand_function()
     if [[ -n "$type" ]]
     then
         BU_COMMAND_PROPERTIES[$command,type]=$type
+    fi
+
+    if [[ -n "$synopsis" ]]
+    then
+        BU_COMMAND_PROPERTIES[$command,synopsis]=$synopsis
     fi
 }
 
@@ -401,6 +443,24 @@ bu_preinit_register_new_alias()
     fi
     shift
 
+    # Parse --synopsis from the end of the args (before alias spec processing)
+    local synopsis=
+    local -a spec_args=()
+    while (($#))
+    do
+        case "$1" in
+        --synopsis)
+            synopsis=$2
+            shift 2
+            ;;
+        *)
+            spec_args+=("$1")
+            shift
+            ;;
+        esac
+    done
+    set -- "${spec_args[@]}"
+
     local i
     local has_remaining_input=false
     # Validate
@@ -424,9 +484,12 @@ bu_preinit_register_new_alias()
         esac
     done
     local alias_spec=$*
-    # printf -v alias_spec '%q ' "$@" 
     BU_COMMANDS[$alias_name]="$alias_spec"
     BU_COMMAND_PROPERTIES[$alias_name,type]=alias
+    if [[ -n "$synopsis" ]]
+    then
+        BU_COMMAND_PROPERTIES[$alias_name,synopsis]=$synopsis
+    fi
     return 0
 }
 

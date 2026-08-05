@@ -26,6 +26,8 @@ case "$BASH_SOURCE" in
 esac
 pushd "$script_dir" &>/dev/null
 
+# Synopsis: TODO -- one line for the command catalog
+
 # Note that we do not source bu_entrypoint inside the sourceable script template
 # as it is assumed that sourceable scripts are sourced AFTER 
 # bu_entrypoint has been sourced by the user.

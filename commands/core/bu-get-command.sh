@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List registered commands and their properties
 function __bu_bu_get_command_main()
 {
 local -r invocation_dir=$PWD
@@ -86,7 +87,7 @@ do
         ;;
     --columns)# COLUMNS
         # Fields to display, in order (comma-separated)
-        bu_parse_positional $# --ret bu_complete_delimited --options name verb noun namespace type -- ret-- --hint "Comma-separated fields"
+        bu_parse_positional $# --ret bu_complete_delimited --options name verb noun namespace type synopsis fields stage -- ret-- --hint "Comma-separated fields"
         columns=${!shift_by}
         ;;
     -h|--help)# _FLAG
@@ -178,8 +179,76 @@ do
     filtered_commands+=("$command")
 done
 
-# Stream TSV records (zero forks in the loop), recordify once, then
-# let bu_out decide presentation (table on a terminal, JSONL when piped)
+# ── Phase 1: Build path→name mapping for file-backed commands ──
+# Only scan files for types 'execute' and 'source' (function types have
+# a function name as the value, not a file path; alias types have an
+# expansion spec).
+local -A path_to_name=()
+local -a awk_file_list=()
+for command in "${filtered_commands[@]}"
+do
+    __bu_cli_command_type "$command"
+    local _ct=$BU_RET
+    local _path=${BU_COMMANDS[$command]}
+    case "$_ct" in
+    execute|source)
+        if [[ -f "$_path" ]]
+        then
+            path_to_name[$_path]=$command
+            awk_file_list+=("$_path")
+        fi
+        ;;
+    esac
+done
+
+# ── Phase 2: Single awk pass to extract # Synopsis: headers ──
+# Scans up to line 30 per file; first match wins.
+# Values are extracted verbatim (no variable/command substitution).
+local -A file_synopsis=()
+if ((${#awk_file_list[@]}))
+then
+    while IFS=: read -r _fpath _syn
+    do
+        file_synopsis[$_fpath]=$_syn
+    done < <(awk '
+        FNR == 1 { found = 0 }
+        !found && FNR <= 30 && /^#[[:space:]]*Synopsis:[[:space:]]/ {
+            line = $0
+            sub(/^#[[:space:]]*Synopsis:[[:space:]]*/, "", line)
+            sub(/[[:space:]]+$/, "", line)
+            print FILENAME ":" line
+            found = 1
+        }
+    ' "${awk_file_list[@]}" 2>/dev/null)
+fi
+
+# ── Helper: longest prefix match for BU_OUT_PRODUCER_FIELDS /
+#            BU_OUT_STAGE_EFFECT registries (keyed on "bu <cmd>"). ──
+__bu_get_cmd_registry_lookup()
+{
+    local -n _registry=$1
+    local _bu_key="bu $2"
+    local _best_key= _best_len=0
+    local _key
+    for _key in "${!_registry[@]}"
+    do
+        if [[ "$_bu_key" == "$_key" || "$_bu_key" == "$_key "* || "$_key" == "$_bu_key "* ]] && (( ${#_key} > _best_len ))
+        then
+            _best_key=$_key
+            _best_len=${#_key}
+        fi
+    done
+    if [[ -n "$_best_key" ]]
+    then
+        BU_RET=${_registry[$_best_key]}
+    else
+        BU_RET=
+    fi
+}
+
+# ── Phase 3: Emit TSV records with all 8 columns ──
+# Columns: name verb noun namespace type synopsis fields stage
+# Default --columns for table projection stays name,verb,noun,namespace,type
 {
     for command in "${filtered_commands[@]}"
     do
@@ -188,9 +257,38 @@ done
         command_verb=${BU_COMMAND_PROPERTIES[$command,verb]:-}
         command_noun=${BU_COMMAND_PROPERTIES[$command,noun]:-}
         command_namespace=${BU_COMMAND_PROPERTIES[$command,namespace]:-}
-        printf '%s\t%s\t%s\t%s\t%s\n' "$command" "$command_verb" "$command_noun" "$command_namespace" "$command_type"
+
+        # Synopsis precedence: registry → file scan → alias synthesis → empty
+        local synopsis=${BU_COMMAND_PROPERTIES[$command,synopsis]:-}
+        if [[ -z "$synopsis" ]]
+        then
+            local _cmd_path=${BU_COMMANDS[$command]}
+            case "$command_type" in
+            execute|source)
+                synopsis=${file_synopsis[$_cmd_path]:-}
+                ;;
+            alias)
+                # Alias without registered synopsis: auto-synthesize
+                synopsis="alias for: ${BU_COMMANDS[$command]}"
+                ;;
+            esac
+            # function type: stays empty unless registered
+        fi
+
+        # Fields from BU_OUT_PRODUCER_FIELDS
+        __bu_get_cmd_registry_lookup BU_OUT_PRODUCER_FIELDS "$command"
+        local fields=$BU_RET
+
+        # Stage from BU_OUT_STAGE_EFFECT
+        __bu_get_cmd_registry_lookup BU_OUT_STAGE_EFFECT "$command"
+        local stage=$BU_RET
+
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$command" "$command_verb" "$command_noun" "$command_namespace" \
+            "$command_type" "$synopsis" "$fields" "$stage"
     done
-} | sort | bu_out_from_tsv --columns name,verb,noun,namespace,type | bu_out --format "$format" ${columns:+--columns "$columns"}
+} | sort | bu_out_from_tsv --columns name,verb,noun,namespace,type,synopsis,fields,stage \
+    | bu_out --format "$format" --columns "${columns:-name,verb,noun,namespace,type}"
 
 
 bu_scope_pop_function

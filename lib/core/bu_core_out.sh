@@ -66,7 +66,7 @@ bu_register_table_pager_preset()
 # even when the producer carries flags or later pipeline stages.
 # Extend via bu_register_output_fields (e.g. from a module preinit script).
 declare -A -g BU_OUT_PRODUCER_FIELDS=(
-    ["bu get-command"]="name verb noun namespace type"
+    ["bu get-command"]="name verb noun namespace type synopsis fields stage"
     ["bu get-config"]="name value default allowed description"
     ["bu get-module"]="name version path"
     # jc parser fields (registered by parser name for convert-from-jc)
