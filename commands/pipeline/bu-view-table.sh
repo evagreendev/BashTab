@@ -95,8 +95,10 @@ source "$BU_DIR/lib/core/bu_core_tv.sh"
 
 # Enter the interactive viewer (reads stdin, renders TUI)
 bu_tv_enter "$columns" "$colors"
+local rc=$?
 
 bu_scope_pop_function
+return $rc
 }
 
 __bu_bu_view_table_main "$@"

@@ -313,11 +313,47 @@ __bu_tv_build_colors()
 
 # ```
 # *Description*:
+# Install the viewer's full trap set.  Called at setup and again from the
+# SIGCONT handler (the TSTP path clears the TSTP trap to re-deliver a real
+# stop, and terminal_restore clears the rest).
+# ```
+__bu_tv_install_traps()
+{
+    # Standard TUI practice: ignore SIGTTOU for the viewer's lifetime so a
+    # stty/tcsetattr or tty write from a transiently-backgrounded state
+    # proceeds instead of default-STOPping the whole pipeline.
+    trap '' SIGTTOU
+    trap '__bu_tv_terminal_restore; exit 0' SIGINT SIGTERM
+    trap '__bu_tv_cleanup_exit' EXIT
+    trap '__bu_tv_on_resize' SIGWINCH
+    trap '__bu_tv_on_tstp' SIGTSTP
+    trap '__bu_tv_on_cont' SIGCONT
+}
+
+# ```
+# *Description*:
 # Enter raw terminal mode: alternate screen, hide cursor, non-canonical
-# input, trap SIGWINCH and cleanup signals.
+# input, install signal traps.
+#
+# *Returns*:
+# - 1 without touching the terminal if our process group is not the tty's
+#   foreground group (a loud failure instead of a silent SIGTTOU stop).
 # ```
 __bu_tv_terminal_setup()
 {
+    # Foreground guard: if our pgid is not the tty's foreground pgid, the
+    # stty below would deliver SIGTTOU and the kernel would silently stop
+    # the entire pipeline.  Refuse to start instead.
+    local my_pgid tty_pgid
+    my_pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
+    tty_pgid=$(ps -o tpgid= -p $$ 2>/dev/null | tr -d ' ')
+    if [[ -n "$my_pgid" && -n "$tty_pgid" && "$my_pgid" != "$tty_pgid" ]]
+    then
+        bu_log_err "bu view-table: process group $my_pgid is not the terminal's foreground group ($tty_pgid)"
+        bu_log_err "Run it in the foreground (e.g. '... | bu view-table' in a fresh shell)"
+        return 1
+    fi
+
     _TV_SAVED_STTY=$(stty -g 2>/dev/null) || _TV_SAVED_STTY=
     stty -echo -icanon 2>/dev/null || true
 
@@ -327,19 +363,18 @@ __bu_tv_terminal_setup()
 
     __bu_tv_update_dimensions
 
-    trap '__bu_tv_terminal_restore; exit 0' SIGINT SIGTERM
-    trap '__bu_tv_cleanup_exit' EXIT
-    trap '__bu_tv_on_resize' SIGWINCH
+    __bu_tv_install_traps
+    return 0
 }
 
 # ```
 # *Description*:
-# Restore terminal to its original state on exit.
+# Leave the TUI terminal state: show cursor, exit alternate screen, restore
+# saved stty settings.  Does NOT clear traps — used by both the final
+# restore and the SIGTSTP suspend path (which must keep SIGCONT armed).
 # ```
-__bu_tv_terminal_restore()
+__bu_tv_terminal_leave_tui()
 {
-    trap - SIGINT SIGTERM SIGWINCH EXIT
-
     printf '%s' "$__BU_TV_CURSOR_SHOW"
     printf '%s' "$__BU_TV_ALT_SCREEN_OFF"
 
@@ -347,6 +382,46 @@ __bu_tv_terminal_restore()
     then
         stty "$_TV_SAVED_STTY" 2>/dev/null || true
     fi
+}
+
+# ```
+# *Description*:
+# Restore terminal to its original state on exit: clear every trap the
+# viewer installed (including TSTP/CONT/TTOU), then leave the TUI state.
+# ```
+__bu_tv_terminal_restore()
+{
+    trap - SIGINT SIGTERM SIGWINCH SIGTSTP SIGCONT SIGTTOU EXIT
+    __bu_tv_terminal_leave_tui
+}
+
+# ```
+# *Description*:
+# SIGTSTP handler (Ctrl-Z): restore the terminal FIRST so the shell prompt
+# is usable while stopped, then re-deliver a real stop with the default
+# action.  The CONT trap (still armed) handles the fg-side resume.
+# ```
+__bu_tv_on_tstp()
+{
+    __bu_tv_terminal_leave_tui
+    trap - SIGTSTP
+    kill -SIGTSTP $$
+}
+
+# ```
+# *Description*:
+# SIGCONT handler (fg): re-arm the full trap set, re-enter raw mode +
+# alternate screen, recompute dimensions, clamp offsets, redraw.
+# ```
+__bu_tv_on_cont()
+{
+    __bu_tv_install_traps
+    stty -echo -icanon 2>/dev/null || true
+    printf '%s' "$__BU_TV_ALT_SCREEN_ON"
+    printf '%s' "$__BU_TV_CURSOR_HIDE"
+    __bu_tv_update_dimensions
+    __bu_tv_clamp_offsets
+    __bu_tv_render_frame
 }
 
 # ```
@@ -736,25 +811,63 @@ __bu_tv_render_status()
 #              EOF maps to "q" so the viewer exits cleanly on closed stdin.
 # - Exit 1 only in probe mode when no input was available.
 # ```
+# ```
+# *Description*:
+# Read a single keypress into _TV_KEY.  Handles multi-byte escape sequences.
+#
+# *Params*:
+# - `$1` (optional): 1 = block until a key arrives (default);
+#                    0 = non-blocking probe (returns 1 if no input queued)
+#
+# *Returns*:
+# - `_TV_KEY`: Key name (e.g. "up", "down", "page_down", "/", "q").
+#   - real EOF (read rc=1)          -> "q" (quit)
+#   - Enter (read rc=0, empty var)  -> $'\x0a' (read -n1 consumed the delimiter)
+#   - trapped signal (read rc>128)  -> "none" (redraw-only no-op, NOT quit)
+# - Exit 1 only in probe mode when no input was available.
+# ```
 __bu_tv_read_key()
 {
     local -i blocking=${1:-1}
+    local -i rc=0
     _TV_KEY=
     if (( blocking ))
     then
-        IFS= read -r -s -n 1 _TV_KEY
+        IFS= read -r -s -n 1 _TV_KEY || rc=$?
     else
         # Probe with a hair of timeout so the byte (if any) is consumed
-        IFS= read -r -s -n 1 -t 0.001 _TV_KEY || return 1
+        IFS= read -r -s -n 1 -t 0.001 _TV_KEY || rc=$?
+    fi
+
+    if (( rc != 0 ))
+    then
+        if (( ! blocking ))
+        then
+            # Probe: nothing queued (timeout) or EOF — no key to dispatch
+            return 1
+        fi
+        if (( rc > 128 ))
+        then
+            # A trapped signal (SIGWINCH, SIGCONT, ...) interrupted the
+            # blocking read.  The handler already redrew; the event loop
+            # treats "none" as redraw-only.
+            _TV_KEY=none
+            return 0
+        fi
+        # Real EOF
+        _TV_KEY=q
+        return 0
+    fi
+
+    if [[ -z "$_TV_KEY" ]]
+    then
+        # rc=0 with an empty var: read -n1 consumed the newline delimiter
+        _TV_KEY=$'\x0a'
+        return 0
     fi
 
     if [[ "$_TV_KEY" != $'\e' ]]
     then
-        if [[ -z "$_TV_KEY" ]]
-        then
-            _TV_KEY=q
-            return 0
-        fi
         if [[ "$_TV_KEY" == $'\x0c' ]]
         then
             _TV_KEY=ctrl_l
@@ -1152,7 +1265,7 @@ bu_tv_enter()
     fi
 
     # ── Terminal setup ────────────────────────────────────────────────
-    __bu_tv_terminal_setup
+    __bu_tv_terminal_setup || return 1
     __bu_tv_clamp_offsets
 
     # ── Event loop ────────────────────────────────────────────────────
