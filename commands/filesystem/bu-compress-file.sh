@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Compress a file using gzip, bzip2, or xz
 function __bu_bu_compress_file_main()
 {
 local -r invocation_dir=$PWD

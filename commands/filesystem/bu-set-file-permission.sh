@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Change file permissions and ownership
 function __bu_bu_set_file_permission_main()
 {
 local -r invocation_dir=$PWD

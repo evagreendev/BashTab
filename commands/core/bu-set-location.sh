@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Change the current working directory
 function __bu_bu_set_location_main()
 {
 local -r invocation_dir=$PWD

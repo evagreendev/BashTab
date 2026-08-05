@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Set a shell or environment variable
 # Completion helper: currently set variable names.
 __bu_bu_set_variable_complete_names()
 {

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Format binary data as a hex dump
 function __bu_bu_format_hex_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

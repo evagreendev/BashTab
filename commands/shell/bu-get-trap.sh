@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List active shell trap handlers
 function __bu_bu_get_trap_main()
 {
 local -r invocation_dir=$PWD

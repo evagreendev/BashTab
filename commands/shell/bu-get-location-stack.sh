@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Show the pushd/popd directory stack
 function __bu_bu_get_location_stack_main()
 {
 local -r invocation_dir=$PWD

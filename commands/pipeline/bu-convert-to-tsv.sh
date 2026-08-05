@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Convert JSONL records to TSV text
 function __bu_bu_convert_to_tsv_main()
 {
 local -r invocation_dir=$PWD

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List installed RPM packages
 function __bu_bu_get_rpm_package_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

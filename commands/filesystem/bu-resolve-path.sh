@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Resolve a relative path to an absolute path
 function __bu_bu_resolve_path_main()
 {
 local -r invocation_dir=$PWD

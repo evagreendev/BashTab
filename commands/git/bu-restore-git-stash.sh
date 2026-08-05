@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Restore files from a Git stash
 function __bu_bu_restore_git_stash_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

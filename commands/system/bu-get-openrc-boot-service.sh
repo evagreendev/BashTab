@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List OpenRC services enabled at boot
 function __bu_bu_get_openrc_boot_service_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

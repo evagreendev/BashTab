@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Set a Git configuration value
 function __bu_bu_set_git_config_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Set a shell trap handler
 # Common signal names for completion.
 __bu_bu_set_trap_complete_signals()
 {

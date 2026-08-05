@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Test whether a file or directory exists
 function __bu_bu_test_path_main()
 {
 local -r invocation_dir=$PWD

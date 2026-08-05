@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List registered command aliases
 function __bu_bu_get_alias_main()
 {
 local -r invocation_dir=$PWD

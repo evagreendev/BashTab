@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Set a bash shopt option
 function __bu_bu_set_shopt_option_main()
 {
 local -r invocation_dir=$PWD

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List entries from the hosts file
 function __bu_bu_get_host_file_entry_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

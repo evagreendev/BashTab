@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Read the contents of a file
 function __bu_bu_get_content_main()
 {
 local -r invocation_dir=$PWD

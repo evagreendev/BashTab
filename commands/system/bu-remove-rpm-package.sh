@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Uninstall RPM packages
 function __bu_bu_remove_rpm_package_main()
 {
 if [[ "$1" == "--is-compatible" ]]; then

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Show kernel parameters
 function __bu_bu_get_sysctl_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Register a new command alias
 # Completion helper: defined alias names.
 __bu_bu_set_alias_complete_names()
 {

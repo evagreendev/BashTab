@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List shell and environment variables
 function __bu_bu_get_variable_main()
 {
 local -r invocation_dir=$PWD

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Spawn a background process and track its status
 function __bu_bu_invoke_spawn_command_main()
 {
 local -r invocation_dir=$PWD

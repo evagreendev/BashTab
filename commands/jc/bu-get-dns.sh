@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Query DNS records for a domain
 function __bu_bu_get_dns_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Remove a registered command alias
 # Completion helper: defined alias names.
 __bu_bu_remove_alias_complete_names()
 {

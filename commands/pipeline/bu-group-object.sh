@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Group a JSONL stream by key fields with aggregate functions
 function __bu_bu_group_object_main()
 {
 local -r invocation_dir=$PWD

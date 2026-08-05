@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List members of a local group
 function __bu_bu_get_member_main()
 {
 local -r invocation_dir=$PWD

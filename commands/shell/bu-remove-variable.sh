@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Unset a shell variable
 # Completion helper: currently set variable names.
 __bu_bu_remove_variable_complete_names()
 {

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Convert JSONL records to CSV text
 function __bu_bu_convert_to_csv_main()
 {
 local -r invocation_dir=$PWD

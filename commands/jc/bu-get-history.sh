@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Show shell command history
 function __bu_bu_get_history_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

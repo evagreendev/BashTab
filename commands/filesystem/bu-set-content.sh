@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Write content to a file
 function __bu_bu_set_content_main()
 {
 set -e

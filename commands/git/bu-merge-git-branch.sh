@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Merge a Git branch into the current branch
 function __bu_bu_merge_git_branch_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

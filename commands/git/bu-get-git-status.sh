@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Show the Git working-tree status
 function __bu_bu_get_git_status_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

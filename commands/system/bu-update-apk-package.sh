@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Upgrade Alpine Linux packages
 function __bu_bu_update_apk_package_main()
 {
 if [[ "$1" == "--is-compatible" ]]; then

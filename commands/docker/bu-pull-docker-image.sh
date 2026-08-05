@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Pull a Docker image from a registry
 function __bu_bu_pull_docker_image_main()
 {
 set -e

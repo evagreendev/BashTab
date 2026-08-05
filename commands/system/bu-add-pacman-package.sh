@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Install one or more Arch Linux packages
 function __bu_bu_add_pacman_package_main()
 {
 if [[ "$1" == "--is-compatible" ]]; then

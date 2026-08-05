@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Restart a Docker container
 # Completion helper: all container names (including stopped) from docker ps -a.
 __bu_bu_restart_docker_container_complete_containers()
 {

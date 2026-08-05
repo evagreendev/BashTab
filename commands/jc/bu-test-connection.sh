@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Test network connectivity to a remote host
 function __bu_bu_test_connection_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

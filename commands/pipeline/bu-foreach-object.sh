@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Execute a script block for each record in a JSONL stream
 function __bu_bu_foreach_object_main()
 {
 local -r invocation_dir=$PWD

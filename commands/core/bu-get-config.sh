@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List BashTab configuration settings
 function __bu_bu_get_config_main()
 {
 # --is-compatible: no external dependencies

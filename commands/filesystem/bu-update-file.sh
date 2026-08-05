@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Modify file timestamps or create empty files
 function __bu_bu_update_file_main()
 {
 local -r invocation_dir=$PWD

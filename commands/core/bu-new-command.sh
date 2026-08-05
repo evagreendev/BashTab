@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Create a new BashTab command from a template
 function __bu_bu_new_command_main()
 {
 set -e

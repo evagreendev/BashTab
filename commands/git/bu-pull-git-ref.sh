@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Fetch and integrate remote Git changes
 function __bu_bu_pull_git_ref_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

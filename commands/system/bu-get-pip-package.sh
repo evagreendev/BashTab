@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List installed Python pip packages
 function __bu_bu_get_pip_package_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

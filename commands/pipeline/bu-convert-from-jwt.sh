@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Decode a JWT token into its header and payload
 function __bu_bu_convert_from_jwt_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

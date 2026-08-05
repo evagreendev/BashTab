@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Start a Docker container
 # Completion helper: all container names (including stopped) from docker ps -a.
 __bu_bu_start_docker_container_complete_containers()
 {

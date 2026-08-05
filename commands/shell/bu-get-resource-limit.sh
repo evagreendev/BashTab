@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Show shell resource limits
 function __bu_bu_get_resource_limit_main()
 {
 local -r invocation_dir=$PWD

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Show the system timezone
 function __bu_bu_get_timezone_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

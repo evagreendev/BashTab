@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Show disk usage and free space
 function __bu_bu_get_disk_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

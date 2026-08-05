@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Disable a system service from starting at boot
 # Completion helper: unit names from the live system (enabled units only).
 __bu_bu_disable_service_complete_units()
 {

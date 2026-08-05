@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Write a JSONL stream to a file
 function __bu_bu_out_file_main()
 {
 local -r invocation_dir=$PWD

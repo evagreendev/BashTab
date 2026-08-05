@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Convert line-oriented text to JSONL records with a single key
 function __bu_bu_convert_from_lines_main()
 {
 local -r invocation_dir=$PWD

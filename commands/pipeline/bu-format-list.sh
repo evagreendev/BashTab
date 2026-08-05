@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Render a JSONL stream as a key-value list
 function __bu_bu_format_list_main()
 {
 local -r invocation_dir=$PWD

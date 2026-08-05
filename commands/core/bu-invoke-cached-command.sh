@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Execute a command and cache its output
 function __bu_bu_invoke_cached_command_main()
 {
 local -r invocation_dir=$PWD

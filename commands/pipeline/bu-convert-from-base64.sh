@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Decode base64-encoded data to JSONL
 function __bu_bu_convert_from_base64_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

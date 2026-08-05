@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Count lines, words, and characters in a file or stream
 function __bu_bu_get_count_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

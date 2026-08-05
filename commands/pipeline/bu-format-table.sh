@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Render a JSONL stream as an aligned table
 function __bu_bu_format_table_main()
 {
 local -r invocation_dir=$PWD

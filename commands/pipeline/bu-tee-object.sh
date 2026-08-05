@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Tee a JSONL stream to a file while passing it through
 function __bu_bu_tee_object_main()
 {
 local -r invocation_dir=$PWD

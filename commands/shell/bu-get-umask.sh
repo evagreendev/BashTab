@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Show the current file creation mask
 function __bu_bu_get_umask_main()
 {
 local -r invocation_dir=$PWD

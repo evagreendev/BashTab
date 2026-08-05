@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Construct a single JSONL record from key=value arguments
 function __bu_bu_new_record_main()
 {
 local -r invocation_dir=$PWD

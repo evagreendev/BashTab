@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List files with metadata
 function __bu_bu_get_file_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

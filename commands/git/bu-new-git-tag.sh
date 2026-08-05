@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Create a new Git tag
 function __bu_bu_new_git_tag_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

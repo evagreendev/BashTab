@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Project JSONL records to a subset of fields
 function __bu_bu_select_object_main()
 {
 local -r invocation_dir=$PWD

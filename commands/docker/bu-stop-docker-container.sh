@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Stop a running Docker container
 # Completion helper: running container names from docker ps.
 __bu_bu_stop_docker_container_complete_containers()
 {

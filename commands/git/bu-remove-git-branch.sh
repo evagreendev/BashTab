@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Delete a Git branch
 function __bu_bu_remove_git_branch_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

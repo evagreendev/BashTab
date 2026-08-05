@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Stop a background job
 function __bu_bu_stop_job_main()
 {
 set -e

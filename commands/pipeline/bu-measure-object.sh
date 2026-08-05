@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Calculate statistics (count, sum, avg) on a JSONL stream
 function __bu_bu_measure_object_main()
 {
 local -r invocation_dir=$PWD

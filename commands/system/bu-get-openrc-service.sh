@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List OpenRC services and their status
 function __bu_bu_get_openrc_service_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

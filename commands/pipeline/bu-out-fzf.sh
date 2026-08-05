@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Display a JSONL stream in an interactive fzf selector
 function __bu_bu_out_fzf_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

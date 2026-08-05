@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Show kernel and system version information
 function __bu_bu_get_system_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

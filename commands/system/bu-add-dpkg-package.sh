@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Install one or more Debian packages
 function __bu_bu_add_dpkg_package_main()
 {
 if [[ "$1" == "--is-compatible" ]]; then

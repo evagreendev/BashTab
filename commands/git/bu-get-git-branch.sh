@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List Git branches
 function __bu_bu_get_git_branch_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

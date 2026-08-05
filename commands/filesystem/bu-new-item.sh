@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Create a new file or directory
 function __bu_bu_new_item_main()
 {
 local -r invocation_dir=$PWD

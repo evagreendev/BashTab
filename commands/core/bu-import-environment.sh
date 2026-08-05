@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Source environment variables from a file
 function __bu_bu_import_environment_main()
 {
 local -r invocation_dir=$PWD

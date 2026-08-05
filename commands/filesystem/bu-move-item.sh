@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Move or rename a file or directory
 function __bu_bu_move_item_main()
 {
 local -r invocation_dir=$PWD

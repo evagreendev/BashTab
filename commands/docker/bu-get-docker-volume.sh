@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List Docker volumes
 function __bu_bu_get_docker_volume_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

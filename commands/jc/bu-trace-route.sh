@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Trace the network path to a remote host
 function __bu_bu_trace_route_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

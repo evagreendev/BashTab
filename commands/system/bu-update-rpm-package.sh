@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Upgrade RPM packages
 function __bu_bu_update_rpm_package_main()
 {
 if [[ "$1" == "--is-compatible" ]]; then

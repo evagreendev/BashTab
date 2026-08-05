@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Show platform compatibility information
 function __bu_bu_get_compat_main()
 {
 local -r invocation_dir=$PWD

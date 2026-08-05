@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Terminate a running process
 function __bu_bu_stop_process_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

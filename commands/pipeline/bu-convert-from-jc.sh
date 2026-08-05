@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Convert structured command output to JSONL via jc parsers
 function __bu_bu_convert_from_jc_main()
 {
 local -r invocation_dir=$PWD

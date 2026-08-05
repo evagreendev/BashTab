@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Search for files matching a pattern
 function __bu_bu_find_file_main()
 {
 local -r invocation_dir=$PWD

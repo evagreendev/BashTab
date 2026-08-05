@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List loaded BashTab modules
 function __bu_bu_get_module_main()
 {
 local -r invocation_dir=$PWD

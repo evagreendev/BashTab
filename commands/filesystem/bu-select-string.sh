@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Search for patterns in text and show matching lines
 function __bu_bu_select_string_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

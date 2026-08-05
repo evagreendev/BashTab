@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Generate a new GUID/UUID
 function __bu_bu_new_guid_main()
 {
 local -r invocation_dir=$PWD

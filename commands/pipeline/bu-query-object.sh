@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Apply SQL-style clauses (where, group-by, select, order-by) to a JSONL stream
 function __bu_bu_query_object_main()
 {
 local -r invocation_dir=$PWD

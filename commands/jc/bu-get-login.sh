@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Show the login name of the current user
 function __bu_bu_get_login_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

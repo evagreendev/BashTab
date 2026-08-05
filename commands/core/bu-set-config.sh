@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Set a BashTab configuration value
 function __bu_bu_set_config_main()
 {
 local -r invocation_dir=$PWD

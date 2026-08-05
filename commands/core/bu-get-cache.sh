@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Show the BashTab command cache status and entries
 function __bu_bu_get_cache_main()
 {
 # --is-compatible: no external dependencies

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Stash uncommitted Git changes
 function __bu_bu_new_git_stash_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

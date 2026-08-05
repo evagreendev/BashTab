@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List PCI devices
 function __bu_bu_get_pci_device_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Decompress a compressed file
 function __bu_bu_expand_file_main()
 {
 local -r invocation_dir=$PWD

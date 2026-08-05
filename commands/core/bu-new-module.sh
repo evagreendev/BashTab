@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Scaffold a new BashTab module
 function __bu_bu_new_module_main()
 {
 set -e

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Display TLS certificate information for a domain
 function __bu_bu_get_certificate_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

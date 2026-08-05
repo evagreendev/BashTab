@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Show bash shell options (set -o)
 function __bu_bu_get_shell_option_main()
 {
 local -r invocation_dir=$PWD

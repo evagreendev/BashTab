@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Print the current working directory
 function __bu_bu_get_location_main()
 {
 local -r invocation_dir=$PWD

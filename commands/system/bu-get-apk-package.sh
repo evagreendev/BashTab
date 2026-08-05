@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List installed Alpine Linux packages
 function __bu_bu_get_apk_package_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

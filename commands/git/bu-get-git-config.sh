@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Show Git configuration settings
 function __bu_bu_get_git_config_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

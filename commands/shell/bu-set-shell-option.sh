@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Set a bash shell option
 function __bu_bu_set_shell_option_main()
 {
 local -r invocation_dir=$PWD

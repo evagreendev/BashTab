@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Parse a URL into its components
 function __bu_bu_convert_from_url_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

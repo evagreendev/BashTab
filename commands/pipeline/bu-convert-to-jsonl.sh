@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Normalize and emit JSONL records
 function __bu_bu_convert_to_jsonl_main()
 {
 local -r invocation_dir=$PWD

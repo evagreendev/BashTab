@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Convert JSON text to JSONL records
 function __bu_bu_convert_from_json_main()
 {
 local -r invocation_dir=$PWD

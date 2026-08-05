@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List entries in a tar or zip archive
 function __bu_bu_get_archive_entry_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

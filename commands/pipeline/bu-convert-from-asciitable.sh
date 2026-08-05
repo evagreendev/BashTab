@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Convert ASCII table text to JSONL records
 function __bu_bu_convert_from_asciitable_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

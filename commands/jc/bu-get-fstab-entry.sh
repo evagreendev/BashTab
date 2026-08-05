@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List filesystem mount entries from fstab
 function __bu_bu_get_fstab_entry_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Time the execution of a command
 function __bu_bu_measure_command_main()
 {
 local -r invocation_dir=$PWD

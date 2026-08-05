@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List mounted filesystems
 function __bu_bu_get_mount_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List local system users
 function __bu_bu_get_local_user_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

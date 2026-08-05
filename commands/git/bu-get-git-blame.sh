@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: Show line-by-line Git authorship information
 function __bu_bu_get_git_blame_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Synopsis: List running processes
 function __bu_bu_get_process_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.
