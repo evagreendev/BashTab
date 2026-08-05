@@ -53,6 +53,43 @@ source ./activate --__bu-inline ./inline.sh
 5. Sources all core modules
 6. Runs pre-init callbacks, then main init, then post-entrypoint callbacks
 
+### ⚠️ Custom `source` Function (read this before writing sourced files)
+
+After activation, `source` is **not the bash builtin** — `bu_custom_source.sh`
+replaces it with a function (`bu_def_source`) that adds `--__bu-once`,
+autopushd, and inline-build support. One critical consequence:
+
+**Any file sourced through it executes inside that function's scope.** A
+top-level `declare` (without `-g`) in a sourced file therefore creates a
+**function-local variable that vanishes when `source` returns**. The failure
+is silent: the globals you declared are simply missing afterwards.
+
+```bash
+# ✗ BROKEN in sourced files — becomes a local of the source() function,
+#   lost as soon as source returns
+declare -r MY_CONST=$'\e'
+declare -A MY_MAP=()
+declare -i MY_COUNTER=0
+
+# ✓ CORRECT — global declarations survive
+declare -g -r MY_CONST=$'\e'
+declare -A -g MY_MAP=()
+declare -g -i MY_COUNTER=0
+
+# ✓ ALSO FINE — plain assignments create/modify globals even inside a function
+MY_SCALAR=value
+MY_ARRAY=(a b c)
+# (but associative arrays and readonly REQUIRE declare, so use -g for those)
+```
+
+**Symptoms of a missing `-g`:** `declare: VAR: not found` after sourcing;
+escape sequences printed literally (`[1m` instead of bold text); unset
+variables silently treated as `0`/`""` in arithmetic and expansions.
+
+Escape hatches: `builtin source file.sh` bypasses the wrapper entirely;
+`bu_ext_source` temporarily undefines it. Check at runtime with
+`[[ "$BU_SOURCE_IS_CUSTOM" == true ]]`.
+
 ### Commands (`/commands/`)
 
 Scripts named `bu-*.sh` that can be invoked via:
@@ -237,10 +274,10 @@ When joining for display, use `${arr[*]}` (joins with first character of IFS, ty
 
 ### Variables
 
-- **Global variables**: `BU_*` prefix, declare with `declare -g` or `declare -A -g`
+- **Global variables**: `BU_*` prefix, declare with `declare -g` or `declare -A -g` — the `-g` is **required**, not stylistic (see "Custom `source` Function" above)
 - **Local variables**: Always `local`, use `local -r` when the value never changes after initialization
 - **Return values**: `BU_RET` for strings/arrays, `BU_RET_MAP` for associative arrays
-- **Constants**: `declare -r` at global scope
+- **Constants**: `declare -r -g` at global scope (`-g` required for the same reason)
 
 Declare locals at the top of the function, not scattered throughout:
 
