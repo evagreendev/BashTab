@@ -250,7 +250,7 @@ __bu_tv_terminal_setup()
 
     printf '%s' "$__BU_TV_ALT_SCREEN_ON"
     printf '%s' "$__BU_TV_CURSOR_HIDE"
-    printf '%s' "$__BU_TV_CLEAR_SCREEN"
+    printf '%s%s' "$__BU_TV_CURSOR_HOME" "$__BU_TV_CLEAR_SCREEN"
 
     __bu_tv_update_dimensions
 
@@ -321,7 +321,7 @@ __bu_tv_on_resize()
 # ```
 __bu_tv_clamp_offsets()
 {
-    local -i data_rows=$((_TV_TERM_ROWS - 2))
+    local -i data_rows=$((_TV_TERM_ROWS - 3))
     (( data_rows < 1 )) && data_rows=1
 
     local -i max_row=$((_TV_NUM_ROWS - data_rows))
@@ -552,66 +552,52 @@ __bu_tv_is_current_match()
 # ```
 __bu_tv_render_frame()
 {
-    local -i data_rows=$((_TV_TERM_ROWS - 2))
+    # Screen layout:
+    #   row 1          = header
+    #   row 2          = separator
+    #   rows 3..N-1    = data (TERM_ROWS - 3 rows)
+    #   row N (bottom) = status line
+    #
+    # Each row is drawn with absolute cursor positioning and \e[K
+    # (clear-to-EOL) — no newlines anywhere, so the terminal can never
+    # scroll and push the header off-screen.
+    local -i data_rows=$((_TV_TERM_ROWS - 3))
     (( data_rows < 1 )) && data_rows=1
 
     local frame=
-    printf -v frame '%s%s' "$__BU_TV_CURSOR_HOME" "$__BU_TV_CLEAR_SCREEN"
 
-    # Header
+    # Header (row 1)
     local header_line
     header_line=$(__bu_tv_render_line -1 false)
-    printf -v frame '%s%s\n' "$frame" "$header_line"
+    printf -v frame '%s\e[1;1H%s\e[K' "$frame" "$header_line"
 
-    # Separator
+    # Separator (row 2)
     local sep_line
     sep_line=$(__bu_tv_render_line -2 false)
-    printf -v frame '%s%s\n' "$frame" "$sep_line"
+    printf -v frame '%s\e[2;1H%s\e[K' "$frame" "$sep_line"
 
-    # Data rows
+    # Data rows (rows 3..N-1)
     local -i i
     for (( i = 0; i < data_rows; i++ ))
     do
         local -i row_idx=$((_TV_ROW_OFFSET + i))
+        local -i screen_row=$((i + 3))
         if (( row_idx >= _TV_NUM_ROWS ))
         then
-            printf -v frame '%s%s\n' "$frame" "$__BU_TV_CLEAR_LINE"
+            printf -v frame '%s\e[%d;1H\e[K' "$frame" "$screen_row"
         else
             local is_match=false
             __bu_tv_is_current_match $row_idx && is_match=true
             local row_line
             row_line=$(__bu_tv_render_line $row_idx "$is_match")
-            # Pad to terminal width to clear old content
-            local stripped="$row_line"
-            while [[ $stripped =~ $'\e'\[[0-9\;]*[a-zA-Z] ]]
-            do
-                stripped=${stripped//"${BASH_REMATCH[0]}"/}
-            done
-            local -i line_len=${#stripped}
-            if (( line_len < _TV_TERM_COLS ))
-            then
-                local -i pad_needed=$((_TV_TERM_COLS - line_len))
-                local padding=
-                local -i p
-                for (( p = 0; p < pad_needed; p++ )); do padding+=' '; done
-                row_line+="$padding"
-            fi
-            printf -v frame '%s%s\n' "$frame" "$row_line"
+            printf -v frame '%s\e[%d;1H%s\e[K' "$frame" "$screen_row" "$row_line"
         fi
     done
 
-    # Clear leftover lines then status
-    local -i total_drawn=$((2 + data_rows))
-    while (( total_drawn < _TV_TERM_ROWS - 1 ))
-    do
-        printf -v frame '%s%s\n' "$frame" "$__BU_TV_CLEAR_LINE"
-        total_drawn=$((total_drawn + 1))
-    done
-
-    # Status line
+    # Status line (bottom row) — absolute position, no trailing newline
     local status
     status=$(__bu_tv_render_status)
-    printf -v frame '%s%s' "$frame" "$status"
+    printf -v frame '%s\e[%d;1H%s\e[K' "$frame" "$_TV_TERM_ROWS" "$status"
 
     printf '%s' "$frame"
 }
