@@ -319,6 +319,16 @@ EOF
         cat "$function_or_script_path"
     fi |\
     awk '
+    # Escape prose for safe embedding in bash double-quoted assignments.
+    # Deliberately NOT escaping $: ${VAR} and $(cmd) remain live so docs
+    # can interpolate colors/paths and opt into dynamic content — unlike
+    # backticks, $(...) has no innocent prose reading.
+    function esc(s) {
+        gsub(/\\/, "\\\\", s)
+        gsub(/"/, "\\\"", s)
+        gsub(/`/, "\\`", s)
+        return s
+    }
     NR < '"$start_lineno"' { next }
     '"$start_indicator"' {
         if (!is_start) {
@@ -358,9 +368,9 @@ EOF
         if ( state == outside ) {
             idx = idx + 1
             state = in_alternatives
-            printf "bu_script_options[%d]=\"%s\n", idx, line
+            printf "bu_script_options[%d]=\"%s\n", idx, esc(line)
         } else {
-            printf "%s\n", line
+            printf "%s\n", esc(line)
         }
         next
     }
@@ -375,15 +385,15 @@ EOF
 
         if ( state == outside ) {
             idx = idx + 1
-            printf "bu_script_options[%d]=\"%s\"\n", idx, line
+            printf "bu_script_options[%d]=\"%s\"\n", idx, esc(line)
 
             option_parameter_description = $0
             if (! sub(/.*\) *# */, "", option_parameter_description)) {
                 option_parameter_description = ""
             }
-            printf "bu_script_option_synopsis[%d]=\"%s\"\n", idx, option_parameter_description
+            printf "bu_script_option_synopsis[%d]=\"%s\"\n", idx, esc(option_parameter_description)
         } else {
-            printf "%s\"\n", line
+            printf "%s\"\n", esc(line)
         }
         printf "bu_script_option_docs[%d]=\"", idx, line
         state = pre_documentation
@@ -410,7 +420,7 @@ EOF
         }
         if ( $0 ~ /^[[:space:]]*# ?.*/ ) {
             sub( /^[[:space:]]*# ?/, "", line )
-            print line
+            print esc(line)
         } else {
             state = post_documentation
             printf "\"\n"
@@ -509,6 +519,16 @@ EOF
         cat "$function_or_script_path"
     fi |\
     awk '
+    # Escape prose for safe embedding in bash double-quoted assignments.
+    # Deliberately NOT escaping $: ${VAR} and $(cmd) remain live so docs
+    # can interpolate colors/paths and opt into dynamic content — unlike
+    # backticks, $(...) has no innocent prose reading.
+    function esc(s) {
+        gsub(/\\/, "\\\\", s)
+        gsub(/"/, "\\\"", s)
+        gsub(/`/, "\\`", s)
+        return s
+    }
     NR < '"$start_row"' { next }
     '"$start_indicator"' {
         if (!is_start) {
@@ -548,9 +568,9 @@ EOF
         if ( state == outside ) {
             idx = idx + 1
             state = in_alternatives
-            printf "bu_script_options[%d]=\"%s\n", idx, line
+            printf "bu_script_options[%d]=\"%s\n", idx, esc(line)
         } else {
-            printf "%s\n", line
+            printf "%s\n", esc(line)
         }
         next
     }
@@ -569,7 +589,7 @@ EOF
             if (! sub(/.*\) *# */, "", option_parameter_description)) {
                 option_parameter_description = ""
             }
-            printf "bu_script_option_synopsis[%d]=\"%s\"\n", idx, option_parameter_description
+            printf "bu_script_option_synopsis[%d]=\"%s\"\n", idx, esc(option_parameter_description)
 
             printf "bu_script_option_docs[%d]=\"", idx, line
             state = pre_documentation
@@ -586,15 +606,15 @@ EOF
 
         if ( state == outside ) {
             idx = idx + 1
-            printf "bu_script_options[%d]=\"%s\"\n", idx, line
+            printf "bu_script_options[%d]=\"%s\"\n", idx, esc(line)
 
             option_parameter_description = $0
             if (! sub(/.*\) *# */, "", option_parameter_description)) {
                 option_parameter_description = ""
             }
-            printf "bu_script_option_synopsis[%d]=\"%s\"\n", idx, option_parameter_description
+            printf "bu_script_option_synopsis[%d]=\"%s\"\n", idx, esc(option_parameter_description)
         } else {
-            printf "%s\"\n", line
+            printf "%s\"\n", esc(line)
         }
         printf "bu_script_option_docs[%d]=\"", idx, line
         state = pre_documentation
@@ -621,7 +641,7 @@ EOF
         }
         if ( $0 ~ /^[[:space:]]*# ?.*/ ) {
             sub( /^[[:space:]]*# ?/, "", line )
-            print line
+            print esc(line)
         } else {
             state = post_documentation
             printf "\"\n"
