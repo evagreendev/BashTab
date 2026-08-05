@@ -470,7 +470,7 @@ bu_cap_reprobe_unavailable()
             # Clear cached type so it gets re-resolved
             unset 'BU_COMMAND_PROPERTIES[$cmd,type]'
             bu_log_info "Reprobe recovered $cmd"
-            ((recovered++))
+            : $((recovered++))
         fi
     done
 

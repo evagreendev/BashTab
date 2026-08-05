@@ -119,6 +119,7 @@ __bu_init_env_commands()
                 if $compat_cache_valid; then
                     # Cache hit — check if this command was marked unavailable
                     if [[ -n "${BU_COMMAND_UNAVAILABLE[$command]:-}" ]]; then
+                        BU_COMMAND_PROPERTIES[$command,unavailable_path]=$script_path
                         continue
                     fi
                 else

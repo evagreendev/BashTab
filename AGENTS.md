@@ -316,6 +316,7 @@ and kill the user's shell session.
 - [ ] Could this be sourced from a shell with `set -e`? (yes, always)
 - [ ] Does any code path return non-zero for a non-fatal reason? → change to `return 0`
 - [ ] Is the call site guarded with `|| true`?
+- [ ] Any `((counter++))` increment from 0? → use `: $((counter++))` instead (bare arithmetic returns 1 when the expression evaluates to 0, which aborts under `set -e`)
 
 ### Quoting
 
