@@ -105,8 +105,7 @@ bu_user_defined_autocomplete_lazy()
     BU_RET=0
     for fn in "${BU_USER_DEFINED_AUTOCOMPLETE_HELPERS[@]}"
     do
-        "$fn" "$@"
-        fn_exit_code=$?
+        "$fn" "$@" && fn_exit_code=0 || fn_exit_code=$?
         case "$fn_exit_code" in
         0|124)
             exit_code=$fn_exit_code

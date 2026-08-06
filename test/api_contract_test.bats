@@ -151,6 +151,37 @@ function test_user_defined_autocomplete_helper { #@test
     unset -f __test_my_helper
 }
 
+function test_user_defined_autocomplete_lazy_set_e_safe { #@test
+    # A helper legitimately returning 1 ("not my verb") must not abort
+    # the loop caller under `set -e`.  The second helper must still run.
+    local -a saved_helpers=("${BU_USER_DEFINED_AUTOCOMPLETE_HELPERS[@]}")
+
+    __test_reject_helper() {
+        # "Not my verb" — designed to return 1
+        (($#)) && [[ "$1" == test-verb ]] && return 1 || return 1
+    }
+    __test_accept_helper() {
+        COMPREPLY+=(accepted-by-second)
+        BU_RET=0
+        return 0
+    }
+
+    BU_USER_DEFINED_AUTOCOMPLETE_HELPERS=(__test_reject_helper __test_accept_helper)
+
+    local COMPREPLY=() BU_RET=0
+
+    # Run under set -e; if the first helper's non-zero return aborts,
+    # the second helper never fires and COMPREPLY stays empty.
+    set -e
+    bu_user_defined_autocomplete_lazy test-verb extra
+    set +e
+
+    assert_equal "${COMPREPLY[0]:-}" 'accepted-by-second'
+
+    BU_USER_DEFINED_AUTOCOMPLETE_HELPERS=("${saved_helpers[@]}")
+    unset -f __test_reject_helper __test_accept_helper
+}
+
 # ===========================================================================
 # bu_env_is_in_autocomplete
 # ===========================================================================
