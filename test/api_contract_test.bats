@@ -231,6 +231,42 @@ function test_scope_cleanup_runs_exactly_once { #@test
     assert [ ! -f "$marker_file" ]
 }
 
+function test_scope_cleanup_arg_with_space { #@test
+    # A cleanup argument containing a space must survive the round trip
+    # through printf '%q ' (store) and eval (execute) as one argument.
+    local d
+    d=$(mktemp -d)
+    bu_scope_push_function
+    bu_scope_add_cleanup touch "$d/a b.done"
+    bu_scope_pop_function
+    assert [ -f "$d/a b.done" ]
+    rm -rf "$d"
+}
+
+function test_scope_cleanup_arg_with_metachar { #@test
+    # Shell metacharacters in a cleanup argument must be stored as
+    # literals, not interpreted by eval at execution time.
+    local d
+    d=$(mktemp -d)
+    bu_scope_push_function
+    # $ is a shell metachar; %q escapes it so eval treats it literally
+    bu_scope_add_cleanup touch "$d/dollar\$.done"
+    bu_scope_pop_function
+    assert [ -f "$d/dollar\$.done" ]
+    rm -rf "$d"
+}
+
+function test_scope_cleanup_multiple_args_preserved { #@test
+    # Simple multi-word cleanups (function name + args) still dispatch
+    # correctly through eval.
+    local d
+    d=$(mktemp -d)
+    bu_scope_push_function
+    bu_scope_add_cleanup rm -rf "$d"
+    bu_scope_pop_function
+    assert [ ! -d "$d" ]
+}
+
 # ===========================================================================
 # bu_cached_execute
 # ===========================================================================

@@ -1335,7 +1335,7 @@ bu_scope_pop()
     for (( i=${#deferred[@]}-1; i >= 0; i-- ))
     do
         bu_log_debug "Cleaning up ${BU_SCOPE_STACK[-1]}[$i]: \"${deferred[i]}\""
-        if ! ${deferred[i]}
+        if ! eval "${deferred[i]}"
         then
             bu_log_err "Cleanup failed: \"${deferred[i]}\""
             ret=1
@@ -1403,7 +1403,7 @@ bu_scope_pop_function()
         for (( j=${#deferred[@]}-1; j >= 0; j-- ))
         do
             bu_log_debug "Cleaning up ${BU_SCOPE_STACK[-1]}[$j]: \"${deferred[j]}\""
-            if ! ${deferred[j]}
+            if ! eval "${deferred[j]}"
             then
                 bu_log_err "Cleanup failed: \"${deferred[j]}\""
                 ret=1
