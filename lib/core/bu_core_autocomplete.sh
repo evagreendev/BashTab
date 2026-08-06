@@ -766,7 +766,7 @@ bu_parse_command_context()
     local -r end_marker=${start_marker:2}--
     autocompletion=(
         :"$end_marker"
-        --as-if bu "${start_marker:2}"
+        --as-if $BU_CLI_COMMAND_NAME "${start_marker:2}"
     )
 
     local i

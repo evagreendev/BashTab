@@ -62,3 +62,23 @@ function test_cli_rename_alias_completion { #@test
     # Should have completions (all registered commands)
     assert [ "${#COMPREPLY[@]}" -gt 0 ]
 }
+
+function test_cli_rename_parse_command_context_uses_cli_name { #@test
+    # bu_parse_command_context must use \$BU_CLI_COMMAND_NAME in its
+    # --as-if token, not the hardcoded literal 'bu'.  Otherwise a
+    # renamed CLI never expands nested sub-options.
+    local -a autocompletion=()
+    bu_parse_command_context --__my_marker extra-arg
+    # Find the word immediately following --as-if; it must be the
+    # renamed CLI name (xx), not the hardcoded "bu".
+    local -i i
+    local found_cli_name=false
+    for (( i = 0; i < ${#autocompletion[@]}; i++ )); do
+        if [[ "${autocompletion[$i]}" == '--as-if' ]]; then
+            local next=${autocompletion[$i+1]:-}
+            [[ "$next" != bu ]] || return 1
+            [[ "$next" == "$BU_CLI_COMMAND_NAME" ]] && found_cli_name=true
+        fi
+    done
+    assert_equal "$found_cli_name" true
+}
