@@ -314,8 +314,8 @@ __bu_tv_build_colors()
 # ```
 # *Description*:
 # Install the viewer's full trap set.  Called at setup and again from the
-# SIGCONT handler (the TSTP path clears the TSTP trap to re-deliver a real
-# stop, and terminal_restore clears the rest).
+# SIGCONT handler (on resume after a SIGSTOP stop).  The EXIT/INT/TERM path
+# clears all traps via terminal_restore.
 # ```
 __bu_tv_install_traps()
 {
@@ -397,15 +397,20 @@ __bu_tv_terminal_restore()
 
 # ```
 # *Description*:
-# SIGTSTP handler (Ctrl-Z): restore the terminal FIRST so the shell prompt
-# is usable while stopped, then re-deliver a real stop with the default
-# action.  The CONT trap (still armed) handles the fg-side resume.
+# SIGTSTP handler (Ctrl-Z): restore the terminal so the shell prompt is
+# usable while stopped, then send SIGSTOP to unconditionally stop the process.
+#
+# We use SIGSTOP (not a re-raised SIGTSTP) because bash defers trap mutations
+# for the currently-handled signal: inside the SIGTSTP handler, `trap -` does
+# not take effect and the re-raised SIGTSTP stays blocked until the handler
+# returns, at which point the old handler fires again — an infinite loop.
+# SIGSTOP cannot be caught, blocked, or ignored, so it always stops the
+# process immediately.  The CONT trap (still armed) handles the fg-side resume.
 # ```
 __bu_tv_on_tstp()
 {
     __bu_tv_terminal_leave_tui
-    trap - SIGTSTP
-    kill -SIGTSTP $$
+    kill -SIGSTOP $$
 }
 
 # ```
