@@ -499,7 +499,7 @@ __bu_setup_tput()
     local joined_cmd=$*
     # Note that the --str --proc mode will lock up at the `read` if there is no newline.
     # tput functions don't make a newline, so we avoid the --proc mode in all cases, WSL or not. 
-    bu_cached_keyed_execute --str tput_"${joined_cmd// /_}" bu_stdout_to_ret --no-proc --str tput "$@" 2>/dev/null
+    bu_cached_keyed_execute --str tput_"${joined_cmd// /_}" bu_stdout_to_ret --no-proc --str tput "$@" 2>/dev/null || BU_RET=
     __bu_setup_tput_outvar=$BU_RET
 }
 
@@ -531,7 +531,8 @@ BU_TPUT_VSCODE_DARK_GREEN=
 __bu_setup_tput BU_TPUT_UNDERLINE    smul
 __bu_setup_tput BU_TPUT_NO_UNDERLINE rmul
 __bu_setup_tput BU_TPUT_BOLD         bold
-BU_TPUT_COLORS=$(tput colors)
+BU_TPUT_COLORS=$(tput colors 2>/dev/null) || BU_TPUT_COLORS=0
+((BU_TPUT_COLORS > 0)) || BU_TPUT_COLORS=0
 if ((BU_TPUT_COLORS > 0)) 
 then
 __bu_setup_tput BU_TPUT_RESET        sgr0
