@@ -689,7 +689,12 @@ bu_parse_multiselect()
         bu_parsed_multiselect_arguments[$arg1]=1
     fi
 
-    autocompletion=(--options-at "${BASH_SOURCE[1]}" "${BASH_LINENO[0]}" "$@")
+    if [[ "${__bu_g_is_inject:-}" == true ]]
+    then
+        autocompletion+=(--options-at "${BASH_SOURCE[1]}" "${BASH_LINENO[0]}" "$@")
+    else
+        autocompletion=(--options-at "${BASH_SOURCE[1]}" "${BASH_LINENO[0]}" "$@")
+    fi
     shift_by=1
     : $((__bu_g_shift_by++))
 }
@@ -704,7 +709,12 @@ bu_parse_positional()
     fi
 
     : $((shift_by++)) $((__bu_g_shift_by++))
-    autocompletion=("$@")
+    if [[ "${__bu_g_is_inject:-}" == true ]]
+    then
+        autocompletion+=("$@")
+    else
+        autocompletion=("$@")
+    fi
 }
 
 bu_validate_positional()
@@ -804,6 +814,59 @@ bu_parse_nested()
     "$nested_impl" "${nested_args[@]}"
     shift_by=$saved_shift_by
     : $((shift_by += __bu_g_shift_by))
+}
+
+# ```
+# *Description*:
+# Compose-mode parse: like `bu_parse_nested` but APPENDS `--options-of <impl>`
+# to the accumulated `autocompletion` array instead of replacing it.  Sets an
+# inject flag so that `bu_parse_multiselect` and `bu_parse_positional` called
+# inside the impl also append rather than reset.  Returns the impl's exit
+# status so callers can chain with `||`.
+#
+# Intended for catch-all arms that want to offer candidates from multiple
+# resolver impls:
+#
+#     *)
+#         bu_parse_inject resolver_a "$@" || bu_parse_inject resolver_b "$@"
+#         ;;
+#
+# *Params*:
+# - `$1`: Impl function name
+# - `$@`: Remaining arguments (shifted by `shift_by - 1` before calling impl)
+#
+# *Returns*:
+# - The impl's exit code (0 / 1 / 124).
+# - `autocompletion`: Augmented with `--options-of <impl>` plus whatever the
+#   impl's own parse calls contribute.
+# ```
+bu_parse_inject()
+{
+    local -r inject_impl=$1
+    shift
+
+    # Append the impl reference to the existing autocompletion array so
+    # the master helper can parse the impl's case block for options.
+    autocompletion+=(--options-of "$inject_impl")
+
+    # Save and reset shift state (same pattern as bu_parse_nested).
+    local saved_shift_by=$shift_by
+    # Use shift_by - 1 so the impl sees the current arg as its first.
+    (( saved_shift_by > 0 )) && shift "$((saved_shift_by - 1))"
+    local inject_args=("$@")
+    shift_by=0
+    local __bu_g_shift_by=0
+
+    # Set the inject flag so inner parse calls append.
+    local __bu_g_is_inject=true
+
+    "$inject_impl" "${inject_args[@]}"
+    local inject_rc=$?
+
+    shift_by=$saved_shift_by
+    : $((shift_by += __bu_g_shift_by))
+
+    return "$inject_rc"
 }
 
 # MARK: Parse errors

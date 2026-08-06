@@ -67,6 +67,128 @@ function test_parse_multiselect_sets_shift_by_and_autocompletion { #@test
 }
 
 # ===========================================================================
+# bu_parse_inject
+# ===========================================================================
+
+function test_parse_inject_appends_options_of { #@test
+    # bu_parse_inject must append --options-of <impl> to the
+    # existing autocompletion array, not replace it.
+    local shift_by=1
+    local __bu_g_shift_by=0
+    local autocompletion=(--original entry)
+
+    __test_inject_resolver() { return 0; }
+
+    bu_parse_inject __test_inject_resolver arg1 arg2
+    assert_equal "${autocompletion[0]}" '--original'
+    assert_equal "${autocompletion[1]}" 'entry'
+    assert_equal "${autocompletion[2]}" '--options-of'
+    assert_equal "${autocompletion[3]}" '__test_inject_resolver'
+
+    unset -f __test_inject_resolver
+}
+
+function test_parse_inject_returns_impl_status { #@test
+    # bu_parse_inject must return the impl's exit code so callers
+    # can chain with ||.
+    local shift_by=1
+    local __bu_g_shift_by=0
+    local autocompletion=()
+
+    __test_returns_0() { return 0; }
+    __test_returns_1() { return 1; }
+    __test_returns_124() { return 124; }
+
+    run bu_parse_inject __test_returns_0
+    assert_equal "$status" 0
+
+    run bu_parse_inject __test_returns_1
+    assert_equal "$status" 1
+
+    run bu_parse_inject __test_returns_124
+    assert_equal "$status" 124
+
+    unset -f __test_returns_0 __test_returns_1 __test_returns_124
+}
+
+function test_parse_inject_multiselect_appends_not_replaces { #@test
+    # When __bu_g_is_inject is true, bu_parse_multiselect must
+    # append to autocompletion instead of resetting it.
+    local shift_by=0
+    local __bu_g_shift_by=0
+    local error_msg=
+    local autocompletion=(--preexisting completions)
+    local __bu_g_is_inject=true
+
+    bu_parse_multiselect 3 --some-flag
+    assert_equal "${autocompletion[0]}" '--preexisting'
+    assert_equal "${autocompletion[1]}" 'completions'
+    assert_equal "${autocompletion[2]}" '--options-at'
+}
+
+function test_parse_inject_positional_appends_not_replaces { #@test
+    # When __bu_g_is_inject is true, bu_parse_positional must
+    # append to autocompletion instead of resetting it.
+    local shift_by=0
+    local __bu_g_shift_by=0
+    local autocompletion=(--preexisting completions)
+    local __bu_g_is_inject=true
+
+    bu_parse_positional 1 --hint "some hint"
+    assert_equal "${autocompletion[0]}" '--preexisting'
+    assert_equal "${autocompletion[1]}" 'completions'
+    assert_equal "${autocompletion[2]}" '--hint'
+    assert_equal "${autocompletion[3]}" 'some hint'
+}
+
+function test_parse_inject_compose_two_impls { #@test
+    # A catch-all arm calling bu_parse_inject resolver_a ||
+    # bu_parse_inject resolver_b must offer both resolvers'
+    # options in the autocompletion array.
+    local shift_by=1
+    local __bu_g_shift_by=0
+    local autocompletion=()
+
+    __test_resolver_a() {
+        local error_msg=
+        bu_parse_multiselect 3 --flag-a
+        return 1
+    }
+    __test_resolver_b() {
+        local error_msg=
+        bu_parse_positional 1 --hint "resolver b hint"
+        return 0
+    }
+
+    bu_parse_inject __test_resolver_a arg || bu_parse_inject __test_resolver_b arg
+
+    # Should contain both --options-of entries and both resolvers' contributions
+    assert [ "${#autocompletion[@]}" -ge 4 ]
+
+    unset -f __test_resolver_a __test_resolver_b
+}
+
+function test_parse_without_inject_resets_normally { #@test
+    # Regression: without the inject flag, bu_parse_positional and
+    # bu_parse_multiselect must reset autocompletion exactly as
+    # before (byte-identical behavior when __bu_g_is_inject is unset).
+    local shift_by=0
+    local __bu_g_shift_by=0
+    local error_msg=
+    local autocompletion=(--old)
+
+    bu_parse_multiselect 3 --some-flag
+    assert_equal "${autocompletion[0]}" '--options-at'
+    assert [ "${#autocompletion[@]}" -ge 3 ]
+
+    shift_by=0
+    autocompletion=(--old)
+    bu_parse_positional 1 --hint "hint"
+    assert_equal "${autocompletion[0]}" '--hint'
+    assert_equal "${autocompletion[1]}" 'hint'
+}
+
+# ===========================================================================
 # bu_autocomplete
 # ===========================================================================
 
