@@ -195,6 +195,7 @@ bu_init()
     __bu_init_editor
     __bu_init_tmux
     __bu_init_autocomplete
+    __bu_expose
 }
 
 bu_init

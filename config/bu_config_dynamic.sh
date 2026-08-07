@@ -89,3 +89,11 @@ BU_OUT_PROBE_PIPELINE=${BU_OUT_PROBE_PIPELINE:-${BU_CONFIG_PROPERTIES[BU_OUT_PRO
 bu_config_register BU_PROMPT_SHOW_MODULE --bool --default false \
     --hint "Show the active top-level module name in the shell prompt (PS1)"
 BU_PROMPT_SHOW_MODULE=${BU_PROMPT_SHOW_MODULE:-${BU_CONFIG_PROPERTIES[BU_PROMPT_SHOW_MODULE,default]}}
+
+# ```
+# When true, expose every source/execute command as a bare shell function
+# (e.g. `get-command` instead of `bu get-command`), with Tab completion.
+# ```
+bu_config_register BU_EXPOSE_COMMANDS --bool --default false \
+    --hint "Expose commands as bare shell functions with Tab completion"
+BU_EXPOSE_COMMANDS=${BU_EXPOSE_COMMANDS:-false}

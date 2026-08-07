@@ -60,6 +60,7 @@ bu_cap_init
 source ./lib/core/bu_core_autocomplete.sh --__bu-once
 source ./lib/core/bu_core_tmux.sh --__bu-once
 source ./lib/core/bu_core_cli.sh --__bu-once
+source ./lib/core/bu_core_expose.sh --__bu-once
 source ./lib/core/bu_core_preinit.sh --__bu-once
 
 # Now that all registry arrays are declared, parse BU_MODULE_LIST.
