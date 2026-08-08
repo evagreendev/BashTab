@@ -1674,24 +1674,26 @@ __bu_autocomplete_completion_func_master_helper()
                 bu_autocomplete_add_autocompletions "${sub_args[@]}" "${opt_cur_word[@]}"
                 ;;
             --pipeline-fields)
-                # Shorthand for --ret __bu_out_complete_pipeline_fields [--dot] ret--
+                # Shorthand for --ret __bu_out_complete_pipeline_fields [--dot] [--nested] ret--
                 # Resolves record fields from the upstream pipeline producer.
                 # Optional --dot prefix for jq-style completions (.name, .verb, ...).
+                # Optional --nested for tree-aware completion (server.host, server.port).
                 # When fields are found, dynamically updates bu_autocomplete_hint to
                 # show the available field names. Place --hint BEFORE --pipeline-fields
                 # in the DSL array so the dynamic hint can override the static one.
                 local _pf_is_dot=false
+                local _pf_is_nested=false
                 local _pf_arg
                 for _pf_arg in "${sub_args[@]}"
                 do
-                    if [[ "$_pf_arg" == --dot ]]
-                    then
-                        _pf_is_dot=true
-                        break
-                    fi
+                    case "$_pf_arg" in
+                    --dot)    _pf_is_dot=true ;;
+                    --nested) _pf_is_nested=true ;;
+                    esac
                 done
                 local -a _pf_call_args=()
                 "$_pf_is_dot" && _pf_call_args+=(--dot)
+                "$_pf_is_nested" && _pf_call_args+=(--nested)
                 if __bu_out_complete_pipeline_fields "${_pf_call_args[@]}" "${opt_cur_word[@]}"
                 then
                     if [[ -n "$current_ansi_color" ]]

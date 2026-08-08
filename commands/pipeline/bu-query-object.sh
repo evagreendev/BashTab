@@ -11,6 +11,7 @@ bu_scope_push_function
 bu_run_log_command "$@"
 
 local select_fields=
+local is_select_expand=false
 local from_file=
 local out_file=
 local -a where_exprs=()
@@ -36,6 +37,10 @@ do
         # Fields to keep, in order (comma-separated; new=old renames)
         bu_parse_positional $# --hint "Fields, new=old renames" --pipeline-fields pipeline-fields--
         select_fields=${!shift_by}
+        ;;
+    --expand|expand)# _FLAG
+        # Lift a single nested object field to top level (applies to select clause)
+        is_select_expand=true
         ;;
     --from|from)# FROM
         # Query a particular file. Defaults to /dev/stdin
@@ -678,7 +683,10 @@ __bu_query_object_select()
 {
     if [[ -n "$select_fields" ]]
     then
-        bu_out_select "$select_fields"
+        local -a _qs_args=()
+        "$is_select_expand" && _qs_args+=(--expand)
+        _qs_args+=("$select_fields")
+        bu_out_select "${_qs_args[@]}"
     else
         cat
     fi

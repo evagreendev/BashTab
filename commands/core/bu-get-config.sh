@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: List BashTab configuration settings
+# Fields: name value default allowed description
 function __bu_bu_get_config_main()
 {
 # --is-compatible: no external dependencies

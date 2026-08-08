@@ -13,6 +13,7 @@ bu_run_log_command "$@"
 local fields=
 local format=auto
 local is_unique=false
+local is_expand=false
 local is_help=false
 local error_msg=
 local autocompletion=()
@@ -28,6 +29,10 @@ do
     --unique)# _FLAG
         # Deduplicate records after projection (first occurrence wins)
         is_unique=true
+        ;;
+    --expand)# _FLAG
+        # Lift a single nested object field to top level
+        is_expand=true
         ;;
     --format)# FORMAT
         # Output format
@@ -78,6 +83,7 @@ Reads records from stdin. Fields are emitted in the specified order;
         --example "Keep two fields" "name,version" \
         --example "Rename a field" "name,ver=version" \
         --example "Select unique values" "--unique verb" \
+        --example "Flatten a nested object" "--expand server" \
         --example "Output as JSON array" "name,version --format json"
     return 0
 fi
@@ -93,6 +99,7 @@ fi
 # Cmdlets implicitly end at Out-Default: a table on a terminal, JSONL when piped
 local -a select_args=()
 "$is_unique" && select_args+=(--unique)
+"$is_expand" && select_args+=(--expand)
 select_args+=("$fields")
 bu_out_select "${select_args[@]}" | bu_out --format "$format"
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: List registered commands and their properties
+# Fields: name verb noun namespace type synopsis fields stage
 function __bu_bu_get_command_main()
 {
 local -r invocation_dir=$PWD

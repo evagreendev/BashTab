@@ -765,12 +765,16 @@ bu_out_select()
     __bu_out_assert_jq || return 1
 
     local is_unique=false
+    local is_expand=false
     local field_spec=
     while (($#))
     do
         case "$1" in
         --unique)
             is_unique=true
+            ;;
+        --expand)
+            is_expand=true
             ;;
         *)
             if [[ -n "$field_spec" ]]
@@ -787,6 +791,25 @@ bu_out_select()
     then
         bu_log_err "bu_out_select expects a comma-separated field spec (e.g. 'name,ver=version')"
         return 1
+    fi
+
+    if "$is_expand"
+    then
+        # ExpandProperty: lift a single nested object to top level.
+        # "select server --expand" on {"server":{"host":"x"}} → {"host":"x"}
+        # No renaming or multiple fields allowed in expand mode.
+        if [[ "$field_spec" == *,* || "$field_spec" == *\=* ]]
+        then
+            bu_log_err "bu_out_select --expand only accepts a single field (e.g. 'server'), got[$field_spec]"
+            return 1
+        fi
+        if "$is_unique"
+        then
+            "$BU_OUT_JQ" -c ".$field_spec // empty" | bu_out_distinct
+        else
+            "$BU_OUT_JQ" -c ".$field_spec // empty"
+        fi
+        return $?
     fi
 
     local -a specs=()
@@ -1764,11 +1787,16 @@ __bu_autocomplete_fig_completion_func()
 __bu_out_complete_pipeline_fields()
 {
     local is_dot=false
-    if [[ "$1" == --dot ]]
-    then
-        is_dot=true
+    local is_nested=false
+    while (($#))
+    do
+        case "$1" in
+        --dot) is_dot=true ;;
+        --nested) is_nested=true ;;
+        *) break ;;
+        esac
         shift
-    fi
+    done
     local -r cur_word=${1:-}
     BU_RET=()
 
@@ -1848,7 +1876,36 @@ __bu_out_complete_pipeline_fields()
     then
         # shellcheck disable=SC2206 # Intentional word splitting of the field list
         fields=(${BU_OUT_PRODUCER_FIELDS[$best_key]})
-    elif "$BU_OUT_PROBE_PIPELINE" && [[ -n "${BU_OUT_PROBE_COMMANDS[$producer_head]:-}" && -n "$BU_OUT_JQ" ]]
+    fi
+
+    # 2b. Lazy # Fields: annotation — scan the producer script for a header
+    # comment declaring its output schema, same pattern as # Synopsis:.
+    if ((${#fields[@]} == 0))
+    then
+        # Extract command name from canonicalized producer ("bu get-module" → "get-module")
+        local _ff_cmd_name=${producer_str#* }
+        _ff_cmd_name=${_ff_cmd_name%%[[:space:]]*}
+        if [[ -f "${BU_COMMANDS[$_ff_cmd_name]:-}" ]]
+        then
+            local _ff_line
+            _ff_line=$(awk 'FNR>30{exit} /^#[[:space:]]*Fields:[[:space:]]/ {
+                line = $0
+                sub(/^#[[:space:]]*Fields:[[:space:]]*/, "", line)
+                sub(/[[:space:]]+$/, "", line)
+                print line
+                exit
+            }' "${BU_COMMANDS[$_ff_cmd_name]}" 2>/dev/null)
+            if [[ -n "$_ff_line" ]]
+            then
+                # shellcheck disable=SC2206 # Intentional word splitting of the field list
+                fields=($_ff_line)
+                # Cache into the static registry so subsequent completions skip awk
+                BU_OUT_PRODUCER_FIELDS[$producer_str]=$_ff_line
+            fi
+        fi
+    fi
+
+    if ((${#fields[@]} == 0)) && "$BU_OUT_PROBE_PIPELINE" && [[ -n "${BU_OUT_PROBE_COMMANDS[$producer_head]:-}" && -n "$BU_OUT_JQ" ]]
     then
         # 3. Opt-in probing: execute the producer as typed, read the keys of
         # the first record. Auto-dispatch makes piped bu commands emit JSONL.
@@ -1863,6 +1920,38 @@ __bu_out_complete_pipeline_fields()
     fi
     fi
     ((${#fields[@]} == 0)) && return 1
+
+    # --- nested probing: walk all scalar paths from the first record ---
+    local -a nested_paths=()
+    if "$is_nested" && [[ -n "$BU_OUT_JQ" && -n "$producer_eval" ]]
+    then
+        local _np_first_line
+        _np_first_line=$(eval "$producer_eval" 2>/dev/null | head -1)
+        if [[ -n "$_np_first_line" ]]
+        then
+            local _np_raw
+            _np_raw=$("$BU_OUT_JQ" -r 'paths(scalars) | map(tostring) | join(".")' <<<"$_np_first_line" 2>/dev/null)
+            [[ -n "$_np_raw" ]] && mapfile -t nested_paths <<<"$_np_raw"
+
+            # Include top-level object keys (paths with no dot) in fields
+            # so the registry-only top-level list is augmented by any keys
+            # only present in the actual data.
+            local _np_path
+            for _np_path in "${nested_paths[@]}"
+            do
+                if [[ "$_np_path" != *.* ]]
+                then
+                    local _np_seen=false
+                    local _np_f
+                    for _np_f in "${fields[@]}"
+                    do
+                        [[ "$_np_f" == "$_np_path" ]] && { _np_seen=true; break; }
+                    done
+                    "$_np_seen" || fields+=("$_np_path")
+                fi
+            done
+        fi
+    fi
 
     # Comma-aware emission: completing "name,ve" suggests "name,version" etc.,
     # excluding fields already present before the last comma
@@ -1881,14 +1970,45 @@ __bu_out_complete_pipeline_fields()
         IFS=$ifs
     fi
 
-    local field candidate
-    for field in "${fields[@]}"
-    do
-        [[ -n "${used[$field]:-}" ]] && continue
-        candidate=$field
-        "$is_dot" && candidate=.$field
-        BU_RET+=("${prefix}${candidate}")
-    done
+    # Active segment is everything after the last comma
+    local active_seg=${cur_word##*,}
+
+    if "$is_nested" && [[ "$active_seg" == *.* ]]
+    then
+        # --- Tree-drill mode: completing "server.ho" → "server.host" ---
+        # Split into parent path (everything before last dot) and leaf prefix
+        local dot_parent=${active_seg%.*}.
+        local dot_leaf_prefix=${active_seg##*.}
+
+        local _np_path
+        for _np_path in "${nested_paths[@]}"
+        do
+            # Must start with parent prefix (e.g. "server.")
+            [[ "$_np_path" == "$dot_parent"* ]] || continue
+            # Must be a direct child: no further dots after parent
+            local _np_suffix=${_np_path#"$dot_parent"}
+            [[ "$_np_suffix" == *.* ]] && continue
+            # Must match leaf prefix
+            [[ "$_np_suffix" == "$dot_leaf_prefix"* ]] || continue
+            # Must not be already selected
+            [[ -n "${used[$dot_parent$_np_suffix]:-}" ]] && continue
+
+            local _np_candidate=${dot_parent}$_np_suffix
+            "$is_dot" && _np_candidate=.$_np_candidate
+            BU_RET+=("${prefix}${_np_candidate}")
+        done
+    else
+        # --- Flat mode: complete top-level field names (with dot prefix if --dot) ---
+        local field candidate
+        for field in "${fields[@]}"
+        do
+            [[ -n "${used[$field]:-}" ]] && continue
+            [[ "$field" == "$active_seg"* ]] || continue
+            candidate=$field
+            "$is_dot" && candidate=.$field
+            BU_RET+=("${prefix}${candidate}")
+        done
+    fi
 }
 
 # MARK: Multi-stage pipeline static analysis
