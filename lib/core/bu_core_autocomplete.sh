@@ -1624,7 +1624,7 @@ __bu_autocomplete_completion_func_master_helper()
             cd "${args[i+1]}"
             shift_by=2
             ;;
-        --sh|--enum|--stdout|--ret|--as-if|--pipeline-fields)
+        --sh|--enum|--stdout|--ret|--as-if|--pipeline-fields|--delimited)
             # Generic completion utilities
             terminator=${args[i]#--}--
             for (( offset = 1; i + offset < "${#args[@]}"; offset++ ))
@@ -1707,6 +1707,64 @@ __bu_autocomplete_completion_func_master_helper()
                     local _pf_field_list="${BU_RET[*]}"
                     bu_autocomplete_hint="$_pf_hint_prefix: ${_pf_field_list// /, }"
                 fi
+                ;;
+            --delimited)
+                # Comma-delimited multiselect: completing "name,ve" suggests
+                # "name,version" excluding already-selected fields.  Syntax:
+                #   --delimited [--delimiter X] opt1 opt2 ... delimited--
+                # Options before the sentinel are the allowed tokens; an
+                # optional --delimiter overrides the default comma.
+                local _dl_delim=,
+                local -a _dl_options=()
+                local _dl_pending_delim=
+                local _dl_arg
+                for _dl_arg in "${sub_args[@]}"
+                do
+                    if [[ -n "$_dl_pending_delim" ]]
+                    then
+                        _dl_delim=$_dl_arg
+                        _dl_pending_delim=
+                    elif [[ "$_dl_arg" == --delimiter ]]
+                    then
+                        _dl_pending_delim=1
+                    else
+                        _dl_options+=("$_dl_arg")
+                    fi
+                done
+                ((${#_dl_options[@]})) || break
+
+                # Comma-splitting logic: extract prefix and already-used tokens
+                local _dl_prefix=
+                local -A _dl_used=()
+                local _dl_last_seg=${opt_cur_word[0]}
+                if [[ "$_dl_last_seg" == *"$_dl_delim"* ]]
+                then
+                    _dl_prefix=${_dl_last_seg%"$_dl_delim"*}$_dl_delim
+                    _dl_last_seg=${_dl_last_seg##*$_dl_delim}
+                    local _dl_used_token
+                    local _dl_ifs=$IFS
+                    IFS=$_dl_delim
+                    for _dl_used_token in ${opt_cur_word[0]%"$_dl_delim"*}
+                    do
+                        [[ -n "$_dl_used_token" ]] && _dl_used[$_dl_used_token]=1
+                    done
+                    IFS=$_dl_ifs
+                fi
+
+                local _dl_opt
+                for _dl_opt in "${_dl_options[@]}"
+                do
+                    [[ -n "${_dl_used[$_dl_opt]:-}" ]] && continue
+                    [[ "$_dl_opt" == "$_dl_last_seg"* ]] || continue
+                    local _dl_candidate=${_dl_prefix}${_dl_opt}
+                    [[ -n "$current_ansi_color" ]] && \
+                        _dl_candidate=${current_ansi_color}${_dl_candidate}${reset_ansi_color}
+                    COMPREPLY+=("$_dl_candidate")
+                done
+
+                # Auto-hint: show available options (overrides static --hint)
+                local _dl_hint_list="${_dl_options[*]}"
+                bu_autocomplete_hint="${_dl_delim}-separated: ${_dl_hint_list// /, }"
                 ;;
             --sh)
                 # Exec any arbitrary command

@@ -222,7 +222,7 @@ Arguments to `bu_parse_positional` are processed by `__bu_autocomplete_completio
 | `--ret func arg1 ... ret--` | Run function, use `BU_RET` array as completions |
 | `--options-at FILE LINE` | Parse case block at location for option completions |
 | `--as-if cmd subcmd ... as-if--` | Delegate to another command's autocomplete |
-| `--cwd DIR` | Change directory for completion context |
+| `--delimited [--delimiter X] opt1 opt2 ... delimited--` | Comma-delimited multiselect; excludes already-selected tokens, auto-hint shows available options |
 | `-a/--ansi COLOR` | Apply ANSI color to completions |
 
 Example usages from commands:

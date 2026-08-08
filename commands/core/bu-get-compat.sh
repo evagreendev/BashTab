@@ -46,7 +46,7 @@ do
         ;;
     --columns)# COLUMNS
         # Fields to display, in order (comma-separated)
-        bu_parse_positional $# --ret bu_complete_delimited --options command compatible reason -- ret-- --hint "Comma-separated fields"
+        bu_parse_positional $# --delimited command compatible reason delimited-- --hint "Comma-separated fields"
         columns=${!shift_by}
         ;;
     -h|--help)# _FLAG
