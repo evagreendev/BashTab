@@ -3106,6 +3106,14 @@ __bu_bind_fzf_autocomplete_impl()
             *)
                 ;;
             esac
+
+            # ── Enrich preview from external command --help ──
+            if "$BU_AUTOCOMPLETE_BIND_FZF_DISPLAY_METADATA" && bu_symbol_is_function __bu_help_enrich_preview
+            then
+                local _help_should_preview
+                __bu_help_enrich_preview "${command_line[0]}" COMPREPLY BU_COMPREPLY_METADATA
+                _help_should_preview=$BU_RET
+            fi
         fi
     fi
 
@@ -3117,6 +3125,12 @@ __bu_bind_fzf_autocomplete_impl()
 
     local bu_compreply_metadata_no_ansi=()
     local show_preview=false
+
+    # Force preview when --help descriptions are available for external commands
+    if [[ "${_help_should_preview:-false}" == true ]]
+    then
+        show_preview=true
+    fi
 
     if "$BU_AUTOCOMPLETE_BIND_FZF_DISPLAY_METADATA" && (("${#BU_COMPREPLY_METADATA[@]}" > 0)) && ((${#COMPREPLY[@]} < 2000))
     then
@@ -3536,6 +3550,14 @@ __bu_bind_fzf_autocomplete_impl_ts()
         [[ "${BU_COMPOPT_CURRENT_COMPLETION_OPTIONS[filenames]}" = -o ]] && is_filenames=true
     fi
 
+    # --- Enrich preview from external command --help (TS path) ---
+    local _help_should_preview_ts=false
+    if "$BU_AUTOCOMPLETE_BIND_FZF_DISPLAY_METADATA" && bu_symbol_is_function __bu_help_enrich_preview
+    then
+        __bu_help_enrich_preview "$cmd_name" COMPREPLY BU_COMPREPLY_METADATA
+        _help_should_preview_ts=$BU_RET
+    fi
+
     # --- fzf display setup ---
     __bu_terminal_get_pos2 "$oldstty"
     local row_before_fzf=${BU_RET[0]}
@@ -3555,6 +3577,12 @@ __bu_bind_fzf_autocomplete_impl_ts()
     local base_width=60
     local bu_compreply_metadata_no_ansi=()
     local show_preview=false
+
+    # Force preview when --help descriptions are available for external commands
+    if [[ "${_help_should_preview_ts:-false}" == true ]]
+    then
+        show_preview=true
+    fi
 
     if "$BU_AUTOCOMPLETE_BIND_FZF_DISPLAY_METADATA" && (("${#BU_COMPREPLY_METADATA[@]}" > 0)) && ((${#COMPREPLY[@]} < 2000)); then
         mapfile -t bu_compreply_metadata_no_ansi < <(sed -r -e 's/\\n/ /g' -e "s/\x1B\[([0-9]{1,3}(;[0-9]{1,3})*)?[mGK]//g" < <(printf "%s\n" "${BU_COMPREPLY_METADATA[@]}"))

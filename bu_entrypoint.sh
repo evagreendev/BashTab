@@ -58,6 +58,7 @@ source ./lib/core/bu_core_compat.sh --__bu-once
 source ./lib/core/bu_core_cap.sh --__bu-once
 bu_cap_init
 source ./lib/core/bu_core_autocomplete.sh --__bu-once
+source ./lib/core/bu_core_help_parse.sh --__bu-once
 source ./lib/core/bu_core_tmux.sh --__bu-once
 source ./lib/core/bu_core_cli.sh --__bu-once
 source ./lib/core/bu_core_expose.sh --__bu-once
