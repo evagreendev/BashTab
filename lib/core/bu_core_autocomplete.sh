@@ -3107,11 +3107,11 @@ __bu_bind_fzf_autocomplete_impl()
                 ;;
             esac
 
-            # ── Enrich preview from external command --help ──
+            # ── Enrich preview from external command --help / fig specs ──
             if "$BU_AUTOCOMPLETE_BIND_FZF_DISPLAY_METADATA" && bu_symbol_is_function __bu_help_enrich_preview
             then
                 local _help_should_preview
-                __bu_help_enrich_preview "${command_line[0]}" COMPREPLY BU_COMPREPLY_METADATA
+                __bu_help_enrich_preview COMPREPLY BU_COMPREPLY_METADATA "${command_line[@]}"
                 _help_should_preview=$BU_RET
             fi
         fi
@@ -3550,11 +3550,11 @@ __bu_bind_fzf_autocomplete_impl_ts()
         [[ "${BU_COMPOPT_CURRENT_COMPLETION_OPTIONS[filenames]}" = -o ]] && is_filenames=true
     fi
 
-    # --- Enrich preview from external command --help (TS path) ---
+    # --- Enrich preview from external command --help / fig specs (TS path) ---
     local _help_should_preview_ts=false
     if "$BU_AUTOCOMPLETE_BIND_FZF_DISPLAY_METADATA" && bu_symbol_is_function __bu_help_enrich_preview
     then
-        __bu_help_enrich_preview "$cmd_name" COMPREPLY BU_COMPREPLY_METADATA
+        __bu_help_enrich_preview COMPREPLY BU_COMPREPLY_METADATA "${command_line[@]}"
         _help_should_preview_ts=$BU_RET
     fi
 

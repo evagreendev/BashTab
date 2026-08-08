@@ -12,11 +12,9 @@
 #            lines for bare option tokens (no descriptions available)
 #   man    – run "man <cmd>", parse OPTIONS section (future)
 #
-# When a command has no registered strategy, strategies are tried in order:
-# gnu, then usage as fallback.  The first strategy that yields results wins.
-declare -A -g __BU_HELP_PARSE_STRATEGY=(
-    [git]=usage
-)
+# When a command has no registered strategy and no Fig spec, strategies are
+# tried in order: gnu, then usage as fallback.  The first that yields results wins.
+declare -A -g __BU_HELP_PARSE_STRATEGY=()
 
 # Directory for cached parse results.  Derived from BU_CACHE_DIR at source
 # time; callers can override.
@@ -301,6 +299,70 @@ __bu_help_parse_usage()
 }
 
 # ═══════════════════════════════════════════════════════════════════════
+# Strategy: fig — extract options from a Fig completion spec JSON file
+# Reads the bundled spec from fig_specs/build/<cmd>.json, walks the
+# subcommand tree using the provided tokens, and extracts option
+# descriptions.
+# ═══════════════════════════════════════════════════════════════════════
+
+# Root for Fig spec lookups, captured at source time
+__BU_HELP_PARSE_FIG_ROOT=$(realpath -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." 2>/dev/null)
+
+__bu_help_parse_fig()
+{
+    local -r cmd=$1
+    shift
+    local -a subpath=("$@")
+
+    local root="${BU_BASH_TAB_HOME:-${__BU_HELP_PARSE_FIG_ROOT}}"
+    local spec_path="${BU_FIG_SPEC_DIR:-${root}/fig_specs/build}/${cmd}.json"
+    [[ -f "$spec_path" ]] || return 1
+
+    # Walk the subcommand tree to find the right node, then extract
+    # option definitions as name→description pairs.
+    local tokens_json
+    if ((${#subpath[@]}))
+    then
+        tokens_json=$("$BU_OUT_JQ" -cn --args '$ARGS.positional' -- "${subpath[@]}" 2>/dev/null) || return 1
+    else
+        tokens_json='[]'
+    fi
+
+    local entries_json
+    entries_json=$("$BU_OUT_JQ" -c --argjson tokens "$tokens_json" '
+    def walk($node; $tokens):
+        if ($tokens | length) == 0 then $node
+        else
+            ($node.subcommands // []) as $subs
+            | ($subs | map(select(.name == $tokens[0]))) as $matches
+            | if ($matches | length) > 0 then
+                walk($matches[0]; $tokens[1:])
+              else $node end
+        end;
+
+    walk(.; $tokens)
+    | [.options[]? // empty
+       | {key: (.name | if type == "array" then .[] else . end),
+          desc: (.description // "")}]
+    | .[]
+    ' "$spec_path" 2>/dev/null) || return 1
+
+    [[ "$entries_json" != '[]' && -n "$entries_json" ]] || return 1
+
+    # Parse jq output: one JSON object per option name
+    while IFS= read -r entry
+    do
+        local _key _desc
+        _key=$("$BU_OUT_JQ" -r '.key' <<<"$entry" 2>/dev/null)
+        _desc=$("$BU_OUT_JQ" -r '.desc' <<<"$entry" 2>/dev/null)
+        [[ -n "$_key" ]] && __BU_HELP_PARSE_CACHE_MAP[$_key]=$_desc
+    done <<< "$entries_json"
+
+    ((${#__BU_HELP_PARSE_CACHE_MAP[@]})) || return 1
+    return 0
+}
+
+# ═══════════════════════════════════════════════════════════════════════
 # Strategy: man — parse "man <cmd>" OPTIONS section (stub / future)
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -318,27 +380,36 @@ __bu_help_parse_man()
 
 # ```
 # *Description*:
-# Resolve the effective strategy for a command.  Checks the registry first,
-# then falls back to a trial order: gnu, then usage.
+# Resolve the effective strategy for a command.  Checks:
+# 1. Explicit registration (__BU_HELP_PARSE_STRATEGY)
+# 2. Fig spec existence (if spec file exists, use fig)
+# 3. Default to gnu (with usage fallback)
 #
 # *Params*:
 # - `$1`: Command name
 #
 # *Returns*:
-# - stdout: Strategy name (gnu, usage, or man), or empty if nothing works
+# - stdout: Strategy name (fig, gnu, usage, or man), or empty
 # ```
 __bu_help_parse_resolve_strategy()
 {
     local -r cmd=$1
 
-    # Explicit registration
+    # Explicit registration takes priority
     if [[ -n "${__BU_HELP_PARSE_STRATEGY[$cmd]:-}" ]]
     then
         printf '%s' "${__BU_HELP_PARSE_STRATEGY[$cmd]}"
         return 0
     fi
 
-    # Auto-detect: default to gnu
+    # Check for Fig spec
+    local root="${BU_BASH_TAB_HOME:-${__BU_HELP_PARSE_FIG_ROOT}}"
+    if [[ -f "${BU_FIG_SPEC_DIR:-${root}/fig_specs/build}/${cmd}.json" ]]
+    then
+        printf 'fig'
+        return 0
+    fi
+
     printf 'gnu'
 }
 
@@ -362,6 +433,15 @@ __bu_help_parse_hash()
 
     local help_text
     case "$strategy" in
+    fig)
+        local root="${BU_BASH_TAB_HOME:-${__BU_HELP_PARSE_FIG_ROOT}}"
+        local spec_path="${BU_FIG_SPEC_DIR:-${root}/fig_specs/build}/${cmd}.json"
+        [[ -f "$spec_path" ]] || return 1
+        # Hash the spec file path + mtime so updates invalidate cache
+        local _mtime
+        _mtime=$(stat -c %Y "$spec_path" 2>/dev/null || stat -f %m "$spec_path" 2>/dev/null)
+        _out=$(printf '%s\n%s' "$spec_path" "${_mtime:-0}" | sha256sum 2>/dev/null | cut -d' ' -f1)
+        ;;
     gnu|usage)
         help_text=$("$cmd" --help 2>/dev/null) || return 1
         ;;
@@ -371,8 +451,12 @@ __bu_help_parse_hash()
     *) return 1 ;;
     esac
 
-    [[ -z "$help_text" ]] && return 1
-    _out=$(printf '%s\n%s' "$strategy" "$help_text" | sha256sum 2>/dev/null | cut -d' ' -f1)
+    if [[ "$strategy" != fig ]]
+    then
+        [[ -z "$help_text" ]] && return 1
+        _out=$(printf '%s\n%s' "$strategy" "$help_text" | sha256sum 2>/dev/null | cut -d' ' -f1)
+    fi
+
     [[ -n "$_out" ]]
 }
 
@@ -391,9 +475,19 @@ __bu_help_parse_hash()
 __bu_help_parse_run()
 {
     local -r cmd=$1
+    shift
+    local -a subpath=("$@")
     local -r cache_key=$(__bu_help_parse_cache_key "$cmd")
     local -r strategy=$(__bu_help_parse_resolve_strategy "$cmd")
-    local -r cache_file="$__BU_HELP_PARSE_CACHE_DIR/${cache_key}.${strategy}"
+    # Include subpath in cache key for strategies that support subcommands
+    local _subpath_key
+    if ((${#subpath[@]}))
+    then
+        printf -v _subpath_key '---%s' "${subpath[@]}"
+    else
+        _subpath_key=
+    fi
+    local -r cache_file="$__BU_HELP_PARSE_CACHE_DIR/${cache_key}${_subpath_key}.${strategy}"
 
     # ── Cache hit check ──
     local help_hash
@@ -418,9 +512,14 @@ __bu_help_parse_run()
 
     # ── Cache miss: run the strategy ──
     local -a strategies_to_try=("$strategy")
+    # If fig produces no options (command has no top-level flags like docker),
+    # fall back to --help parsing.
+    if [[ "$strategy" == fig ]]
+    then
+        strategies_to_try+=(gnu usage)
     # If no explicit registration and gnu is the resolved strategy,
     # also try usage as fallback
-    if [[ -z "${__BU_HELP_PARSE_STRATEGY[$cmd]:-}" && "$strategy" == gnu ]]
+    elif [[ -z "${__BU_HELP_PARSE_STRATEGY[$cmd]:-}" && "$strategy" == gnu ]]
     then
         strategies_to_try+=(usage)
     fi
@@ -429,6 +528,7 @@ __bu_help_parse_run()
     for _strat in "${strategies_to_try[@]}"
     do
         case "$_strat" in
+        fig)   __bu_help_parse_fig   "$cmd" "${subpath[@]}" && _ok=true ;;
         gnu)   __bu_help_parse_gnu   "$cmd" && _ok=true ;;
         usage) __bu_help_parse_usage "$cmd" && _ok=true ;;
         man)   __bu_help_parse_man   "$cmd" && _ok=true ;;
@@ -439,18 +539,18 @@ __bu_help_parse_run()
     "$_ok" || return 1
 
     # ── Write cache (use the strategy that actually succeeded) ──
-    local _cache_file="$__BU_HELP_PARSE_CACHE_DIR/${cache_key}.${_strat}"
+    local _result_cache_file="$__BU_HELP_PARSE_CACHE_DIR/${cache_key}${_subpath_key}.${_strat}"
     __bu_help_parse_hash "$cmd" "$_strat" help_hash || return 1
     if ((${#__BU_HELP_PARSE_CACHE_MAP[@]}))
     then
         {
-            printf '%s\n' "$help_hash"
+            printf -- '%s\n' "$help_hash"
             local _opt
             for _opt in "${!__BU_HELP_PARSE_CACHE_MAP[@]}"
             do
                 printf '%s\t%s\n' "$_opt" "${__BU_HELP_PARSE_CACHE_MAP[$_opt]}"
             done | sort
-        } > "$_cache_file"
+        } > "$_result_cache_file"
     fi
 
     return 0
@@ -474,12 +574,13 @@ __bu_help_parse_get()
 {
     local -r cmd=$1
     local -n _out=$2
+    shift 2 2>/dev/null || shift $#
     _out=()
 
     command -v "$cmd" &>/dev/null || return 1
 
     __BU_HELP_PARSE_CACHE_MAP=()
-    __bu_help_parse_run "$cmd" || return 1
+    __bu_help_parse_run "$cmd" "$@" || return 1
 
     local _opt
     for _opt in "${!__BU_HELP_PARSE_CACHE_MAP[@]}"
@@ -492,26 +593,35 @@ __bu_help_parse_get()
 # ```
 # *Description*:
 # Enrich BU_COMPREPLY_METADATA with option descriptions for external
-# commands.  Called during fzf autocomplete binding after completions
-# have been generated.
+# commands, using Fig specs when available or --help parsing as fallback.
+# Called during fzf autocomplete binding after completions are generated.
 #
 # *Params*:
-# - `$1`: Command name being completed (e.g. "grep")
-# - nameref `$2`: COMPREPLY array of completion candidates
-# - nameref `$3`: BU_COMPREPLY_METADATA array to enrich
+# - nameref `$1`: COMPREPLY array of completion candidates
+# - nameref `$2`: BU_COMPREPLY_METADATA array to enrich
+# - `$3 ...`: Full command-line tokens (e.g. "git" "commit" "-m")
 #
 # *Returns*:
 # - Sets BU_RET to "true" if preview should be shown, "false" otherwise
+#
+# *Notes*:
+# - The first token ($3) is the command name.  Remaining tokens before the
+#   cursor (typically all but the last) are used to resolve the subcommand
+#   path for Fig specs.
 # ```
 __bu_help_enrich_preview()
 {
-    local -r cmd=$1
-    local -n _comps=$2
-    local -n _meta=$3
+    local -n _comps=$1
+    local -n _meta=$2
+    shift 2
+    local -a _tokens=("$@")
     BU_RET=false
 
+    local _cmd=${_tokens[0]:-}
+    [[ -n "$_cmd" ]] || return 0
+
     # Only process external commands (not BashTab built-ins)
-    [[ -n "${BU_COMMANDS[$cmd]:-}" ]] && return 0
+    [[ -n "${BU_COMMANDS[$_cmd]:-}" ]] && return 0
 
     # Only process if there are completions that look like options
     local has_options=false
@@ -522,9 +632,18 @@ __bu_help_enrich_preview()
     done
     "$has_options" || return 0
 
-    # Get parsed help
+    # Determine subcommand path: tokens between cmd and the cursor word
+    # (the last token is the word being completed, skip it)
+    local -a _subpath=()
+    local _i
+    for ((_i = 1; _i < ${#_tokens[@]} - 1; _i++))
+    do
+        [[ "${_tokens[_i]}" != -* ]] && _subpath+=("${_tokens[_i]}")
+    done
+
+    # Get parsed help — fig strategy gets the subcommand tokens
     declare -A _help_opts=()
-    __bu_help_parse_get "$cmd" _help_opts 2>/dev/null || return 0
+    __bu_help_parse_get "$_cmd" _help_opts "${_subpath[@]}" 2>/dev/null || return 0
     ((${#_help_opts[@]})) || return 0
 
     # Build a lookup-friendly key set: space-padded so we can use [[ $set == *" key "* ]]
@@ -560,8 +679,9 @@ __bu_help_enrich_preview()
             fi
         fi
 
-        # Prefix shortening: -verbose → -v
-        if ! "$_found"
+        # Prefix shortening: only for single-dash options (-verbose → -v).
+        # Long options (--*) must match exactly or via = stripping above.
+        if ! "$_found" && [[ "$_c" == -[^-]* ]]
         then
             _prefix=$_c
             while [[ ${#_prefix} -gt 1 ]]
