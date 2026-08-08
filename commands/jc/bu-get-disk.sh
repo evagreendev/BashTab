@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: Show disk usage and free space
+# Fields: filesystem 1k_blocks used available mounted_on use_percent
 function __bu_bu_get_disk_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: List outdated pnpm packages
+# Fields: name current wanted latest is_deprecated dependency_type
 function __bu_bu_get_pnpm_outdated_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

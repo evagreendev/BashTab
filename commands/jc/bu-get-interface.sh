@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: Show network interface configuration
+# Fields: name flags state mtu type mac_addr ipv4_addr ipv4_mask ipv4_bcast ipv6_addr ipv6_mask ipv6_scope ipv6_type metric rx_packets rx_errors rx_dropped rx_overruns rx_frame tx_packets tx_errors tx_dropped tx_overruns tx_carrier tx_collisions rx_bytes tx_bytes ipv4
 function __bu_bu_get_interface_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

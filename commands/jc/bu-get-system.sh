@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: Show kernel and system version information
+# Fields: kernel_name node_name kernel_release operating_system processor hardware_platform machine kernel_version
 function __bu_bu_get_system_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

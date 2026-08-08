@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: Show open network sockets
+# Fields: proto recv_q send_q local_address foreign_address state program_name kind local_port foreign_port transport_protocol network_protocol local_port_num
 function __bu_bu_get_socket_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

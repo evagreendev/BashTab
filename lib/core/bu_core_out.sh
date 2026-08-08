@@ -62,13 +62,14 @@ bu_register_table_pager_preset()
 
 # Static field registry: producer command-line prefix -> space-separated
 # record fields. Consulted first by __bu_out_complete_pipeline_fields when
-# completing after a pipe. Longest prefix match wins, so fields stay correct
-# even when the producer carries flags or later pipeline stages.
+# completing after a pipe. Longest prefix match wins.
+#
+# Prefer # Fields: annotations in the producer script header (parsed lazily
+# and cached here on first use). This registry now only holds entries that
+# cannot be expressed as a simple annotation: jc parser-dependent schemas,
+# and a few core entries for zero-latency first-hit performance.
 # Extend via bu_register_output_fields (e.g. from a module preinit script).
 declare -A -g BU_OUT_PRODUCER_FIELDS=(
-    ["bu get-command"]="name verb noun namespace type synopsis fields stage"
-    ["bu get-config"]="name value default allowed description"
-    ["bu get-module"]="name version path"
     # jc parser fields (registered by parser name for convert-from-jc)
     ["bu convert-from-jc --parser ls"]="filename flags links owner group size date"
     ["bu convert-from-jc --parser ps"]="user pid vsz rss tty stat start time command cpu_percent mem_percent"
@@ -90,48 +91,6 @@ declare -A -g BU_OUT_PRODUCER_FIELDS=(
     ["bu convert-from-jc --parser vmstat"]="runnable_procs uninterruptible_sleeping_procs virtual_mem_used free_mem buffer_mem cache_mem inactive_mem active_mem swap_in swap_out blocks_in blocks_out interrupts context_switches user_time system_time idle_time io_wait_time stolen_time timestamp timezone"
     ["bu convert-from-jc --parser lsof"]="command pid user fd type device size_off node name"
     ["bu convert-from-jc --parser wc"]="filename lines words characters"
-    # npm wrappers
-    ["bu get-npm-package"]="name version resolved depth _path _parent_path"
-    ["bu get-npm-outdated"]="name current wanted latest dependent location"
-    ["bu get-pnpm-package"]="name version resolved from description license path depth _path _parent_path"
-    ["bu get-pgrep-process"]="pid command"
-    ["bu get-npm-audit"]="name severity is_direct title url range fix_version fix_is_breaking via"
-    ["bu get-pnpm-outdated"]="name current wanted latest is_deprecated dependency_type"
-    ["bu get-docker-container"]="ID Image Command CreatedAt RunningFor Ports State Status Size Names Labels Mounts Networks"
-    ["bu get-docker-image"]="ID Repository Tag CreatedAt CreatedSince Size"
-    ["bu get-docker-volume"]="Driver Labels Links Mountpoint Name Scope Size"
-    ["bu get-docker-network"]="ID Name Driver Scope"
-    # Dedicated jc-wrapper cmdlets (field aliases for convert-from-jc parsers)
-    ["bu get-file"]="filename flags links owner group size date"
-    ["bu get-process"]="user pid vsz rss tty stat start time command cpu_percent mem_percent"
-    ["bu get-disk"]="filesystem 1k_blocks used available mounted_on use_percent"
-    ["bu get-dns"]="id opcode status flags query_num answer_num authority_num additional_num opt_pseudosection question answer query_time server when rcvd when_epoch when_epoch_utc"
-    ["bu get-memory"]="type total used free shared buff_cache available"
-    ["bu get-mount"]="filesystem mount_point type options"
-    ["bu get-uptime"]="time uptime users load_1m load_5m load_15m time_hour time_minute time_second uptime_days uptime_hours uptime_minutes uptime_total_seconds"
-    ["bu get-system"]="kernel_name node_name kernel_release operating_system processor hardware_platform machine kernel_version"
-    ["bu get-environment"]="name value"
-    ["bu get-identity"]="uid gid groups"
-    ["bu get-file-usage"]="size name"
-    ["bu get-file-stat"]="file size blocks io_blocks type device inode links access flags uid user gid group access_time modify_time change_time birth_time access_time_epoch access_time_epoch_utc modify_time_epoch modify_time_epoch_utc change_time_epoch change_time_epoch_utc birth_time_epoch birth_time_epoch_utc"
-    ["bu get-interface"]="name flags state mtu type mac_addr ipv4_addr ipv4_mask ipv4_bcast ipv6_addr ipv6_mask ipv6_scope ipv6_type metric rx_packets rx_errors rx_dropped rx_overruns rx_frame tx_packets tx_errors tx_dropped tx_overruns tx_carrier tx_collisions rx_bytes tx_bytes ipv4"
-    ["bu get-network"]="proto recv_q send_q local_address foreign_address state program_name kind local_port foreign_port transport_protocol network_protocol local_port_num"
-    ["bu get-socket"]="proto recv_q send_q local_address foreign_address state program_name kind local_port foreign_port transport_protocol network_protocol local_port_num"
-    ["bu get-arp-entry"]="name address hwtype hwaddress iface"
-    ["bu get-cpu-stat"]="percent_user percent_nice percent_system percent_iowait percent_steal percent_idle type"
-    ["bu get-memory-stat"]="runnable_procs uninterruptible_sleeping_procs virtual_mem_used free_mem buffer_mem cache_mem inactive_mem active_mem swap_in swap_out blocks_in blocks_out interrupts context_switches user_time system_time idle_time io_wait_time stolen_time timestamp timezone"
-    ["bu get-open-file"]="command pid user fd type device size_off node name"
-    ["bu get-count"]="filename lines words characters"
-    ["bu get-dpkg-package"]="codes name version architecture description desired status"
-    ["bu get-rpm-package"]="name version release arch summary"
-    ["bu get-pacman-package"]="name version description architecture url licenses groups provides depends_on optional_deps required_by optional_for conflicts replaces installed_size packager build_date install_date"
-    ["bu get-apk-package"]="name version"
-    ["bu get-systemd-unit"]="unit load active sub description"
-    ["bu get-systemd-service"]="unit_file state"
-    ["bu get-openrc-service"]="service status"
-    ["bu get-openrc-boot-service"]="service runlevel"
-    ["bu get-iptables-rule"]="chain num pkts bytes target prot opt in out source destination"
-    ["bu get-pip-package"]="package version"
 )
 
 # Allowlist of producer head commands that may be executed ("probed") during

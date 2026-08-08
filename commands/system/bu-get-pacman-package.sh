@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: List installed Arch Linux packages
+# Fields: name version description architecture url licenses groups provides depends_on optional_deps required_by optional_for conflicts replaces installed_size packager build_date install_date
 function __bu_bu_get_pacman_package_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

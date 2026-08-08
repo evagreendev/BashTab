@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: List environment variables as JSONL records
+# Fields: name value
 function __bu_bu_get_environment_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

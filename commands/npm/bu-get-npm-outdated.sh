@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: List outdated npm packages
+# Fields: name current wanted latest dependent location
 function __bu_bu_get_npm_outdated_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

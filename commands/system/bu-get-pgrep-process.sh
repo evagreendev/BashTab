@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: List processes matching a name pattern
+# Fields: pid command
 function __bu_bu_get_pgrep_process_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: List mounted filesystems
+# Fields: filesystem mount_point type options
 function __bu_bu_get_mount_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

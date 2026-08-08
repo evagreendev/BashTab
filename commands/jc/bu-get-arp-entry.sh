@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: Show the system ARP table
+# Fields: name address hwtype hwaddress iface
 function __bu_bu_get_arp_entry_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: List Docker containers
+# Fields: ID Image Command CreatedAt RunningFor Ports State Status Size Names Labels Mounts Networks
 function __bu_bu_get_docker_container_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

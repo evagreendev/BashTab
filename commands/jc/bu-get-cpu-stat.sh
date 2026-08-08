@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: Show CPU utilization statistics
+# Fields: percent_user percent_nice percent_system percent_iowait percent_steal percent_idle type
 function __bu_bu_get_cpu_stat_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

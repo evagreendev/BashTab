@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: List Docker networks
+# Fields: ID Name Driver Scope
 function __bu_bu_get_docker_network_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

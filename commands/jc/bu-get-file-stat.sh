@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: Show detailed file statistics
+# Fields: file size blocks io_blocks type device inode links access flags uid user gid group access_time modify_time change_time birth_time access_time_epoch access_time_epoch_utc modify_time_epoch modify_time_epoch_utc change_time_epoch change_time_epoch_utc birth_time_epoch birth_time_epoch_utc
 function __bu_bu_get_file_stat_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

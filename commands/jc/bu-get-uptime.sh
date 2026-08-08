@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: Show system uptime and load averages
+# Fields: time uptime users load_1m load_5m load_15m time_hour time_minute time_second uptime_days uptime_hours uptime_minutes uptime_total_seconds
 function __bu_bu_get_uptime_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

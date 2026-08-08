@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: List Docker volumes
+# Fields: Driver Labels Links Mountpoint Name Scope Size
 function __bu_bu_get_docker_volume_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

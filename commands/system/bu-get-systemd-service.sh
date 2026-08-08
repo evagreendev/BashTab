@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: List systemd services and their enabled state
+# Fields: unit_file state
 function __bu_bu_get_systemd_service_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

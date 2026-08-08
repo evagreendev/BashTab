@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: Show the current user and group identity
+# Fields: uid gid groups
 function __bu_bu_get_identity_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

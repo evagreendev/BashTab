@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: List systemd units and their status
+# Fields: unit load active sub description
 function __bu_bu_get_systemd_unit_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

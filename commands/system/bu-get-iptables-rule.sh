@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Synopsis: List iptables firewall rules
+# Fields: chain num pkts bytes target prot opt in out source destination
 function __bu_bu_get_iptables_rule_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.
