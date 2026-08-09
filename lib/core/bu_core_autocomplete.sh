@@ -3113,11 +3113,6 @@ __bu_bind_fzf_autocomplete_impl()
                 local _help_should_preview
                 __bu_help_enrich_preview COMPREPLY BU_COMPREPLY_METADATA "${command_line[@]}"
                 _help_should_preview=$BU_RET
-                bu_log_tty "enrich: should_preview=$_help_should_preview COMPREPLY=${#COMPREPLY[@]} META=${#BU_COMPREPLY_METADATA[@]}"
-                local _ed2_i
-                for ((_ed2_i = 0; _ed2_i < ${#COMPREPLY[@]} && _ed2_i < 5; _ed2_i++)); do
-                    bu_log_tty "  [$_ed2_i] ${COMPREPLY[$_ed2_i]} => [${BU_COMPREPLY_METADATA[$_ed2_i]}]"
-                done
             fi
         fi
     fi
@@ -3561,11 +3556,6 @@ __bu_bind_fzf_autocomplete_impl_ts()
     then
         __bu_help_enrich_preview COMPREPLY BU_COMPREPLY_METADATA "${command_line[@]}"
         _help_should_preview_ts=$BU_RET
-        bu_log_tty "enrich: should_preview=$_help_should_preview_ts COMPREPLY=${#COMPREPLY[@]} META=${#BU_COMPREPLY_METADATA[@]}"
-        local _ed_i
-        for ((_ed_i = 0; _ed_i < ${#COMPREPLY[@]} && _ed_i < 5; _ed_i++)); do
-            bu_log_tty "  [$_ed_i] ${COMPREPLY[$_ed_i]} => [${BU_COMPREPLY_METADATA[$_ed_i]}]"
-        done
     fi
 
     # --- fzf display setup ---
