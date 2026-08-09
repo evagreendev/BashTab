@@ -545,6 +545,7 @@ __bu_help_parse_run()
     __bu_help_parse_hash "$cmd" "$strategy" help_hash || return 1
     if ((${#__BU_HELP_PARSE_CACHE_MAP[@]}))
     then
+        bu_mkdir "$__BU_HELP_PARSE_CACHE_DIR"
         {
             printf -- '%s\n' "$help_hash"
             local _opt
