@@ -512,14 +512,16 @@ __bu_help_parse_run()
 
     # ── Cache miss: run the strategy ──
     local -a strategies_to_try=("$strategy")
-    # If fig produces no options (command has no top-level flags like docker),
-    # fall back to --help parsing.
+    # If fig: also try gnu as supplement (many Fig specs only have short
+    # option names, missing long forms like --all for ls).  If gnu:
+    # also try usage as fallback.
     if [[ "$strategy" == fig ]]
     then
-        strategies_to_try+=(gnu usage)
-    # If no explicit registration and gnu is the resolved strategy,
-    # also try usage as fallback
-    elif [[ -z "${__BU_HELP_PARSE_STRATEGY[$cmd]:-}" && "$strategy" == gnu ]]
+        strategies_to_try+=(gnu)
+    fi
+    # If no explicit registration and fig is NOT the strategy,
+    # also try usage as fallback after gnu
+    if [[ "${strategy}" != fig && -z "${__BU_HELP_PARSE_STRATEGY[$cmd]:-}" ]]
     then
         strategies_to_try+=(usage)
     fi
@@ -533,14 +535,14 @@ __bu_help_parse_run()
         usage) __bu_help_parse_usage "$cmd" && _ok=true ;;
         man)   __bu_help_parse_man   "$cmd" && _ok=true ;;
         esac
-        "$_ok" && break
+        # Continue to next strategy to merge results (fig + gnu fills gaps)
     done
 
     "$_ok" || return 1
 
-    # ── Write cache (use the strategy that actually succeeded) ──
-    local _result_cache_file="$__BU_HELP_PARSE_CACHE_DIR/${cache_key}${_subpath_key}.${_strat}"
-    __bu_help_parse_hash "$cmd" "$_strat" help_hash || return 1
+    # ── Write cache (use the primary strategy name, not the last run) ──
+    local _result_cache_file="$__BU_HELP_PARSE_CACHE_DIR/${cache_key}${_subpath_key}.${strategy}"
+    __bu_help_parse_hash "$cmd" "$strategy" help_hash || return 1
     if ((${#__BU_HELP_PARSE_CACHE_MAP[@]}))
     then
         {
