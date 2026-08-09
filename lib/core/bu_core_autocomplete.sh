@@ -3113,6 +3113,11 @@ __bu_bind_fzf_autocomplete_impl()
                 local _help_should_preview
                 __bu_help_enrich_preview COMPREPLY BU_COMPREPLY_METADATA "${command_line[@]}"
                 _help_should_preview=$BU_RET
+                bu_log_tty "enrich: should_preview=$_help_should_preview COMPREPLY=${#COMPREPLY[@]} META=${#BU_COMPREPLY_METADATA[@]}"
+                local _ed2_i
+                for ((_ed2_i = 0; _ed2_i < ${#COMPREPLY[@]} && _ed2_i < 5; _ed2_i++)); do
+                    bu_log_tty "  [$_ed2_i] ${COMPREPLY[$_ed2_i]} => [${BU_COMPREPLY_METADATA[$_ed2_i]}]"
+                done
             fi
         fi
     fi
@@ -3275,20 +3280,6 @@ __bu_bind_fzf_autocomplete_impl()
     )
     bu_list_join , "${fzf_colors[@]}"
     fzf_opts+=(--color=dark,"$BU_RET")
-
-    # ── Diagnostic: dump completion → preview-text pairs before fzf ──
-    if "$BU_AUTOCOMPLETE_BIND_FZF_DISPLAY_METADATA" && (("${#BU_COMPREPLY_METADATA[@]}")); then
-        local _diag_delim=$'\x01'
-        local _diag_i _diag_entry _diag_cand _diag_preview
-        bu_log_tty "--- fzf preview dump (${#COMPREPLY[@]} entries) ---"
-        for ((_diag_i = 0; _diag_i < ${#COMPREPLY[@]} && _diag_i < 40; _diag_i++)); do
-            _diag_entry=${COMPREPLY[_diag_i]}
-            _diag_cand=${_diag_entry%%"$_diag_delim"*}
-            _diag_preview=${_diag_entry##*"$_diag_delim"}
-            bu_log_tty "  [$_diag_i] $_diag_cand => $_diag_preview"
-        done
-        bu_log_tty "--- end fzf preview dump ---"
-    fi
 
     local selected_command
     if selected_command=$(
@@ -3570,6 +3561,11 @@ __bu_bind_fzf_autocomplete_impl_ts()
     then
         __bu_help_enrich_preview COMPREPLY BU_COMPREPLY_METADATA "${command_line[@]}"
         _help_should_preview_ts=$BU_RET
+        bu_log_tty "enrich: should_preview=$_help_should_preview_ts COMPREPLY=${#COMPREPLY[@]} META=${#BU_COMPREPLY_METADATA[@]}"
+        local _ed_i
+        for ((_ed_i = 0; _ed_i < ${#COMPREPLY[@]} && _ed_i < 5; _ed_i++)); do
+            bu_log_tty "  [$_ed_i] ${COMPREPLY[$_ed_i]} => [${BU_COMPREPLY_METADATA[$_ed_i]}]"
+        done
     fi
 
     # --- fzf display setup ---
@@ -3645,20 +3641,6 @@ __bu_bind_fzf_autocomplete_impl_ts()
     )
     bu_list_join , "${fzf_colors[@]}"
     fzf_opts+=(--color=dark,"$BU_RET")
-
-    # ── Diagnostic: dump completion → preview-text pairs before fzf (TS path) ──
-    if "$BU_AUTOCOMPLETE_BIND_FZF_DISPLAY_METADATA" && (("${#BU_COMPREPLY_METADATA[@]}")); then
-        local _diag2_delim=$'\x01'
-        local _diag2_i _diag2_entry _diag2_cand _diag2_preview
-        bu_log_tty "--- fzf preview dump (TS, ${#COMPREPLY[@]} entries) ---"
-        for ((_diag2_i = 0; _diag2_i < ${#COMPREPLY[@]} && _diag2_i < 40; _diag2_i++)); do
-            _diag2_entry=${COMPREPLY[_diag2_i]}
-            _diag2_cand=${_diag2_entry%%"$_diag2_delim"*}
-            _diag2_preview=${_diag2_entry##*"$_diag2_delim"}
-            bu_log_tty "  [$_diag2_i] $_diag2_cand => $_diag2_preview"
-        done
-        bu_log_tty "--- end fzf preview dump (TS) ---"
-    fi
 
     if "$use_tab_to_confirm"; then
         fzf_opts+=(--bind "tab:accept")
