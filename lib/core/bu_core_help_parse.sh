@@ -647,6 +647,16 @@ __bu_help_enrich_preview()
     # Get parsed help — fig strategy gets the subcommand tokens
     declare -A _help_opts=()
     __bu_help_parse_get "$_cmd" _help_opts "${_subpath[@]}" 2>/dev/null || return 0
+
+    bu_log_tty "enrich: parse_get returned ${#_help_opts[@]} entries"
+    local _dbg_count=0
+    local _dbg_k
+    for _dbg_k in "${!_help_opts[@]}"; do
+        [[ $_dbg_count -ge 8 ]] && break
+        bu_log_tty "  map[$_dbg_k] = [${_help_opts[$_dbg_k]:0:60}]"
+        : $((_dbg_count++))
+    done
+
     ((${#_help_opts[@]})) || return 0
 
     # Build a lookup-friendly key set: space-padded so we can use [[ $set == *" key "* ]]
@@ -655,6 +665,11 @@ __bu_help_enrich_preview()
     for _k in "${!_help_opts[@]}"; do
         _key_set+="$_k "
     done
+
+    # Diagnostic: check a few keys
+    bu_log_tty "enrich: key_set has --paginate: $([[ "$_key_set" == *" --paginate "* ]] && echo YES || echo NO)"
+    bu_log_tty "enrich: key_set has --no-pager: $([[ "$_key_set" == *" --no-pager "* ]] && echo YES || echo NO)"
+    bu_log_tty "enrich: key_set has --git-dir: $([[ "$_key_set" == *" --git-dir "* ]] && echo YES || echo NO)"
 
     local _i _desc _clean _prefix _found
     local _enriched=false
