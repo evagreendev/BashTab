@@ -1628,6 +1628,23 @@ bu_complete_from_fig()
         return 0
     fi
 
+    # Build a name→description map from the matched node for metadata
+    declare -A -g BU_FIG_METADATA_MAP=()
+    local _fig_tsv
+    _fig_tsv=$("$BU_OUT_JQ" -r '
+        (.subcommands[]? | (.name | if type == "array" then .[] else . end) + "\t" + (.description // ""))
+        ,
+        (.options[]? | (.name | if type == "array" then .[] else . end) + "\t" + (.description // ""))
+    ' <<<"$node_json" 2>/dev/null)
+    if [[ -n "$_fig_tsv" ]]
+    then
+        local _fig_line _fig_name _fig_desc
+        while IFS=$'\t' read -r _fig_name _fig_desc
+        do
+            [[ -n "$_fig_name" ]] && BU_FIG_METADATA_MAP[$_fig_name]=$_fig_desc
+        done <<<"$_fig_tsv"
+    fi
+
     # 1. Subcommands (handle array names like ["autoremove","auto-remove"])
     local sub_names
     sub_names=$("$BU_OUT_JQ" -r '.subcommands[]?.name | if type == "array" then .[] else . end // empty' <<<"$node_json" 2>/dev/null)
@@ -1720,6 +1737,21 @@ __bu_autocomplete_fig_completion_func()
     local -a results
     bu_complete_from_fig --spec "$spec_path" -- "$cur_word" || return 1
     COMPREPLY=("${BU_RET[@]}")
+
+    # Populate metadata from Fig spec descriptions
+    if ((${#COMPREPLY[@]}))
+    then
+        local _i _c _desc
+        for ((_i = 0; _i < ${#COMPREPLY[@]}; _i++))
+        do
+            _c=${COMPREPLY[_i]}
+            _desc=${BU_FIG_METADATA_MAP[$_c]:-}
+            if [[ -n "$_desc" ]]
+            then
+                BU_COMPREPLY_METADATA[_i]="${BU_TPUT_GREY}${_desc}${BU_TPUT_RESET}"
+            fi
+        done
+    fi
 
     # Supplement with options from --help parsing when the Fig spec is
     # sparse (e.g. ls has only --color as a long option, missing --all).

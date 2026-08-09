@@ -1107,6 +1107,44 @@ __bu_human_size()
     fi
 }
 
+# ```
+# *Description*:
+# Detect and extract inline descriptions from COMPREPLY entries.
+# Some external completion functions embed descriptions in the format
+# "word (description)".  This moves the description to
+# BU_COMPREPLY_METADATA and keeps only the word in COMPREPLY.
+#
+# No-op when BU_COMPREPLY_METADATA is already populated.
+#
+# *Globals*:
+# - COMPREPLY: modified in-place (descriptions stripped)
+# - BU_COMPREPLY_METADATA: appended with extracted descriptions (grey)
+# ```
+__bu_extract_inline_descriptions()
+{
+    # Only process when metadata hasn't been set by a smarter source
+    ((${#BU_COMPREPLY_METADATA[@]})) && return 0
+
+    local _i _entry _word _desc
+    local _found=false
+    # Inline-description pattern: "word (description)"
+    local _re='^(.+)[[:space:]]+\(([^)]+)\)$'
+    for ((_i = 0; _i < ${#COMPREPLY[@]}; _i++))
+    do
+        _entry=${COMPREPLY[_i]}
+        if [[ "$_entry" =~ $_re ]]
+        then
+            _word=${BASH_REMATCH[1]}
+            _desc=${BASH_REMATCH[2]}
+            # Defensive: skip if the word part itself contains parentheses
+            [[ "$_word" == *"("*")"* ]] && continue
+            COMPREPLY[_i]=$_word
+            BU_COMPREPLY_METADATA[_i]="${BU_TPUT_GREY}${_desc}${BU_TPUT_RESET}"
+            _found=true
+        fi
+    done
+}
+
 bu_autocomplete_get_autocompletions()
 {
     local BU_AUTOCOMPLETE_ACCEPT_ANSI_COLORS=false
@@ -1237,6 +1275,11 @@ bu_autocomplete_get_autocompletions()
             fi
         fi
     fi
+
+    # Extract inline descriptions from external command completions.
+    # Some completion functions embed descriptions as "word (description)".
+    # Move the description to BU_COMPREPLY_METADATA so it isn't inserted.
+    __bu_extract_inline_descriptions
 
     # File metadata: if completions are existing files/dirs, add hints
     if ((${#COMPREPLY[@]} > 0)) && [[ -e "${COMPREPLY[0]}" && -e "${COMPREPLY[-1]}" ]]; then
@@ -3196,9 +3239,12 @@ __bu_bind_fzf_autocomplete_impl()
         if ! "$is_ansi"
         then
             # echo box_length: $box_length
+            local _trim
             for i in "${!bu_compreply_metadata_no_ansi[@]}"
             do
-                bu_compreply_metadata_no_ansi[i]=${bu_compreply_metadata_no_ansi[i]:0:box_length - ${#COMPREPLY[i]}}
+                _trim=$((box_length - ${#COMPREPLY[i]}))
+                ((_trim < 0)) && _trim=0
+                bu_compreply_metadata_no_ansi[i]=${bu_compreply_metadata_no_ansi[i]:0:$_trim}
                 pad=$((box_length - ${#COMPREPLY[i]} - ${#bu_compreply_metadata_no_ansi[i]}))
                 # echo COMPREPLY: ${#COMPREPLY[i]} bu_compreply_metadata_no_ansi: ${#bu_compreply_metadata_no_ansi[i]} ${bu_compreply_metadata_no_ansi[i]} pad: $pad
                 COMPREPLY[i]=${COMPREPLY[i]}${delimiter}${__BU_PADDING_TABLE[pad > min_pad ? pad : min_pad]}${bu_compreply_metadata_colored[i]}${delimiter}${BU_COMPREPLY_METADATA[i]}
@@ -3210,9 +3256,12 @@ __bu_bind_fzf_autocomplete_impl()
             local -a compreply_no_color
             mapfile -t compreply_no_color < <(sed -r -e 's/\x1B\(B\x1B\[m//g' -e "s/\x1B\[([0-9]{1,3}(;[0-9]{1,3})*)?[mGK]//g" < <(printf "%s\n" "${COMPREPLY[@]}"))
             # echo box_length: $box_length
+            local _trim
             for i in "${!bu_compreply_metadata_no_ansi[@]}"
             do
-                bu_compreply_metadata_no_ansi[i]=${bu_compreply_metadata_no_ansi[i]:0:box_length - ${#compreply_no_color[i]}}
+                _trim=$((box_length - ${#compreply_no_color[i]}))
+                ((_trim < 0)) && _trim=0
+                bu_compreply_metadata_no_ansi[i]=${bu_compreply_metadata_no_ansi[i]:0:$_trim}
                 pad=$((box_length - ${#compreply_no_color[i]} - ${#bu_compreply_metadata_no_ansi[i]}))
                 # printf "%q " compreply_no_color: \"${compreply_no_color[i]}\" ${#compreply_no_color[i]} bu_compreply_metadata_no_ansi: ${bu_compreply_metadata_no_ansi[i]} ${#bu_compreply_metadata_no_ansi[i]} ${bu_compreply_metadata_no_ansi[i]} pad: $pad
                 # echo
@@ -3338,9 +3387,11 @@ __bu_bind_fzf_autocomplete_impl()
         command_line_back=${command_line_back# }
         
         # If we are expecting filenames, then if the file is a directory, we're not done, so don't append a space.
-        # If nospace is enabled, then don't add a space.
+        # If nospace is enabled, respect it only when the completed word looks like
+        # it needs a suffix (directory /, option =, namespace :, etc.) — not for
+        # subcommands that just happen to have nospace set by their completion spec.
         if ! { "$is_filenames" && [[ "${readline_line:${#readline_line}-1}" = / ]]; } && \
-           ! "$is_nospace" && \
+           ! { "$is_nospace" && [[ "${readline_line:${#readline_line}-1}" = [/=:@] ]]; } && \
            [[ "${readline_line:${#readline_line}-1}" != ' ' && "${command_line_back:0:1}" != ' ' ]]
         then
             readline_line+=' '
@@ -3645,16 +3696,22 @@ __bu_bind_fzf_autocomplete_impl_ts()
         # https://github.com/junegunn/fzf/issues/4626
         BU_COMPREPLY_METADATA=("${BU_COMPREPLY_METADATA[@]//$'\E'/'__ANSI__'}")
         if ! "$is_ansi"; then
+            local _md_trim
             for _md_i in "${!bu_compreply_metadata_no_ansi[@]}"; do
-                bu_compreply_metadata_no_ansi[_md_i]=${bu_compreply_metadata_no_ansi[_md_i]:0:box_length - ${#COMPREPLY[_md_i]}}
+                _md_trim=$((box_length - ${#COMPREPLY[_md_i]}))
+                ((_md_trim < 0)) && _md_trim=0
+                bu_compreply_metadata_no_ansi[_md_i]=${bu_compreply_metadata_no_ansi[_md_i]:0:$_md_trim}
                 _md_pad=$((box_length - ${#COMPREPLY[_md_i]} - ${#bu_compreply_metadata_no_ansi[_md_i]}))
                 COMPREPLY[_md_i]=${COMPREPLY[_md_i]}${delimiter}${__BU_PADDING_TABLE[_md_pad > _md_min_pad ? _md_pad : _md_min_pad]}${bu_compreply_metadata_colored[_md_i]}${delimiter}${BU_COMPREPLY_METADATA[_md_i]}
             done
         else
             local -a _md_stripped
             mapfile -t _md_stripped < <(sed -r -e 's/\x1B\(B\x1B\[m//g' -e "s/\x1B\[([0-9]{1,3}(;[0-9]{1,3})*)?[mGK]//g" < <(printf "%s\n" "${COMPREPLY[@]}"))
+            local _md_trim
             for _md_i in "${!bu_compreply_metadata_no_ansi[@]}"; do
-                bu_compreply_metadata_no_ansi[_md_i]=${bu_compreply_metadata_no_ansi[_md_i]:0:box_length - ${#_md_stripped[_md_i]}}
+                _md_trim=$((box_length - ${#_md_stripped[_md_i]}))
+                ((_md_trim < 0)) && _md_trim=0
+                bu_compreply_metadata_no_ansi[_md_i]=${bu_compreply_metadata_no_ansi[_md_i]:0:$_md_trim}
                 _md_pad=$((box_length - ${#_md_stripped[_md_i]} - ${#bu_compreply_metadata_no_ansi[_md_i]}))
                 COMPREPLY[_md_i]=${COMPREPLY[_md_i]}${delimiter}${__BU_PADDING_TABLE[_md_pad > _md_min_pad ? _md_pad : _md_min_pad]}${bu_compreply_metadata_colored[_md_i]}${delimiter}${BU_COMPREPLY_METADATA[_md_i]}
             done
@@ -3714,7 +3771,8 @@ __bu_bind_fzf_autocomplete_impl_ts()
             command_line_back=${command_line_back:${#back_no_op}}
             command_line_back=${command_line_back# }
             if ! { "$is_filenames" && [[ "${readline_line:${#readline_line}-1}" = / ]]; } && \
-               ! "$is_nospace" && [[ "${readline_line:${#readline_line}-1}" != ' ' && "${command_line_back:0:1}" != ' ' ]]; then
+               ! { "$is_nospace" && [[ "${readline_line:${#readline_line}-1}" = [/=:@] ]]; } && \
+               [[ "${readline_line:${#readline_line}-1}" != ' ' && "${command_line_back:0:1}" != ' ' ]]; then
                 readline_line+=' '
             fi
             readline_line=${pipe_before}${readline_line}
