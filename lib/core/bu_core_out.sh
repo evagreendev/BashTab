@@ -1720,6 +1720,28 @@ __bu_autocomplete_fig_completion_func()
     local -a results
     bu_complete_from_fig --spec "$spec_path" -- "$cur_word" || return 1
     COMPREPLY=("${BU_RET[@]}")
+
+    # Supplement with options from --help parsing when the Fig spec is
+    # sparse (e.g. ls has only --color as a long option, missing --all).
+    if bu_symbol_is_function __bu_help_parse_get 2>/dev/null
+    then
+        declare -A _fig_supp_opts=()
+        if __bu_help_parse_get "$cmd" _fig_supp_opts 2>/dev/null && ((${#_fig_supp_opts[@]}))
+        then
+            local -A _fig_supp_seen=()
+            local _c
+            for _c in "${COMPREPLY[@]}"; do _fig_supp_seen[$_c]=1; done
+            local _k
+            for _k in "${!_fig_supp_opts[@]}"
+            do
+                if [[ "$_k" == "$cur_word"* ]] && [[ -z "${_fig_supp_seen[$_k]:-}" ]]
+                then
+                    COMPREPLY+=("$_k")
+                fi
+            done
+        fi
+    fi
+
     return 0
 }
 
