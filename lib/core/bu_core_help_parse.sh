@@ -623,8 +623,10 @@ __bu_help_enrich_preview()
     local _cmd=${_tokens[0]:-}
     [[ -n "$_cmd" ]] || return 0
 
-    # Only process external commands (not BashTab built-ins)
+    # Only process external commands (not BashTab built-ins and not the
+    # CLI entry point itself — bu/activate are functions, not binaries)
     [[ -n "${BU_COMMANDS[$_cmd]:-}" ]] && return 0
+    [[ "$_cmd" == "$BU_CLI_COMMAND_NAME" ]] && return 0
 
     # Only process if there are completions that look like options
     local has_options=false
