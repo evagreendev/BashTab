@@ -1127,7 +1127,9 @@ __bu_human_size()
 __bu_extract_inline_descriptions()
 {
     local _i _entry _word _desc
-    local _re='^(.+)[[:space:]]+\(([^)]+)\)$'
+    # Greedy .+ in the second group handles nested parens in descriptions
+    # e.g. --log-level  (Set the logging level ("debug", "info", ...))
+    local _re='^(.+)[[:space:]]+\((.+)\)$'
     for ((_i = 0; _i < ${#COMPREPLY[@]}; _i++))
     do
         _entry=${COMPREPLY[_i]}
@@ -1136,7 +1138,8 @@ __bu_extract_inline_descriptions()
             _word=${BASH_REMATCH[1]}
             _desc=${BASH_REMATCH[2]}
             [[ "$_word" == *"("*")"* ]] && continue
-            COMPREPLY[_i]=$_word
+            # rtrim — the regex captures padding spaces before the description
+            COMPREPLY[_i]="${_word%"${_word##*[! ]}"}"
             if ((${#BU_COMPREPLY_METADATA[@]} == 0)); then
                 BU_COMPREPLY_METADATA[_i]="${BU_TPUT_GREY}${_desc}${BU_TPUT_RESET}"
             fi

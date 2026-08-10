@@ -235,6 +235,20 @@ function test_real_docker_fig_spec_nospace_still_one_space { #@test
 
 # ── Docker-style column-padded completions (__start_docker) ──
 
+function test_extract_nested_parens_in_description { #@test
+    # docker options have descriptions with nested parens like
+    # --log-level  (Set the logging level ("debug", "info", "warn", "error", "fatal"))
+    COMPREPLY=('--log-level       (Set the logging level ("debug", "info", "warn", "error", "fatal"))')
+    BU_COMPREPLY_METADATA=()
+    __bu_extract_inline_descriptions
+
+    echo "COMPREPLY: [${COMPREPLY[0]}]"
+    echo "META: [${BU_COMPREPLY_METADATA[0]}]"
+    assert_equal "${COMPREPLY[0]}" "--log-level"
+    assert_regex "${BU_COMPREPLY_METADATA[0]}" 'Set the logging level'
+    assert_regex "${BU_COMPREPLY_METADATA[0]}" 'debug'
+}
+
 function test_rtrim_column_padded_entries { #@test
     # Docker's __start_docker pads subcommand names to fixed width
     COMPREPLY=("attach     " "build      " "images     " "ps         ")
