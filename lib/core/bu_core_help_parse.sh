@@ -410,7 +410,10 @@ __bu_help_parse_resolve_strategy()
         return 0
     fi
 
-    printf 'gnu'
+    # No explicit registration and no Fig spec — don't enrich.
+    # Defaulting to gnu is too dangerous: --help can be destructive
+    # or hang on arbitrary binaries.
+    return 1
 }
 
 # ```
@@ -478,7 +481,7 @@ __bu_help_parse_run()
     shift
     local -a subpath=("$@")
     local -r cache_key=$(__bu_help_parse_cache_key "$cmd")
-    local -r strategy=$(__bu_help_parse_resolve_strategy "$cmd")
+    local -r strategy=$(__bu_help_parse_resolve_strategy "$cmd") || return 1
     # Include subpath in cache key for strategies that support subcommands
     local _subpath_key
     if ((${#subpath[@]}))
