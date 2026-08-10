@@ -1127,24 +1127,23 @@ __bu_human_size()
 __bu_extract_inline_descriptions()
 {
     local _i _entry _word _desc
+    local _grey="${BU_TPUT_GREY:-[90m}"
     for ((_i = 0; _i < ${#COMPREPLY[@]}; _i++))
     do
         _entry=${COMPREPLY[_i]}
-        # Docker's __docker_format_comp_descriptions appends "  (description)"
-        # to every COMPREPLY entry.  bash has no metadata channel so this is
-        # how docker ships descriptions.  Split on the first "  (".
         if [[ "$_entry" == *'  ('* ]]
         then
             _word="${_entry%%  (*}"
             _desc="${_entry#*  (}"
             _desc="${_desc%)}"
             COMPREPLY[_i]="${_word%"${_word##*[! ]}"}"
-            BU_COMPREPLY_METADATA[_i]="[90m${_desc}[0m"
+            BU_COMPREPLY_METADATA[_i]="$_grey${_desc}${BU_TPUT_RESET:-[0m}"
         else
             COMPREPLY[_i]="${_entry%"${_entry##*[! ]}"}"
         fi
     done
 }
+
 
 bu_autocomplete_get_autocompletions()
 {
