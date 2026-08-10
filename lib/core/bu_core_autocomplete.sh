@@ -1139,12 +1139,13 @@ __bu_extract_inline_descriptions()
             _desc="${_entry#*  (}"
             _desc="${_desc%)}"
             COMPREPLY[_i]="${_word%"${_word##*[! ]}"}"
-            BU_COMPREPLY_METADATA[_i]="${BU_TPUT_GREY}${_desc}${BU_TPUT_RESET}"
+            BU_COMPREPLY_METADATA[_i]="[90m${_desc}[0m"
         else
             COMPREPLY[_i]="${_entry%"${_entry##*[! ]}"}"
         fi
     done
 }
+
 bu_autocomplete_get_autocompletions()
 {
     local BU_AUTOCOMPLETE_ACCEPT_ANSI_COLORS=false
