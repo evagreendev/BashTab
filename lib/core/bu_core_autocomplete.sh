@@ -1162,6 +1162,8 @@ bu_autocomplete_get_autocompletions()
         if "$BU_AUTOCOMPLETE_ACCEPT_ANSI_COLORS" && ((${#COMPREPLY[@]} < 1000))
         then
             mapfile -t BU_COMPREPLY_METADATA < <(type -t "${COMPREPLY[@]}")
+            BU_COMPREPLY_METADATA=("${BU_COMPREPLY_METADATA[@]/#/${BU_TPUT_GREY}}")
+            BU_COMPREPLY_METADATA=("${BU_COMPREPLY_METADATA[@]/%/${BU_TPUT_RESET}}")
         fi
         return
     fi
@@ -2180,7 +2182,7 @@ __bu_autocomplete_completion_func_cli()
             for (( i = 0; i < ${#COMPREPLY[@]}; i++ ))
             do
                 __bu_cli_command_type "${COMPREPLY[i]}"
-                BU_COMPREPLY_METADATA[i]="$BU_RET"
+                BU_COMPREPLY_METADATA[i]="${BU_TPUT_GREY}$BU_RET${BU_TPUT_RESET}"
                 case "$BU_RET" in
                 alias)
                     color=$BU_TPUT_VSCODE_DARK_BLUE
@@ -3127,6 +3129,8 @@ __bu_bind_fzf_autocomplete_impl()
                 if ((${#COMPREPLY[@]})) && [[ -e ${COMPREPLY[0]} && -e ${COMPREPLY[-1]} ]]
                 then
                     mapfile -t BU_COMPREPLY_METADATA < <(file "${COMPREPLY[@]}" | sed 's/.*: *//' | awk '{printf "%s\n", substr($0, 1, 20)}')
+                    BU_COMPREPLY_METADATA=("${BU_COMPREPLY_METADATA[@]/#/${BU_TPUT_GREY}}")
+                    BU_COMPREPLY_METADATA=("${BU_COMPREPLY_METADATA[@]/%/${BU_TPUT_RESET}}")
                 fi
                 #mapfile -t COMPREPLY < <(printf "%q\n" "${COMPREPLY[@]}")
 
