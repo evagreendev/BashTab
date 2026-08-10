@@ -379,6 +379,10 @@ bu_cat_arr_append()
 # ```
 bu_symbol_is_function()
 {
+    # Reject option-like arguments: type -t interprets --* as flags,
+    # produces help text to stdout, and exits non-zero — poisoning the
+    # shared FIFO in bu_stdout_to_ret (mode=str, proc path).
+    [[ "$1" != -* ]] || return 1
     bu_stdout_to_ret type -t "$1"
     [[ "$BU_RET" = function ]]
 }
@@ -395,6 +399,7 @@ bu_symbol_is_function()
 # ```
 bu_symbol_is_file()
 {
+    [[ "$1" != -* ]] || return 1
     bu_stdout_to_ret type -t "$1"
     [[ "$BU_RET" = file ]]
 }
