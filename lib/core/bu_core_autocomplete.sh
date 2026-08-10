@@ -1127,28 +1127,24 @@ __bu_human_size()
 __bu_extract_inline_descriptions()
 {
     local _i _entry _word _desc
-    # Greedy .+ in the second group handles nested parens in descriptions
-    # e.g. --log-level  (Set the logging level ("debug", "info", ...))
-    local _re='^(.+)[[:space:]]+\((.+)\)$'
     for ((_i = 0; _i < ${#COMPREPLY[@]}; _i++))
     do
         _entry=${COMPREPLY[_i]}
-        if [[ "$_entry" =~ $_re ]]
+        # Docker's __docker_format_comp_descriptions appends "  (description)"
+        # to every COMPREPLY entry.  bash has no metadata channel so this is
+        # how docker ships descriptions.  Split on the first "  (".
+        if [[ "$_entry" == *'  ('* ]]
         then
-            _word=${BASH_REMATCH[1]}
-            _desc=${BASH_REMATCH[2]}
-            [[ "$_word" == *"("*")"* ]] && continue
-            # rtrim — the regex captures padding spaces before the description
+            _word="${_entry%%  (*}"
+            _desc="${_entry#*  (}"
+            _desc="${_desc%)}"
             COMPREPLY[_i]="${_word%"${_word##*[! ]}"}"
-            if ((${#BU_COMPREPLY_METADATA[@]} == 0)); then
-                BU_COMPREPLY_METADATA[_i]="${BU_TPUT_GREY}${_desc}${BU_TPUT_RESET}"
-            fi
+            BU_COMPREPLY_METADATA[_i]="${BU_TPUT_GREY}${_desc}${BU_TPUT_RESET}"
         else
             COMPREPLY[_i]="${_entry%"${_entry##*[! ]}"}"
         fi
     done
 }
-
 bu_autocomplete_get_autocompletions()
 {
     local BU_AUTOCOMPLETE_ACCEPT_ANSI_COLORS=false
