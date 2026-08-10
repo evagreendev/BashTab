@@ -187,3 +187,65 @@ function test_no_double_space { #@test
     refute [[ "$BU_RET" == "docker images  " ]]
     assert_equal "$BU_RET" "docker images "
 }
+
+# ── Real docker fig spec data ──
+
+function test_real_docker_fig_spec_one_space { #@test
+    local spec_path="${BU_FIG_SPEC_DIR:-$DIR/../fig_specs/build}/docker.json"
+    [[ -f "$spec_path" ]] || skip "docker fig spec not found"
+
+    COMPREPLY=()
+    BU_COMPREPLY_METADATA=()
+    __bu_autocomplete_fig_completion_func docker ""
+
+    # Select 'images' — real data with real padding
+    _simulate_selection docker images false false
+    echo "Result: [$BU_RET]"
+    assert_equal "$BU_RET" "docker images "
+}
+
+function test_real_docker_fig_spec_short_command_one_space { #@test
+    local spec_path="${BU_FIG_SPEC_DIR:-$DIR/../fig_specs/build}/docker.json"
+    [[ -f "$spec_path" ]] || skip "docker fig spec not found"
+
+    COMPREPLY=()
+    BU_COMPREPLY_METADATA=()
+    __bu_autocomplete_fig_completion_func docker ""
+
+    # 'ps' is only 2 chars — lots of padding
+    _simulate_selection docker ps false false
+    echo "Result: [$BU_RET]"
+    refute [[ "$BU_RET" == "docker ps  " ]]
+    assert_equal "$BU_RET" "docker ps "
+}
+
+function test_real_docker_fig_spec_nospace_still_one_space { #@test
+    local spec_path="${BU_FIG_SPEC_DIR:-$DIR/../fig_specs/build}/docker.json"
+    [[ -f "$spec_path" ]] || skip "docker fig spec not found"
+
+    COMPREPLY=()
+    BU_COMPREPLY_METADATA=()
+    __bu_autocomplete_fig_completion_func docker ""
+
+    # nospace=true but subcommand → still one space
+    _simulate_selection docker images true false
+    echo "Result: [$BU_RET]"
+    assert_equal "$BU_RET" "docker images "
+}
+
+# ── Docker-style column-padded completions (__start_docker) ──
+
+function test_rtrim_column_padded_entries { #@test
+    # Docker's __start_docker pads subcommand names to fixed width
+    COMPREPLY=("attach     " "build      " "images     " "ps         ")
+    BU_COMPREPLY_METADATA=()
+    __bu_extract_inline_descriptions
+
+    echo "After rtrim:"
+    printf '  [%q]\n' "${COMPREPLY[@]}"
+
+    assert_equal "${COMPREPLY[0]}" "attach"
+    assert_equal "${COMPREPLY[1]}" "build"
+    assert_equal "${COMPREPLY[2]}" "images"
+    assert_equal "${COMPREPLY[3]}" "ps"
+}

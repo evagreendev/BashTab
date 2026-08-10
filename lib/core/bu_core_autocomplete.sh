@@ -1109,25 +1109,24 @@ __bu_human_size()
 
 # ```
 # *Description*:
-# Detect and extract inline descriptions from COMPREPLY entries.
-# Some external completion functions embed descriptions in the format
-# "word (description)".  This moves the description to
-# BU_COMPREPLY_METADATA and keeps only the word in COMPREPLY.
+# Clean up COMPREPLY entries from external completion functions.
+# Handles two patterns:
+#   1. "word (description)" — extracts description to BU_COMPREPLY_METADATA
+#   2. Column-padded entries — rtrims trailing whitespace from every entry.
 #
-# No-op when BU_COMPREPLY_METADATA is already populated.
+# Pattern 2 is needed because some completion functions (notably docker's
+# __docker_format_comp_descriptions) pad names to the longest entry's width
+# with trailing spaces so that bash's built-in compgen -W display renders
+# aligned columns.  Those spaces are display-only and must be stripped
+# before the completion text reaches the command line.
 #
 # *Globals*:
-# - COMPREPLY: modified in-place (descriptions stripped)
+# - COMPREPLY: modified in-place
 # - BU_COMPREPLY_METADATA: appended with extracted descriptions (grey)
 # ```
 __bu_extract_inline_descriptions()
 {
-    # Only process when metadata hasn't been set by a smarter source
-    ((${#BU_COMPREPLY_METADATA[@]})) && return 0
-
     local _i _entry _word _desc
-    local _found=false
-    # Inline-description pattern: "word (description)"
     local _re='^(.+)[[:space:]]+\(([^)]+)\)$'
     for ((_i = 0; _i < ${#COMPREPLY[@]}; _i++))
     do
@@ -1136,11 +1135,13 @@ __bu_extract_inline_descriptions()
         then
             _word=${BASH_REMATCH[1]}
             _desc=${BASH_REMATCH[2]}
-            # Defensive: skip if the word part itself contains parentheses
             [[ "$_word" == *"("*")"* ]] && continue
             COMPREPLY[_i]=$_word
-            BU_COMPREPLY_METADATA[_i]="${BU_TPUT_GREY}${_desc}${BU_TPUT_RESET}"
-            _found=true
+            if ((${#BU_COMPREPLY_METADATA[@]} == 0)); then
+                BU_COMPREPLY_METADATA[_i]="${BU_TPUT_GREY}${_desc}${BU_TPUT_RESET}"
+            fi
+        else
+            COMPREPLY[_i]="${_entry%"${_entry##*[! ]}"}"
         fi
     done
 }
