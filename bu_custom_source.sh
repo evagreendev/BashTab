@@ -252,7 +252,7 @@ bu_config_register()
         bu_basic_log_err "bu_config_register: invalid setting name[$name], must match ^(${_prefix_list// /|})[A-Z0-9_]*$"
         return 1
     fi
-    local default= enum= hint= layer=
+    local default= enum= hint= layer= complete_values_fn=
     local is_bool=false
     local presets=
     while (($#))
@@ -298,6 +298,10 @@ bu_config_register()
             shift
             presets="${preset_values[*]}"
             ;;
+        --complete-values)
+            complete_values_fn=$2
+            shift 2
+            ;;
         --layer)
             layer=$2
             shift 2
@@ -319,6 +323,7 @@ bu_config_register()
     [[ -n "$presets" ]] && BU_CONFIG_PROPERTIES[$name,presets]=$presets
     "$is_bool" && BU_CONFIG_PROPERTIES[$name,bool]=true
     [[ -n "$layer" ]] && BU_CONFIG_PROPERTIES[$name,layer]=$layer
+    [[ -n "$complete_values_fn" ]] && BU_CONFIG_PROPERTIES[$name,complete_values_fn]=$complete_values_fn
     return 0
 }
 
@@ -384,6 +389,20 @@ __bu_config_completion_values()
 {
     local name=$1
     BU_RET=()
+
+    # Dynamic completion function takes priority over bool/enum.
+    local fn=${BU_CONFIG_PROPERTIES[$name,complete_values_fn]:-}
+    if [[ -n "$fn" ]]
+    then
+        if declare -F "$fn" &>/dev/null
+        then
+            # FN receives the setting name as $1, returns candidates in BU_RET.
+            # Must be side-effect-free and fast (runs on every TAB).
+            "$fn" "$name" || true
+        fi
+        return 0
+    fi
+
     local entry
     if [[ "${BU_CONFIG_PROPERTIES[$name,bool]:-}" == true ]]
     then

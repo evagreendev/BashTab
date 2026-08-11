@@ -224,3 +224,40 @@ function test_config_completion_layers { #@test
     __bu_config_completion_layers
     [[ " ${BU_RET[*]} " == *" mylayer "* ]]
 }
+
+function test_config_complete_values_fn_takes_priority { #@test
+    # Create some demo directories
+    mkdir -p "$BATS_TEST_TMPDIR/demo-a" "$BATS_TEST_TMPDIR/demo-b" "$BATS_TEST_TMPDIR/demo-c"
+
+    function _list_demo_dirs() {
+        BU_RET=()
+        local d
+        for d in "$BATS_TEST_TMPDIR"/demo-*
+        do
+            [[ -d "$d" ]] && BU_RET+=("$(basename "$d")")
+        done
+    }
+
+    bu_config_register BU_DEMO_DIR --complete-values _list_demo_dirs
+    __bu_config_completion_values BU_DEMO_DIR
+    assert_equal "${BU_RET[*]}" "demo-a demo-b demo-c"
+}
+
+function test_config_complete_values_fn_prefers_over_enum { #@test
+    function _my_dynamic_vals() {
+        BU_RET=(alpha beta gamma)
+    }
+
+    # Setting has BOTH --enum and --complete-values; function wins
+    bu_config_register BU_HYBRID --enum static:x enum-- --complete-values _my_dynamic_vals
+    __bu_config_completion_values BU_HYBRID
+    assert_equal "${BU_RET[*]}" "alpha beta gamma"
+}
+
+function test_config_complete_values_missing_fn_silent { #@test
+    # complete_values_fn names a function that does NOT exist
+    bu_config_register BU_ORPHAN --complete-values _no_such_function
+    __bu_config_completion_values BU_ORPHAN
+    # Should be silently empty, no error
+    assert_equal "${BU_RET[*]}" ""
+}
