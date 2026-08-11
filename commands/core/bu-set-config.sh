@@ -40,6 +40,11 @@ do
         # Print help
         is_help=true
         ;;
+    -f|--file)# FILE
+        # Write to FILE instead of the default settings file
+        bu_parse_positional $# "${BU_AUTOCOMPLETE_SPEC_FILE[@]}" --hint "Settings file path"
+        file=${!shift_by}
+        ;;
     *)
         # Bare positionals: VAR then VALUE
         if bu_env_is_in_autocomplete && (($# == 1))

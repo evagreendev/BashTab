@@ -79,6 +79,54 @@ function test_set_config_rejects_bad_input { #@test
     assert_failure
 }
 
+function test_set_config_file_dedupe_last_wins { #@test
+    local layer="$BATS_TEST_TMPDIR/layer.sh"
+
+    bu set-config --file "$layer" BU_LOG_LVL debug >/dev/null
+    bu set-config --file "$layer" BU_LOG_LVL info >/dev/null
+
+    local count
+    count=$(grep -c "^BU_LOG_LVL=" "$layer")
+    assert_equal "$count" 1
+    assert_equal "$(grep "^BU_LOG_LVL=" "$layer")" "BU_LOG_LVL=2"
+}
+
+function test_set_config_file_unset_removes_line { #@test
+    local layer="$BATS_TEST_TMPDIR/layer.sh"
+
+    bu set-config --file "$layer" BU_LOG_LVL debug >/dev/null
+    assert grep -q "^BU_LOG_LVL=" "$layer"
+
+    bu set-config --file "$layer" --unset BU_LOG_LVL >/dev/null
+    ! grep -q "^BU_LOG_LVL=" "$layer"
+}
+
+function test_set_config_file_preserves_hand_written_lines { #@test
+    local layer="$BATS_TEST_TMPDIR/layer.sh"
+
+    # Write a hand-written assignment before any managed block
+    echo 'BU_LOG_LVL=warn' > "$layer"
+
+    # run set-config; capture both stdout and stderr together
+    run bu set-config --file "$layer" BU_LOG_LVL info
+    assert_success
+
+    # The hand-written line must survive
+    assert grep -q "^BU_LOG_LVL=warn$" "$layer"
+
+    # The advisory note must fire (logged via bu_log_warn to stderr, which run captures)
+    assert_output --partial "note:"
+
+    # Only one assignment inside the managed block
+    local -a managed_lines
+    managed_lines=($(sed -n '/>>> bu set-config managed block/,/<<< bu set-config managed block/p' "$layer" | grep -c "^BU_LOG_LVL="))
+    assert_equal "$managed_lines" 1
+
+    # unset against the same file must also preserve the hand-written line
+    bu set-config --file "$layer" --unset BU_LOG_LVL >/dev/null
+    assert grep -q "^BU_LOG_LVL=warn$" "$layer"
+}
+
 function test_config_completion_helpers { #@test
     __bu_config_completion_values BU_LOG_LVL
     assert_equal "${BU_RET[*]}" "trace debug info warn err silence"
