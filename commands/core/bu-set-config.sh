@@ -12,6 +12,8 @@ bu_run_log_command "$@"
 
 # Machine-local settings file. Overridable for tests.
 local file=${BU_CONFIG_LOCAL_FILE:-"$BU_DIR"/config/bu_config_local.sh}
+local file_explicit=false
+local layer=
 
 # Managed block markers
 local -r __BU_SET_CONFIG_OPENER='# >>> bu set-config managed block -- do not hand-edit inside'
@@ -44,6 +46,12 @@ do
         # Write to FILE instead of the default settings file
         bu_parse_positional $# "${BU_AUTOCOMPLETE_SPEC_FILE[@]}" --hint "Settings file path"
         file=${!shift_by}
+        file_explicit=true
+        ;;
+    -l|--layer)# LAYER
+        # Route write through a registered layer resolver
+        bu_parse_positional $# --ret __bu_config_completion_layers ret-- --hint "Config layer name"
+        layer=${!shift_by}
         ;;
     *)
         # Bare positionals: VAR then VALUE
@@ -142,6 +150,44 @@ then
     fi
     bu_scope_pop_function
     return 0
+fi
+
+# ── Layer resolution ─────────────────────────────────────────
+
+if "$file_explicit" && [[ -n "$layer" ]]
+then
+    bu_log_warn "--file and --layer both given; --file takes precedence, ignoring --layer $layer"
+    layer=
+elif [[ -n "$layer" ]]
+then
+    if ! bu_config_layer_file "$layer"
+    then
+        bu_scope_pop_function
+        return 1
+    fi
+    file=$BU_RET
+    # Cross-layer warning: writing to a layer other than the natural one
+    if [[ "${BU_CONFIG_PROPERTIES[$var,registered]:-}" == true ]]
+    then
+        local _natural_layer=${BU_CONFIG_PROPERTIES[$var,layer]:-local}
+        if [[ "$layer" != "$_natural_layer" ]]
+        then
+            bu_log_warn "Writing $var to layer '$layer' but its natural layer is '$_natural_layer'; the cascade may shadow this value"
+        fi
+    fi
+elif ! "$file_explicit" && [[ "${BU_CONFIG_PROPERTIES[$var,registered]:-}" == true ]]
+then
+    # No --file, no --layer: use the setting's natural layer if registered
+    local _natural_layer=${BU_CONFIG_PROPERTIES[$var,layer]:-}
+    if [[ -n "$_natural_layer" && "$_natural_layer" != local ]]
+    then
+        if ! bu_config_layer_file "$_natural_layer"
+        then
+            bu_scope_pop_function
+            return 1
+        fi
+        file=$BU_RET
+    fi
 fi
 
 # ── Managed block file helpers ───────────────────────────────

@@ -132,6 +132,11 @@ fi
 # Storage mirrors BU_COMMAND_PROPERTIES: keys are "$name,field".
 declare -A -g BU_CONFIG_PROPERTIES=()
 
+# Named persistence layers. Each entry maps a layer name to a resolver
+# function that prints the layer's settings file path for the current context.
+# The "local" layer is built-in (the machine-local settings file).
+declare -A -g BU_CONFIG_LAYER_RESOLVERS=()
+
 # ```
 # *Description*:
 # Validate a setting name against the configured name prefixes.
@@ -157,6 +162,64 @@ bu_config_name_is_valid()
         fi
     done
     return 1
+}
+
+# ```
+# *Description*:
+# Register a named persistence layer with a resolver function.
+# The resolver is called by bu_config_layer_file and should print
+# the layer's settings file path to stdout for the current context.
+#
+# *Params*:
+# - `$1`: Layer name (must be usable as a shell identifier)
+# - `$2`: Resolver function name (called with any extra args passed to
+#   bu_config_layer_file)
+# ```
+bu_config_register_layer()
+{
+    local name=$1
+    local resolver=$2
+    BU_CONFIG_LAYER_RESOLVERS[$name]=$resolver
+    return 0
+}
+
+# ```
+# *Description*:
+# Resolve a named layer to its settings file path.
+# The "local" layer (and empty name) resolve to the machine-local file.
+#
+# *Params*:
+# - `$1`: Layer name (`local` or a registered layer)
+# - `...`: Extra arguments forwarded to the layer's resolver function
+#
+# *Returns*:
+# - `BU_RET`: the resolved file path
+# - Exit code: 0 on success, 1 if the layer name is unknown
+# ```
+bu_config_layer_file()
+{
+    local name=$1
+    shift
+    if [[ -z "$name" || "$name" == local ]]
+    then
+        BU_RET=${BU_CONFIG_LOCAL_FILE:-"$BU_DIR"/config/bu_config_local.sh}
+        return 0
+    fi
+    local resolver=${BU_CONFIG_LAYER_RESOLVERS[$name]:-}
+    if [[ -z "$resolver" ]]
+    then
+        local -a names=(local)
+        local k
+        for k in "${!BU_CONFIG_LAYER_RESOLVERS[@]}"
+        do
+            [[ -n "${BU_CONFIG_LAYER_RESOLVERS[$k]}" ]] && names+=("$k")
+        done
+        printf -v _joined '%s, ' "${names[@]}"
+        bu_log_err "Unknown config layer '$name'. Registered layers: ${_joined%, }"
+        return 1
+    fi
+    BU_RET=$("$resolver" "$@")
+    return 0
 }
 
 # ```
@@ -189,7 +252,7 @@ bu_config_register()
         bu_basic_log_err "bu_config_register: invalid setting name[$name], must match ^(${_prefix_list// /|})[A-Z0-9_]*$"
         return 1
     fi
-    local default= enum= hint=
+    local default= enum= hint= layer=
     local is_bool=false
     local presets=
     while (($#))
@@ -235,6 +298,10 @@ bu_config_register()
             shift
             presets="${preset_values[*]}"
             ;;
+        --layer)
+            layer=$2
+            shift 2
+            ;;
         --hint)
             hint=$2
             shift 2
@@ -251,6 +318,7 @@ bu_config_register()
     [[ -n "$hint" ]] && BU_CONFIG_PROPERTIES[$name,hint]=$hint
     [[ -n "$presets" ]] && BU_CONFIG_PROPERTIES[$name,presets]=$presets
     "$is_bool" && BU_CONFIG_PROPERTIES[$name,bool]=true
+    [[ -n "$layer" ]] && BU_CONFIG_PROPERTIES[$name,layer]=$layer
     return 0
 }
 
@@ -329,6 +397,17 @@ __bu_config_completion_values()
     for entry in ${BU_CONFIG_PROPERTIES[$name,presets]:-}
     do
         BU_RET+=("preset:${entry}")
+    done
+}
+
+# Completion helper: list registered layer names (for bu set-config --layer).
+__bu_config_completion_layers()
+{
+    BU_RET=(local)
+    local k
+    for k in "${!BU_CONFIG_LAYER_RESOLVERS[@]}"
+    do
+        [[ -n "${BU_CONFIG_LAYER_RESOLVERS[$k]}" ]] && BU_RET+=("$k")
     done
 }
 

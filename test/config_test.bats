@@ -138,3 +138,89 @@ function test_config_completion_helpers { #@test
     __bu_config_completion_names
     [[ " ${BU_RET[*]} " == *" BU_LOG_LVL "* ]]
 }
+
+function test_set_config_layer_natural_fallback { #@test
+    local layer_file="$BATS_TEST_TMPDIR/proj.sh"
+
+    # Register a layer resolver that always returns our test file
+    bu_config_register_layer proj _proj_resolver
+    function _proj_resolver() { echo "$layer_file"; }
+
+    # Register a setting whose natural layer is "proj"
+    bu_config_register BU_TEST_LAYERED --default debug \
+        --enum debug:0 info:1 enum-- --layer proj
+
+    # Bare write (no --file, no --layer) should land in the natural layer's file
+    bu set-config BU_TEST_LAYERED info >/dev/null
+
+    assert grep -q "^BU_TEST_LAYERED=" "$layer_file"
+    assert_equal "$(grep "^BU_TEST_LAYERED=" "$layer_file")" "BU_TEST_LAYERED=1"
+}
+
+function test_set_config_layer_cross_layer_warns { #@test
+    local layer_file="$BATS_TEST_TMPDIR/proj.sh"
+
+    bu_config_register_layer proj _proj_resolver2
+    function _proj_resolver2() { echo "$layer_file"; }
+
+    bu_config_register BU_TEST_LAYERED2 --default debug \
+        --enum debug:0 info:1 enum-- --layer proj
+
+    # Explicit --layer local on a proj-natural setting should warn
+    run bu set-config --layer local BU_TEST_LAYERED2 info
+    assert_success
+    assert_output --partial "natural layer is 'proj'"
+
+    # It should still write to the local file
+    assert grep -q "^BU_TEST_LAYERED2=" "$BU_CONFIG_LOCAL_FILE"
+}
+
+function test_set_config_layer_unknown_errors { #@test
+    run bu set-config --layer nosuchlayer BU_LOG_LVL info
+    assert_failure
+    assert_output --partial "Unknown config layer"
+    assert_output --partial "local"
+}
+
+function test_set_config_layer_file_beats_layer { #@test
+    local explicit_file="$BATS_TEST_TMPDIR/explicit.sh"
+
+    bu_config_register_layer proj _proj_resolver3
+    function _proj_resolver3() { echo "$BATS_TEST_TMPDIR/proj3.sh"; }
+
+    # Both --file and --layer: --file wins with a warning
+    run bu set-config --file "$explicit_file" --layer proj BU_LOG_LVL info
+    assert_success
+    assert_output --partial "--file takes precedence"
+
+    # Written to the explicit file, not the layer-resolved file
+    assert grep -q "^BU_LOG_LVL=" "$explicit_file"
+}
+
+function test_config_layer_file_resolver { #@test
+    local layer_file="$BATS_TEST_TMPDIR/dynamic.sh"
+
+    bu_config_register_layer dyn _dyn_resolver
+    function _dyn_resolver() { echo "$layer_file"; }
+
+    bu_config_layer_file dyn
+    assert_equal "$BU_RET" "$layer_file"
+
+    # "local" is built-in
+    bu_config_layer_file local
+    assert_equal "$BU_RET" "$BU_CONFIG_LOCAL_FILE"
+
+    # Empty also resolves to local
+    bu_config_layer_file ""
+    assert_equal "$BU_RET" "$BU_CONFIG_LOCAL_FILE"
+}
+
+function test_config_completion_layers { #@test
+    __bu_config_completion_layers
+    # "local" is always present
+    [[ " ${BU_RET[*]} " == *" local "* ]] || [[ " ${BU_RET[*]} " == local ]]
+
+    bu_config_register_layer mylayer _fake
+    __bu_config_completion_layers
+    [[ " ${BU_RET[*]} " == *" mylayer "* ]]
+}
