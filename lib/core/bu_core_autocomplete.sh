@@ -2304,7 +2304,30 @@ __bu_autocomplete_completion_func_default()
     if [[ -e "$BU_NAMED_CACHE_DIR"/"$key" ]]
     then
         complete -F __bu_autocomplete_completion_func_cached -- "$completion_command"
-    elif bu_symbol_is_function _completion_loader
+        return 124
+    fi
+
+    # Consult bash's default compspec (complete -D) before falling back
+    # to _completion_loader / _minimal.  A user or embedding project that
+    # installs a custom -D handler expects it to be honoured for every
+    # command with no specific compspec, including inside BashTab's fzf
+    # completion path.
+    local default_spec
+    if default_spec=$(complete -p -D 2>/dev/null)
+    then
+        # Parse the -F <func> from:  complete -F my_func -D
+        local default_func=
+        if [[ "$default_spec" =~ [[:space:]]-F[[:space:]]+([^[:space:]]+) ]]
+        then
+            default_func=${BASH_REMATCH[1]}
+            # Register the default handler for this command so the
+            # retry loop re-resolves and invokes it.
+            complete -F "$default_func" -- "$completion_command"
+            return 124
+        fi
+    fi
+
+    if bu_symbol_is_function _completion_loader
     then
         complete -F _completion_loader -- "$completion_command"
     elif bu_symbol_is_function _minimal
