@@ -29,4 +29,4 @@ async function walk(dir) {
   }
 }
 
-walk(join(__dirname, 'build'));
+walk(join(__dirname, 'fig_specs', 'build'));

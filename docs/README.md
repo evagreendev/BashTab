@@ -60,7 +60,7 @@ BashTab can use [Fig completion specs](https://github.com/withfig/autocomplete) 
 **Setup** (handled automatically by `./setup`):
 ```sh
 git submodule update --init fig_specs
-cd fig_specs && pnpm install && pnpm build && node ../fig_convert_to_json.mjs
+cd fig_specs && pnpm install --ignore-workspace && pnpm build && node ../fig_convert_to_json.mjs
 ```
 
 **What you get:**
