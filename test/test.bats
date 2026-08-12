@@ -926,3 +926,24 @@ function test_command_cache_disabled_skips_load_and_save { #@test
     assert_output --partial 'mark-is-noop'
     assert_output --partial 'still-false-after-mark'
 }
+
+function test_command_scan_lazy_defers_to_first_dispatch { #@test
+    # BU_COMMAND_SCAN_LAZY=true must leave the registry near-empty and a
+    # pending flag set at entrypoint time; the first by-name dispatch
+    # must trigger the scan, populate the registry, and clear the flag.
+    run bash -c "
+        set -euo pipefail
+        export BU_COMMAND_SCAN_LAZY=true
+        export BU_COMMAND_CACHE_ENABLED=false
+        source '$DIR/../bu_entrypoint.sh' || true
+        echo \"after-init count=\${#BU_COMMANDS[@]} pending=\${__BU_COMMAND_SCAN_PENDING:-false}\"
+        bu get-verb --format jsonl >/dev/null 2>&1 || true
+        echo \"after-dispatch count=\${#BU_COMMANDS[@]} pending=\${__BU_COMMAND_SCAN_PENDING:-false}\"
+        bu get-verb --format jsonl >/dev/null 2>&1 || true
+        echo \"after-second count=\${#BU_COMMANDS[@]} pending=\${__BU_COMMAND_SCAN_PENDING:-false}\"
+    "
+    assert_success
+    assert_output --partial 'after-init count=3 pending=true'
+    assert_output --partial 'after-dispatch count=200 pending=false'
+    assert_output --partial 'after-second count=200 pending=false'
+}

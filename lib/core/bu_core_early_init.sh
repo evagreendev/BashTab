@@ -27,6 +27,8 @@ __bu_init_env_commands()
         fi
     fi
 
+    local _scan_lazy=${BU_COMMAND_SCAN_LAZY:-false}
+
     local dir
     local file
     local convert_file_to_subcommand
@@ -34,6 +36,12 @@ __bu_init_env_commands()
     for dir in "${!BU_COMMAND_SEARCH_DIRS[@]}"
     do
         bu_env_append_path "$dir"
+
+        # ── Lazy mode: defer the scan body, only do PATH appends ──
+        if "$_scan_lazy"; then
+            continue
+        fi
+
         convert_file_to_subcommand=${BU_COMMAND_SEARCH_DIRS[$dir]}
         local find_opts=()
         if ! "${BU_COMMAND_SEARCH_DIR_RECURSIVE[$dir]:-true}"; then
@@ -142,6 +150,36 @@ __bu_init_env_commands()
     if "$BU_COMMAND_CACHE_ENABLED" && ! "$BU_COMMAND_CACHE_LOADED" && ! $compat_cache_valid && [[ -n "$fingerprint" ]]; then
         bu_cap_cache_save "$fingerprint"
     fi
+
+    if "$_scan_lazy"; then
+        __BU_COMMAND_SCAN_PENDING=true
+    fi
+}
+
+# ```
+# *Description*:
+# Run the deferred command-registry scan if BU_COMMAND_SCAN_LAZY deferred it.
+# Called at the top of the CLI dispatcher and completion entry point so the
+# first by-name dispatch or completion transparently completes initialization.
+# Cheap no-op when the scan already ran.
+# ```
+bu_ensure_command_scan()
+{
+    if [[ "${__BU_COMMAND_SCAN_PENDING:-false}" != true ]]; then
+        return 0
+    fi
+    __BU_COMMAND_SCAN_PENDING=false
+    # Temporarily clear lazy mode so __bu_init_env_commands runs the scan
+    local _saved=${BU_COMMAND_SCAN_LAZY:-}
+    BU_COMMAND_SCAN_LAZY=false
+    __bu_init_env_commands
+    if [[ -n "$_saved" ]]; then
+        BU_COMMAND_SCAN_LAZY=$_saved
+    else
+        unset BU_COMMAND_SCAN_LAZY
+    fi
+    # Register script-level completions from the freshly-scanned registry
+    __bu_init_autocomplete
 }
 
 __bu_init_env_commands

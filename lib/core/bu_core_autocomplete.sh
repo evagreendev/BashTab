@@ -2110,6 +2110,9 @@ __bu_autocomplete_completion_func_cli_resolve_alias()
 # ```
 __bu_autocomplete_completion_func_cli()
 {
+    # Complete deferred command scan on first completion.
+    bu_ensure_command_scan
+
     local -r completion_command=$1
     local -r cur_word=$2
     local -r prev_word=$3

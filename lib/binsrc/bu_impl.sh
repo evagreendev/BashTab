@@ -75,6 +75,9 @@ __bu_impl_process_alias()
 
 __bu_impl()
 {
+    # Complete deferred command scan on first by-name dispatch.
+    bu_ensure_command_scan
+
     if ((!$#))
     then
         bu_log_warn "No arguments specified, printing help"
