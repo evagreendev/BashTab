@@ -947,3 +947,54 @@ function test_command_scan_lazy_defers_to_first_dispatch { #@test
     assert_output --partial 'after-dispatch count=200 pending=false'
     assert_output --partial 'after-second count=200 pending=false'
 }
+
+# ===========================================================================
+# bu new-command scaffolding: --source vs --source-isolated
+# ===========================================================================
+
+function test_scaffold_source_isolated_isolation { #@test
+    local tmpdir
+    tmpdir=$(mktemp -d)
+
+    # VISUAL=true makes bu_edit_file a no-op (no interactive editor).
+    VISUAL=true bu new-command --dir "$tmpdir" --name isolated --source-isolated
+    local target="$tmpdir/isolated.sh"
+    assert [ -f "$target" ]
+
+    # The isolated scaffold must wrap its body in a subshell and set up
+    # its own exit handling inside the parens.
+    assert grep -q '^(' "$target"
+    assert grep -q 'bu_exit_handler_setup' "$target"
+
+    # Fill the subshell body with mutations that must NOT leak.
+    local content
+    content=$(<"$target")
+    content=${content//'# TODO: implement the command body here'/'cd /; export CANARY=1; printf "caller_var=%s\\n" "$caller_var"'}
+    printf '%s\n' "$content" > "$target"
+
+    # Non-exported caller variable: the isolated command must still READ it.
+    caller_var=42
+    local old_pwd=$PWD
+    local out
+    out=$(builtin source "$target")
+    assert_equal "$out" 'caller_var=42'
+    assert_equal "$PWD" "$old_pwd"
+    assert [ -z "${CANARY:-}" ]
+
+    rm -rf "$tmpdir"
+}
+
+function test_scaffold_source_plain_unchanged { #@test
+    local tmpdir
+    tmpdir=$(mktemp -d)
+
+    VISUAL=true bu new-command --dir "$tmpdir" --name mutator --source
+    local target="$tmpdir/mutator.sh"
+    assert [ -f "$target" ]
+
+    # --source output is unchanged: no subshell wrapper, no exec bit.
+    refute grep -q '^(' "$target"
+    assert [ ! -x "$target" ]
+
+    rm -rf "$tmpdir"
+}

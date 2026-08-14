@@ -34,6 +34,7 @@ local dir=
 local name=
 local is_force=false
 local is_source_only=false
+local is_source_isolated=false
 local is_directory_relevant=true
 local is_help=false
 local error_msg=
@@ -62,8 +63,16 @@ do
         is_force=true
         ;;
     --source)# _FLAG
-        # This script is not meant to be executed in a new shell, but rather should be sourced
+        # Generate a source-type command that runs in the caller's shell and may
+        # mutate it. Use ONLY when mutating the caller's shell is the command's
+        # purpose; otherwise prefer --source-isolated.
         is_source_only=true
+        ;;
+    --source-isolated)# _FLAG
+        # Generate a source-type command whose body runs in a subshell: it can
+        # READ the caller's shell state but cannot mutate it (cd/export/PATH
+        # edits die with the subshell).
+        is_source_isolated=true
         ;;
     --no-chdir)# _FLAG
         # If given, the template used for the script will not automatically enter the script's directory.
@@ -110,8 +119,11 @@ script using a template
         "Generate an executable script called ${BU_TPUT_BOLD}my_script.sh${BU_TPUT_RESET} in ${BU_TPUT_BOLD}${search_dirs}${BU_TPUT_RESET}" \
         "--dir ${search_dirs} --name my_script" \
         --example \
-        "Generate a source-able script called ${BU_TPUT_BOLD}my_sourceable_script.sh${BU_TPUT_RESET} in ${BU_TPUT_BOLD}${search_dirs}${BU_TPUT_RESET}" \
-        "--dir ${search_dirs} --name my_sourceable_script" \
+        "Generate a source-able script called ${BU_TPUT_BOLD}my_sourceable_script.sh${BU_TPUT_RESET} in ${BU_TPUT_BOLD}${search_dirs}${BU_TPUT_RESET} (mutates the caller's shell)" \
+        "--dir ${search_dirs} --name my_sourceable_script --source" \
+        --example \
+        "Generate an isolated source-able script called ${BU_TPUT_BOLD}my_readonly_script.sh${BU_TPUT_RESET} in ${BU_TPUT_BOLD}${search_dirs}${BU_TPUT_RESET} (reads the caller's shell, cannot mutate it)" \
+        "--dir ${search_dirs} --name my_readonly_script --source-isolated" \
         --example \
         "Overwrite an existing script called ${BU_TPUT_BOLD}my_script.sh${BU_TPUT_RESET} in ${BU_TPUT_BOLD}${search_dirs}${BU_TPUT_RESET}" \
         "--dir ${search_dirs} --name my_script --force" \
@@ -134,7 +146,15 @@ fi
 local target=
 local template=
 target=$dir/$name.sh
-if "$is_source_only"
+if "$is_source_isolated"
+then
+    if "$is_directory_relevant"
+    then
+        template=$BU_LIB_TEMPLATE_DIR/subshell_script_template.sh
+    else
+        template=$BU_LIB_TEMPLATE_DIR/subshell_script_template_nodir.sh
+    fi
+elif "$is_source_only"
 then
     if "$is_directory_relevant"
     then
@@ -171,7 +191,7 @@ fi
 
 touch "$target"
 
-if ! "$is_source_only"
+if ! "$is_source_only" && ! "$is_source_isolated"
 then
     chmod +x "$target"
 fi

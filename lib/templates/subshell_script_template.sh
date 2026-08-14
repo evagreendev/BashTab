@@ -11,6 +11,20 @@ if [[ "$1" == "--is-compatible" ]]; then
     exit 0
 fi
 
+local -r invocation_dir=$PWD
+local script_name
+local script_dir
+case "$BASH_SOURCE" in
+*/*)
+    script_name=${BASH_SOURCE##*/}
+    script_dir=${BASH_SOURCE%/*}
+    ;;
+*)
+    script_name=$BASH_SOURCE
+    script_dir=.
+    ;;
+esac
+
 # Synopsis: TODO -- one line for the command catalog
 
 # Note that we do not source bu_entrypoint inside the sourceable script template
@@ -28,10 +42,11 @@ source "$BU_NULL"
 #       introspect the real shell state and must not fork.
 #
 #   INSIDE the ( ... ) subshell (child shell):
-#       everything else.  Full READ access to the caller's globals and
-#       functions; ZERO write access.  `cd`/`export`/PATH edits/
-#       `source <env-setup>` die with the subshell.  `return` exits only
-#       the subshell; its status becomes this command's exit code.
+#       everything else, including the chdir into the script directory.
+#       Full READ access to the caller's globals and functions; ZERO write
+#       access.  `cd`/`export`/PATH edits/`source <env-setup>` die with the
+#       subshell.  `return` exits only the subshell; its status becomes this
+#       command's exit code.
 bu_scope_push_function
 bu_run_log_command "$@"
 
@@ -86,7 +101,9 @@ fi
 (
     # ── Subshell body ──
     # Everything from here on runs in a child shell: full READ access to
-    # the caller's globals/functions, zero WRITE access.
+    # the caller's globals/functions, zero WRITE access.  The chdir into
+    # the script directory dies with the subshell.
+    pushd "$script_dir" &>/dev/null
     bu_exit_handler_setup
     # TODO: implement the command body here
 )
