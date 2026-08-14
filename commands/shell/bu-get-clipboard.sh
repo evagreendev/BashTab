@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Read the system clipboard contents
 function __bu_bu_get_clipboard_main()
 {

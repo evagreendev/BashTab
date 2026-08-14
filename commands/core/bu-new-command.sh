@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Create a new BashTab command from a template
 function __bu_bu_new_command_main()
 {
@@ -194,6 +195,8 @@ touch "$target"
 if ! "$is_source_only" && ! "$is_source_isolated"
 then
     chmod +x "$target"
+else
+    chmod -x "$target"
 fi
 
 (

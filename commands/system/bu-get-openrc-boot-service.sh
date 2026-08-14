@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List OpenRC services enabled at boot
 # Fields: service runlevel
 function __bu_bu_get_openrc_boot_service_main()

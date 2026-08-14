@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Restore files from a Git stash
 function __bu_bu_restore_git_stash_main()
 {

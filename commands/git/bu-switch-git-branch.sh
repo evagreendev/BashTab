@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Switch to a different Git branch
 function __bu_bu_switch_git_branch_main()
 {

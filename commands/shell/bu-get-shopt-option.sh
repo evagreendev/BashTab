@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show bash shopt settings
 function __bu_bu_get_shopt_option_main()
 {

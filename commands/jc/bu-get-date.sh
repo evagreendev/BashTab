@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Display the current date and time
 function __bu_bu_get_date_main()
 {

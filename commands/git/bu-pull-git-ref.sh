@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Fetch and integrate remote Git changes
 function __bu_bu_pull_git_ref_main()
 {

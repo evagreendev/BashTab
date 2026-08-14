@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List files with metadata
 # Fields: filename flags links owner group size date
 function __bu_bu_get_file_main()

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show the system ARP table
 # Fields: name address hwtype hwaddress iface
 function __bu_bu_get_arp_entry_main()

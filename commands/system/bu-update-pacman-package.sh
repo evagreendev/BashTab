@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Upgrade Arch Linux packages
 function __bu_bu_update_pacman_package_main()
 {

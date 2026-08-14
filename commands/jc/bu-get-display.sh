@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show display and monitor information
 function __bu_bu_get_display_main()
 {

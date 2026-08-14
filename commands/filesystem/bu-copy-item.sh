@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Copy a file or directory
 function __bu_bu_copy_item_main()
 {

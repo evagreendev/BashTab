@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Project JSONL records to a subset of fields
 function __bu_bu_select_object_main()
 {

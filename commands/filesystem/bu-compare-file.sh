@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Compare two files line by line
 function __bu_bu_compare_file_main()
 {

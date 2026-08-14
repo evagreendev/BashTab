@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List installed Debian packages
 # Fields: codes name version architecture description desired status
 function __bu_bu_get_dpkg_package_main()

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Remove a Docker container
 # Completion helper: all container names from docker ps -a.
 __bu_bu_remove_docker_container_complete_containers()

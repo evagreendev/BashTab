@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show shell resource limits
 function __bu_bu_get_resource_limit_main()
 {

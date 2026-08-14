@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show platform compatibility information
 function __bu_bu_get_compat_main()
 {

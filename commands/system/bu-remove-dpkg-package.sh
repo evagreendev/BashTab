@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Uninstall Debian packages
 function __bu_bu_remove_dpkg_package_main()
 {

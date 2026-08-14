@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Set a BashTab configuration value
 function __bu_bu_set_config_main()
 {

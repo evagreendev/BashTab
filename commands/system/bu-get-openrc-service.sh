@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List OpenRC services and their status
 # Fields: service status
 function __bu_bu_get_openrc_service_main()

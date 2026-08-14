@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Install one or more Alpine Linux packages
 function __bu_bu_add_apk_package_main()
 {

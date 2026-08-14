@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Modify file timestamps or create empty files
 function __bu_bu_update_file_main()
 {

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List Git remote repositories
 function __bu_bu_get_git_remote_main()
 {

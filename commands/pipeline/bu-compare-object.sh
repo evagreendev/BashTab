@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Compare two JSONL streams and show differences
 function __bu_bu_compare_object_main()
 {

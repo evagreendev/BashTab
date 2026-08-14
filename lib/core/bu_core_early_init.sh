@@ -9,6 +9,35 @@
 # bash-ide source=./bu_core_autocomplete.sh
 # bash-ide source=./bu_core_cache.sh
 
+# ```
+# *Description*:
+# Read an explicit `# Dispatch: <type>` declaration from a command script
+# header (first 8 lines).  Returns `source` or `execute` in BU_RET, or
+# empty when the script declares no dispatch intent.
+#
+# *Params*:
+# - `$1`: Path to the command script
+#
+# *Returns*:
+# - BU_RET: declared dispatch type, or empty
+# ```
+__bu_command_dispatch_decl()
+{
+    BU_RET=
+    local -r file=$1
+    [[ -f "$file" ]] || return 0
+    BU_RET=$(awk '
+        FNR > 8 { exit }
+        /^#[[:space:]]*Dispatch:[[:space:]]*(source|execute)[[:space:]]*$/ {
+            line = $0
+            sub(/^#[[:space:]]*Dispatch:[[:space:]]*/, "", line)
+            sub(/[[:space:]]+$/, "", line)
+            print line
+            exit
+        }
+    ' "$file" 2>/dev/null)
+}
+
 __bu_init_env_commands()
 {
     # ── Determine whether --is-compatible probes can be skipped ──
@@ -138,6 +167,21 @@ __bu_init_env_commands()
                         BU_COMMAND_PROPERTIES[$command,unavailable_path]=$script_path
                         continue
                     fi
+                fi
+            fi
+
+            # Record an explicit # Dispatch: <type> declaration so dispatch
+            # honors intent regardless of the file's exec bit.
+            local dispatch_decl
+            __bu_command_dispatch_decl "$script_path"
+            dispatch_decl=$BU_RET
+            if [[ -n "$dispatch_decl" ]]; then
+                BU_COMMAND_PROPERTIES[$command,type]=$dispatch_decl
+                # A shell-mutating script with the exec bit is an attractive
+                # nuisance: invoked as ./cmd.sh or via PATH it runs as a child
+                # process and silently no-ops its mutations.
+                if [[ "$dispatch_decl" == source && -x "$script_path" ]]; then
+                    bu_log_warn "Command[$command] declares '# Dispatch: source' but has the exec bit; invoking it as '$script_path' will silently no-op its shell mutations. Use 'chmod -x' to remove the exec bit."
                 fi
             fi
 

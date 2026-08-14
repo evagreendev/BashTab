@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show memory usage statistics
 # Fields: type total used free shared buff_cache available
 function __bu_bu_get_memory_main()

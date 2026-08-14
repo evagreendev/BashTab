@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List systemd units and their status
 # Fields: unit load active sub description
 function __bu_bu_get_systemd_unit_main()

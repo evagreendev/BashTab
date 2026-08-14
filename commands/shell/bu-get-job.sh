@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List active background jobs
 function __bu_bu_get_job_main()
 {

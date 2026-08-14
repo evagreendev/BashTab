@@ -998,3 +998,103 @@ function test_scaffold_source_plain_unchanged { #@test
 
     rm -rf "$tmpdir"
 }
+
+# ===========================================================================
+# # Dispatch: source header and fallback demotion
+# ===========================================================================
+
+function test_scaffold_dispatch_header_and_exec_bit { #@test
+    local tmpdir
+    tmpdir=$(mktemp -d)
+
+    # --source scaffold: header present, no exec bit.
+    VISUAL=true bu new-command --dir "$tmpdir" --name src-cmd --source
+    local src="$tmpdir/src-cmd.sh"
+    assert grep -q '^# Dispatch: source' "$src"
+    assert [ ! -x "$src" ]
+
+    # Plain scaffold: no header, exec bit present.
+    VISUAL=true bu new-command --dir "$tmpdir" --name exec-cmd
+    local execf="$tmpdir/exec-cmd.sh"
+    refute grep -q '^# Dispatch: source' "$execf"
+    assert [ -x "$execf" ]
+
+    rm -rf "$tmpdir"
+}
+
+function test_dispatch_fallback_demotion_warns { #@test
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    printf '#!/usr/bin/env bash\nexport DEMO_POLLUTED=yes\n' > "$tmpdir/demo-oops.sh"
+    chmod 644 "$tmpdir/demo-oops.sh"
+
+    local -A saved_dirs=()
+    local _d
+    for _d in "${!BU_COMMAND_SEARCH_DIRS[@]}"; do saved_dirs[$_d]=${BU_COMMAND_SEARCH_DIRS[$_d]}; done
+    BU_COMMAND_SEARCH_DIRS=()
+    BU_COMMAND_SEARCH_DIRS[$tmpdir]=
+    __bu_init_env_commands
+
+    # Dispatch warns, naming the file and the header that silences it.
+    run bu demo-oops
+    assert_output --partial '# Dispatch: source'
+    assert_output --partial 'demo-oops'
+
+    # It is still sourced (backward compatibility).
+    __bu_cli_command_type demo-oops 2>/dev/null
+    assert_equal "$BU_RET" source
+
+    BU_COMMAND_SEARCH_DIRS=()
+    for _d in "${!saved_dirs[@]}"; do BU_COMMAND_SEARCH_DIRS[$_d]=${saved_dirs[$_d]}; done
+    rm -rf "$tmpdir"
+}
+
+function test_dispatch_declared_source_no_warning { #@test
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    printf '#!/usr/bin/env bash\n# Dispatch: source\nexport DEMO_SRC=yes\n' > "$tmpdir/demo-src.sh"
+    chmod 644 "$tmpdir/demo-src.sh"
+
+    local -A saved_dirs=()
+    local _d
+    for _d in "${!BU_COMMAND_SEARCH_DIRS[@]}"; do saved_dirs[$_d]=${BU_COMMAND_SEARCH_DIRS[$_d]}; done
+    BU_COMMAND_SEARCH_DIRS=()
+    BU_COMMAND_SEARCH_DIRS[$tmpdir]=
+    __bu_init_env_commands
+
+    # Header registers explicit source type.
+    assert_equal "${BU_COMMAND_PROPERTIES[demo-src,type]:-}" source
+
+    # Dispatch sources without any fallback warning.
+    run bu demo-src
+    assert_success
+    refute_output --partial '# Dispatch: source'
+
+    BU_COMMAND_SEARCH_DIRS=()
+    for _d in "${!saved_dirs[@]}"; do BU_COMMAND_SEARCH_DIRS[$_d]=${saved_dirs[$_d]}; done
+    rm -rf "$tmpdir"
+}
+
+function test_dispatch_declared_source_exec_bit_warns { #@test
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    printf '#!/usr/bin/env bash\n# Dispatch: source\ncd /tmp\n' > "$tmpdir/demo-src-x.sh"
+    chmod +x "$tmpdir/demo-src-x.sh"
+
+    local -A saved_dirs=()
+    local _d
+    for _d in "${!BU_COMMAND_SEARCH_DIRS[@]}"; do saved_dirs[$_d]=${BU_COMMAND_SEARCH_DIRS[$_d]}; done
+    BU_COMMAND_SEARCH_DIRS=()
+    BU_COMMAND_SEARCH_DIRS[$tmpdir]=
+    local warnfile=$BATS_TEST_TMPDIR/scan-warn.txt
+    __bu_init_env_commands 2>"$warnfile"
+
+    # Header still registers source, but the exec bit draws a scan warning.
+    assert_equal "${BU_COMMAND_PROPERTIES[demo-src-x,type]:-}" source
+    assert grep -q '# Dispatch: source' "$warnfile"
+    assert grep -q 'demo-src-x' "$warnfile"
+
+    BU_COMMAND_SEARCH_DIRS=()
+    for _d in "${!saved_dirs[@]}"; do BU_COMMAND_SEARCH_DIRS[$_d]=${saved_dirs[$_d]}; done
+    rm -rf "$tmpdir"
+}

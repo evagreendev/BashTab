@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Set a kernel parameter
 # Completion helper: sysctl parameter names from the live system.
 __bu_bu_set_sysctl_complete_names()

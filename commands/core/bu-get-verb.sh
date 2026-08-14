@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List known BashTab verbs
 # Fields: name
 function __bu_bu_get_verb_main()

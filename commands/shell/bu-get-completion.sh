@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Generate autocomplete candidates for the current command line
 function __bu_bu_get_completion_main()
 {

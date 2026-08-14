@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show disk usage of files and directories
 # Fields: size name
 function __bu_bu_get_file_usage_main()

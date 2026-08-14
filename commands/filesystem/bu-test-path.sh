@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Test whether a file or directory exists
 function __bu_bu_test_path_main()
 {

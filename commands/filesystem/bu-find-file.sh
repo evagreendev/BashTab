@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Search for files matching a pattern
 function __bu_bu_find_file_main()
 {

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Remove a Docker image
 # Completion helper: image names from docker images.
 __bu_bu_remove_docker_image_complete_images()

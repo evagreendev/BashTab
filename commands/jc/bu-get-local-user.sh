@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List local system users
 function __bu_bu_get_local_user_main()
 {

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List environment variables as JSONL records
 # Fields: name value
 function __bu_bu_get_environment_main()

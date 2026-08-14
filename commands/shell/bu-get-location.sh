@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Print the current working directory
 function __bu_bu_get_location_main()
 {

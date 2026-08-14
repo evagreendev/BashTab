@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Split a file path into its components
 function __bu_bu_split_path_main()
 {

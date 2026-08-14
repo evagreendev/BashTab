@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Append content to a file
 function __bu_bu_add_content_main()
 {

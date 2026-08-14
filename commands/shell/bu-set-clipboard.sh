@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Write content to the system clipboard
 function __bu_bu_set_clipboard_main()
 {

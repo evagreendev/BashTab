@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List active shell trap handlers
 function __bu_bu_get_trap_main()
 {

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Delete a Git stash
 function __bu_bu_remove_git_stash_main()
 {

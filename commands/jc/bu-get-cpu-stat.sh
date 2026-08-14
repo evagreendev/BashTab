@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show CPU utilization statistics
 # Fields: percent_user percent_nice percent_system percent_iowait percent_steal percent_idle type
 function __bu_bu_get_cpu_stat_main()

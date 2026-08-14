@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List installed npm packages with metadata
 # Fields: name version resolved depth _path _parent_path
 function __bu_bu_get_npm_package_main()

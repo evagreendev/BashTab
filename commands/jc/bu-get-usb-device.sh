@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List USB devices
 function __bu_bu_get_usb_device_main()
 {

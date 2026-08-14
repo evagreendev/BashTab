@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Delete a Git branch
 function __bu_bu_remove_git_branch_main()
 {

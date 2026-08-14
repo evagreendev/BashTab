@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show the current file creation mask
 function __bu_bu_get_umask_main()
 {

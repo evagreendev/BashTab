@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show battery status and charge level
 function __bu_bu_get_battery_main()
 {

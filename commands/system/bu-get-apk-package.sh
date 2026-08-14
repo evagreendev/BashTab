@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List installed Alpine Linux packages
 # Fields: name version
 function __bu_bu_get_apk_package_main()

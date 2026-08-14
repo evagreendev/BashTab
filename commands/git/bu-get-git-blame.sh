@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show line-by-line Git authorship information
 function __bu_bu_get_git_blame_main()
 {

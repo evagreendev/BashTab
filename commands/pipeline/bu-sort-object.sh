@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Sort a JSONL stream by one or more fields
 function __bu_bu_sort_object_main()
 {

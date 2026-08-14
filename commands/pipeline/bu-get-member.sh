@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List members of a local group
 function __bu_bu_get_member_main()
 {

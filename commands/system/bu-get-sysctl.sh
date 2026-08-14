@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show kernel parameters
 function __bu_bu_get_sysctl_main()
 {

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List Docker networks
 # Fields: ID Name Driver Scope
 function __bu_bu_get_docker_network_main()

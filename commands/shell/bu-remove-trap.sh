@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Remove a shell trap handler
 # Common signal names for completion.
 __bu_bu_remove_trap_complete_signals()

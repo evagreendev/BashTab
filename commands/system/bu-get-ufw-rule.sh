@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List UFW firewall rules
 function __bu_bu_get_ufw_rule_main()
 {

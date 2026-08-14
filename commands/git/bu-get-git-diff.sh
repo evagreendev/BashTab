@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show Git working-tree differences
 function __bu_bu_get_git_diff_main()
 {

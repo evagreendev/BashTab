@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Stage file changes for the next Git commit
 function __bu_bu_add_git_file_main()
 {

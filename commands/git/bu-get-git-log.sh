@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show Git commit history
 function __bu_bu_get_git_log_main()
 {

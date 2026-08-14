@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Terminate a running process
 function __bu_bu_stop_process_main()
 {

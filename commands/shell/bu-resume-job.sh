@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Resume a suspended background job
 function __bu_bu_resume_job_main()
 {

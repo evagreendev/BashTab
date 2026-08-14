@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Make an HTTP request and return the response
 function __bu_bu_invoke_web_request_main()
 {

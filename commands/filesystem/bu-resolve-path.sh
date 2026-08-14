@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Resolve a relative path to an absolute path
 function __bu_bu_resolve_path_main()
 {

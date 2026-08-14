@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show the system timezone
 function __bu_bu_get_timezone_main()
 {

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Source environment variables from a file
 function __bu_bu_import_environment_main()
 {

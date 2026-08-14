@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show the kernel routing table
 function __bu_bu_get_route_main()
 {

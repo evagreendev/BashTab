@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 function __bu_@BU_SCRIPT_NAME@_main()
 {
 # --is-compatible: magic flag checked by the framework at registration time.

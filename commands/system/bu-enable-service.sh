@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Enable a system service to start at boot
 # Completion helper: unit names from the live system (units + service unit files).
 __bu_bu_enable_service_complete_units()

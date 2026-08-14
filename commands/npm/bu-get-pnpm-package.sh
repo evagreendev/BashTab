@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List installed pnpm packages with metadata
 # Fields: name version resolved from description license path depth _path _parent_path
 function __bu_bu_get_pnpm_package_main()

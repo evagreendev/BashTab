@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show currently logged-in users
 function __bu_bu_get_logged_on_user_main()
 {

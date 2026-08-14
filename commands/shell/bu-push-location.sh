@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Push the current directory onto the pushd stack
 function __bu_bu_push_location_main()
 {

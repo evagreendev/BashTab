@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show the current user and group identity
 # Fields: uid gid groups
 function __bu_bu_get_identity_main()

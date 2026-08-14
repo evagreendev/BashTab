@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Upgrade RPM packages
 function __bu_bu_update_rpm_package_main()
 {

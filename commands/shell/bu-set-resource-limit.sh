@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Set a shell resource limit
 # Completion helper: resource limit flag letters from ulimit -a.
 __bu_bu_set_resource_limit_complete_flags()

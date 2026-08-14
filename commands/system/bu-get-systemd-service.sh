@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List systemd services and their enabled state
 # Fields: unit_file state
 function __bu_bu_get_systemd_service_main()

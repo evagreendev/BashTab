@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Stash uncommitted Git changes
 function __bu_bu_new_git_stash_main()
 {

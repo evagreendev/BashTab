@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Filter a JSONL stream with a jq boolean expression
 function __bu_bu_where_object_main()
 {

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List processes matching a name pattern
 # Fields: pid command
 function __bu_bu_get_pgrep_process_main()

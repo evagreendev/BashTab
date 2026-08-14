@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List Docker images
 # Fields: ID Repository Tag CreatedAt CreatedSince Size
 function __bu_bu_get_docker_image_main()

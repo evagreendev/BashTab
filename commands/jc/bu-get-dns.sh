@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Query DNS records for a domain
 # Fields: id opcode status flags query_num answer_num authority_num additional_num opt_pseudosection question answer query_time server when rcvd when_epoch when_epoch_utc
 function __bu_bu_get_dns_main()

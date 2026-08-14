@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Set a Git configuration value
 function __bu_bu_set_git_config_main()
 {

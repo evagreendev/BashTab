@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show Fig completion status
 function __bu_bu_get_fig_status_main()
 {

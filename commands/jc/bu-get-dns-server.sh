@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show the configured DNS servers
 function __bu_bu_get_dns_server_main()
 {

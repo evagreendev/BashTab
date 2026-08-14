@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Create a new Git tag
 function __bu_bu_new_git_tag_main()
 {

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show Git configuration settings
 function __bu_bu_get_git_config_main()
 {

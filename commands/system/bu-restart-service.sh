@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Restart a system service
 # Completion helper: unit names from the live system (units + service unit files).
 __bu_bu_restart_service_complete_units()

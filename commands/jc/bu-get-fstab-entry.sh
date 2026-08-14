@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List filesystem mount entries from fstab
 function __bu_bu_get_fstab_entry_main()
 {

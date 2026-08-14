@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List mounted filesystems
 # Fields: filesystem mount_point type options
 function __bu_bu_get_mount_main()

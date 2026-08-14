@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List installed Python pip packages
 # Fields: package version
 function __bu_bu_get_pip_package_main()

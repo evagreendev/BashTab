@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List shell and environment variables
 function __bu_bu_get_variable_main()
 {

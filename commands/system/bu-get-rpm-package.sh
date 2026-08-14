@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List installed RPM packages
 # Fields: name version release arch summary
 function __bu_bu_get_rpm_package_main()

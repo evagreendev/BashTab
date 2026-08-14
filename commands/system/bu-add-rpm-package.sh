@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Install one or more RPM packages
 function __bu_bu_add_rpm_package_main()
 {

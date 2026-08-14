@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Trace the network path to a remote host
 function __bu_bu_trace_route_main()
 {

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Set a bash shell option
 function __bu_bu_set_shell_option_main()
 {

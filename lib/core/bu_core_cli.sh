@@ -45,6 +45,11 @@ __bu_cli_command_type()
         elif [[ -f "$function_or_script_path" ]]
         then
             properties=source
+            # Fallback demotion: a plain file with no exec bit and no
+            # declared dispatch intent is silently sourced into the caller.
+            # Surface the ambiguity so it doesn't surface later as unrelated
+            # breakage (cwd/env/PATH hijack).
+            bu_log_warn "Command[$bu_command] at '$function_or_script_path' has no exec bit and no '# Dispatch: source' declaration; it is being sourced into the caller's shell. Add '# Dispatch: source' to declare mutating intent, or 'chmod +x' to run it as a separate process."
         else
             properties=no-default-found
         fi

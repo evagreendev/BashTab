@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Upgrade Alpine Linux packages
 function __bu_bu_update_apk_package_main()
 {

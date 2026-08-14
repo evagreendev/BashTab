@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Delete a file or directory
 function __bu_bu_remove_item_main()
 {

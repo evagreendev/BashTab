@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Uninstall Arch Linux packages
 function __bu_bu_remove_pacman_package_main()
 {

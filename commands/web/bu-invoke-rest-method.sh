@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Make an HTTP REST API call
 function __bu_bu_invoke_rest_method_main()
 {

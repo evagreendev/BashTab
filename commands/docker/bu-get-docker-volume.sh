@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List Docker volumes
 # Fields: Driver Labels Links Mountpoint Name Scope Size
 function __bu_bu_get_docker_volume_main()

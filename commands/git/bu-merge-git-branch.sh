@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Merge a Git branch into the current branch
 function __bu_bu_merge_git_branch_main()
 {

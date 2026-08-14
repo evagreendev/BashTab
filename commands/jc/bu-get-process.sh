@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: List running processes
 # Fields: user pid vsz rss tty stat start time command cpu_percent mem_percent
 function __bu_bu_get_process_main()

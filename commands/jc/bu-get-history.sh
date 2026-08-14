@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show shell command history
 function __bu_bu_get_history_main()
 {

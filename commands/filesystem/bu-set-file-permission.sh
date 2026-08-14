@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Change file permissions and ownership
 function __bu_bu_set_file_permission_main()
 {

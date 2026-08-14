@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch: source
 # Synopsis: Show the Git working-tree status
 function __bu_bu_get_git_status_main()
 {
