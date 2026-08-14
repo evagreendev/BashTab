@@ -100,6 +100,52 @@ declare -A -g BU_OUT_PRODUCER_FIELDS=(
 #     BU_OUT_PROBE_COMMANDS[kubectl]=1
 declare -A -g BU_OUT_PROBE_COMMANDS=()
 
+# Per-producer opt-in for executing a producer during TAB completion to
+# capture distinct field VALUES. Keyed by the canonicalized producer string
+# (same "bu <command> ..." keys as BU_OUT_PRODUCER_FIELDS, longest-prefix
+# matched so flags in the typed pipeline don't defeat the lookup).
+#
+# The declaration is a promise about cost and side effects: the command is
+# read-only and returns promptly. State-changing or slow producers must
+# never carry it. Prefer the `# Tab-Execute: true` header annotation
+# (parsed lazily and cached here on first use) over central registration.
+declare -A -g BU_OUT_TAB_EXECUTE=()
+
+# ```
+# *Description*:
+# Register a producer as safe to execute during TAB completion so its
+# distinct field values can be offered at the where/query value position.
+#
+# *Params*:
+# - `$1`: Producer command-line prefix (e.g. "bu get-command")
+#
+# *Examples*:
+# ```bash
+# bu_register_tab_execute "bu get-command"
+# ```
+# ```
+bu_register_tab_execute()
+{
+    local producer=$1
+    if [[ -z "$producer" ]]
+    then
+        bu_log_err "Usage: bu_register_tab_execute <producer-prefix>"
+        return 1
+    fi
+    BU_OUT_TAB_EXECUTE[$producer]=1
+}
+
+# Record cap for tab-execute row capture: bounds producer cost even against
+# unbounded sources; every field's completion reuses the same captured rows.
+declare -g -r __BU_OUT_VALUE_RECORD_CAP=1000
+# Distinct cap for a single field's value candidates: a high-cardinality
+# column (e.g. an id) yields this many candidates plus the static hint, not
+# a million.
+declare -g -r __BU_OUT_VALUE_DISTINCT_CAP=50
+# Session-scoped memo of captured producer rows, keyed by producer_str.
+# No disk cache: datasets are live; re-source clears the memo.
+declare -A -g __BU_OUT_TAB_ROWS=()
+
 # ```
 # *Description*:
 # Assert that jq is available for structured output
@@ -1807,35 +1853,23 @@ __bu_autocomplete_fig_completion_func()
 #   All are read via dynamic scope from the completion machinery.
 # - The COMP_WORDS fallback requires the pipe as a standalone word (`a | b`).
 # ```
-__bu_out_complete_pipeline_fields()
+__bu_out_resolve_producer()
 {
-    local is_dot=false
-    local is_nested=false
-    while (($#))
-    do
-        case "$1" in
-        --dot) is_dot=true ;;
-        --nested) is_nested=true ;;
-        *) break ;;
-        esac
-        shift
-    done
-    local -r cur_word=${1:-}
-    BU_RET=()
+    BU_RET=
+    BU_RET_EVAL=
 
     # Resolve the producer pipeline text, most accurate source first:
     # - command_line_front_before_pipe: set by the fzf binding (legacy parser)
     # - pipe_before: set by the tree-sitter binding (BU_TS_RESULT[pipeBefore])
     # Both are locals of the completion bindings, visible via dynamic scope.
     local producer_str=${command_line_front_before_pipe:-${pipe_before:-}}
-    local producer_eval=
     if [[ -n "$producer_str" ]]
     then
         # Strip trailing whitespace, the pipe character, then whitespace again
         producer_str=${producer_str%"${producer_str##*[![:space:]]}"}
         producer_str=${producer_str%|}
         producer_str=${producer_str%"${producer_str##*[![:space:]]}"}
-        producer_eval=$producer_str
+        BU_RET_EVAL=$producer_str
     else
         # Fallback: walk COMP_WORDS (dynamically scoped from the completion
         # driver) for the pipe that starts the current command segment
@@ -1849,7 +1883,7 @@ __bu_out_complete_pipeline_fields()
                 break
             fi
         done
-        # Not in a pipeline: no producer to infer fields from
+        # Not in a pipeline: no producer to infer values from
         [[ -z "$pipe_idx" ]] && return 1
 
         # The producer segment starts after the previous control operator
@@ -1866,13 +1900,37 @@ __bu_out_complete_pipeline_fields()
         local -a producer_words=("${COMP_WORDS[@]:seg_start:pipe_idx-seg_start}")
         ((${#producer_words[@]} == 0)) && return 1
         producer_str="${producer_words[*]}"
-        printf -v producer_eval '%q ' "${producer_words[@]}"
+        printf -v BU_RET_EVAL '%q ' "${producer_words[@]}"
     fi
     [[ -z "$producer_str" ]] && return 1
 
     # Canonicalize for registry key matching ("xx get-command" → "bu get-command")
     __bu_out_canonicalize_stage "$producer_str"
-    producer_str=$BU_CANONICAL_STAGE
+    BU_RET=$BU_CANONICAL_STAGE
+}
+
+__bu_out_complete_pipeline_fields()
+{
+    local is_dot=false
+    local is_nested=false
+    while (($#))
+    do
+        case "$1" in
+        --dot) is_dot=true ;;
+        --nested) is_nested=true ;;
+        *) break ;;
+        esac
+        shift
+    done
+    local -r cur_word=${1:-}
+    BU_RET=()
+
+    # Resolve the producer pipeline text (and eval-able command) via the
+    # shared resolver.
+    __bu_out_resolve_producer || return 1
+    local producer_str=$BU_RET
+    local producer_eval=$BU_RET_EVAL
+    BU_RET=()
 
     local -r producer_head=${producer_str%%[[:space:]]*}
 
@@ -2032,6 +2090,95 @@ __bu_out_complete_pipeline_fields()
             BU_RET+=("${prefix}${candidate}")
         done
     fi
+}
+
+# ```
+# *Description*:
+# Complete distinct field VALUES from the live upstream pipeline at the
+# where/query value position. Gated per producer: the resolved producer must
+# be registered in BU_OUT_TAB_EXECUTE (a declaration that it is read-only
+# and fast). Rows are captured once per producer_str per session, bounded by
+# __BU_OUT_VALUE_RECORD_CAP, and reused across fields.
+#
+# *Params*:
+# - `$1`: Field name whose values to extract
+# - `$2` (optional): Current word (the caller applies prefix filtering)
+#
+# *Returns*:
+# - BU_RET: Array of distinct value candidates
+# - exit 0 on success, 1 if the producer isn't tab-execute registered or no
+#   values could be captured
+# ```
+__bu_out_complete_field_values()
+{
+    local -r field=$1
+    local -r cur_word=${2:-}
+    BU_RET=()
+
+    __bu_out_resolve_producer || return 1
+    local producer_str=$BU_RET
+    local producer_eval=$BU_RET_EVAL
+    BU_RET=()
+
+    # Longest-prefix match against registered tab-execute producers, same
+    # lookup as BU_OUT_PRODUCER_FIELDS so flags in the typed pipeline don't
+    # defeat the lookup.
+    local key best_key=
+    for key in "${!BU_OUT_TAB_EXECUTE[@]}"
+    do
+        if [[ "$producer_str" == "$key" || "$producer_str" == "$key "* ]] && (( ${#key} > ${#best_key} ))
+        then
+            best_key=$key
+        fi
+    done
+
+    # Lazy `# Tab-Execute: true` header annotation: scanned from the producer
+    # script and cached into the registry, so command authors can declare the
+    # opt-in next to their schema without central edits.
+    if [[ -z "$best_key" ]]
+    then
+        local _te_cmd_name=${producer_str#* }
+        _te_cmd_name=${_te_cmd_name%%[[:space:]]*}
+        if [[ -f "${BU_COMMANDS[$_te_cmd_name]:-}" ]]
+        then
+            local _te_line
+            _te_line=$(awk 'FNR>8{exit} /^#[[:space:]]*Tab-Execute:[[:space:]]*true[[:space:]]*$/ {print "1"; exit}' "${BU_COMMANDS[$_te_cmd_name]}" 2>/dev/null)
+            if [[ -n "$_te_line" ]]
+            then
+                BU_OUT_TAB_EXECUTE[$producer_str]=1
+                best_key=$producer_str
+            fi
+        fi
+    fi
+
+    [[ -z "$best_key" ]] && return 1
+    [[ -z "$BU_OUT_JQ" || -z "$producer_eval" ]] && return 1
+
+    # Capture rows once per producer_str per session, capped.  BU_COMP_FAKE
+    # prevents the producer (a bu command) from entering autocomplete mode
+    # when COMP_CWORD is set in the completion context.
+    if [[ -z "${__BU_OUT_TAB_ROWS[$producer_str]:-}" ]]
+    then
+        __BU_OUT_TAB_ROWS[$producer_str]=$(BU_COMP_FAKE=1 eval "$producer_eval" 2>/dev/null | head -"$__BU_OUT_VALUE_RECORD_CAP")
+    fi
+    local memo=${__BU_OUT_TAB_ROWS[$producer_str]}
+    [[ -z "$memo" ]] && return 1
+
+    # Distinct scalar values for the field, capped. Skip values containing
+    # newlines (they can't survive the enum round-trip line-oriented).
+    local values
+    values=$("$BU_OUT_JQ" -r --arg f "$field" '.[$f] | select(type == "string" or type == "number") | tostring | select(index("\n") == null)' <<<"$memo" 2>/dev/null \
+        | sort -u | head -"$__BU_OUT_VALUE_DISTINCT_CAP")
+    [[ -z "$values" ]] && return 1
+
+    local v
+    while IFS= read -r v
+    do
+        [[ -z "$v" ]] && continue
+        BU_RET+=("$v")
+    done <<<"$values"
+    ((${#BU_RET[@]} == 0)) && return 1
+    return 0
 }
 
 # MARK: Multi-stage pipeline static analysis

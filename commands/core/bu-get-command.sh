@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Dispatch: source
+# Tab-Execute: true
 # Synopsis: List registered commands and their properties
 # Fields: name verb noun namespace type synopsis fields stage
 function __bu_bu_get_command_main()

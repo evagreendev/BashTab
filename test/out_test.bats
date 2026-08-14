@@ -861,6 +861,107 @@ function test_query_object_translate_op_like_substring { #@test
 }
 
 # ===========================================================================
+# Value completion at the where/query value position (tab-execute opt-in)
+# ===========================================================================
+
+function test_where_object_value_completion_eq { #@test
+    local command_line_front_before_pipe="bu get-command | "
+    bu_autocomplete_get_autocompletions bu where-object type -eq ""
+    assert_equal "${COMPREPLY[*]}" "alias execute source"
+}
+
+function test_query_object_value_completion_eq { #@test
+    local command_line_front_before_pipe="bu get-command | "
+    bu_autocomplete_get_autocompletions bu query-object where type -eq ""
+    assert_equal "${COMPREPLY[*]}" "alias execute source"
+}
+
+function test_value_completion_like_and_gt_never_probe { #@test
+    local command_line_front_before_pipe="bu get-command | "
+    # Pattern and ordered operators keep the plain static hint.
+    bu_autocomplete_get_autocompletions bu where-object type -like ""
+    assert_equal "${COMPREPLY[0]}" "Hint: Value for type -like"
+    bu_autocomplete_get_autocompletions bu where-object type -gt ""
+    assert_equal "${COMPREPLY[0]}" "Hint: Value for type -gt"
+}
+
+function test_value_completion_unregistered_producer_no_execute { #@test
+    local countfile=$BATS_TEST_TMPDIR/tab-exec-none
+    local command_line_front_before_pipe="noexec_producer | "
+    noexec_producer() {
+        echo x >> "$countfile"
+        printf '%s\n' '{"type":"source"}'
+    }
+
+    # Not registered: resolver refuses, producer never runs.
+    run __bu_out_complete_field_values type
+    assert_failure
+    assert [ ! -s "$countfile" ]
+
+    # e2e: the value position falls back to the static hint only.
+    bu_autocomplete_get_autocompletions bu where-object type -eq ""
+    assert_equal "${COMPREPLY[0]}" "Hint: Value for type -eq"
+}
+
+function test_value_completion_single_execution_memo { #@test
+    local countfile=$BATS_TEST_TMPDIR/tab-exec-count
+    local command_line_front_before_pipe="tab_count_producer | "
+    tab_count_producer() {
+        echo x >> "$countfile"
+        printf '%s\n' '{"type":"source","verb":"get"}' '{"type":"execute","verb":"set"}'
+    }
+    bu_register_tab_execute "tab_count_producer"
+
+    __bu_out_complete_field_values type
+    assert_equal "${BU_RET[*]}" "execute source"
+    __bu_out_complete_field_values verb
+    assert_equal "${BU_RET[*]}" "get set"
+    __bu_out_complete_field_values type
+    # One execution total across two fields and repeated tabs.
+    assert_equal "$(wc -l < "$countfile")" 1
+}
+
+function test_value_completion_record_and_distinct_caps { #@test
+    local command_line_front_before_pipe="many_producer | "
+    many_producer() {
+        local i
+        for ((i = 0; i < 5000; i++)); do
+            printf '{"id":%d}\n' "$i"
+        done
+    }
+    bu_register_tab_execute "many_producer"
+
+    __bu_out_complete_field_values id
+    # Distinct cap: at most 50 candidates for a high-cardinality column.
+    assert_equal "${#BU_RET[@]}" 50
+    # Record cap: the memo captured at most 1000 rows.
+    local memo_lines
+    memo_lines=$(grep -c '' <<<"${__BU_OUT_TAB_ROWS[many_producer]}")
+    assert_equal "$memo_lines" 1000
+}
+
+function test_value_completion_tab_execute_header_fixture { #@test
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    cat > "$tmpdir/fixture-producer.sh" <<'EOF'
+#!/usr/bin/env bash
+# Dispatch: source
+# Tab-Execute: true
+printf '%s\n' '{"type":"alpha"}' '{"type":"beta"}'
+EOF
+    chmod 644 "$tmpdir/fixture-producer.sh"
+
+    BU_COMMANDS[fixture-producer]="$tmpdir/fixture-producer.sh"
+
+    # The header registers the producer for tab-execute without any central edit.
+    local command_line_front_before_pipe="bu fixture-producer | "
+    __bu_out_complete_field_values type
+    assert_equal "${BU_RET[*]}" "alpha beta"
+
+    rm -rf "$tmpdir"
+}
+
+# ===========================================================================
 # Alias merging in option completion (--select, select, SELECT are one row)
 # ===========================================================================
 

@@ -155,7 +155,18 @@ do
             elif [[ "$_ws_complete" == true ]]; then
                 autocompletion=(--enum and or enum-- --hint "Logical connector (and/or)")
             elif [[ -n "$_ws_op" && -z "$_ws_val" && "$_ws_op" != -isnull && "$_ws_op" != -isnotnull ]]; then
-                autocompletion=(--hint "Value for $_ws_field $_ws_op")
+                case "$_ws_op" in
+                -eq|-ne|-in|-notin)
+                    if __bu_out_complete_field_values "$_ws_field" && ((${#BU_RET[@]} > 0)); then
+                        autocompletion=(--enum "${BU_RET[@]}" enum-- --hint "Values of $_ws_field")
+                    else
+                        autocompletion=(--hint "Value for $_ws_field $_ws_op")
+                    fi
+                    ;;
+                *)
+                    autocompletion=(--hint "Value for $_ws_field $_ws_op")
+                    ;;
+                esac
             fi
             if [[ -z "$_ws_op" && -z "$_ws_field" ]] && ((${#_ws_connectors[@]} == 0)); then
                 autocompletion=(--hint "Field name" --pipeline-fields pipeline-fields--)

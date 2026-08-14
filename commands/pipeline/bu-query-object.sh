@@ -198,7 +198,18 @@ do
                 autocompletion=(--enum and or enum-- --hint "Logical connector (and/or)")
             elif [[ -n "$_w_op" && -z "$_w_val" && "$_w_op" != -isnull && "$_w_op" != -isnotnull ]]; then
                 # Have field + operator, waiting for value
-                autocompletion=(--hint "Value for $_w_field $_w_op")
+                case "$_w_op" in
+                -eq|-ne|-in|-notin)
+                    if __bu_out_complete_field_values "$_w_field" && ((${#BU_RET[@]} > 0)); then
+                        autocompletion=(--enum "${BU_RET[@]}" enum-- --hint "Values of $_w_field")
+                    else
+                        autocompletion=(--hint "Value for $_w_field $_w_op")
+                    fi
+                    ;;
+                *)
+                    autocompletion=(--hint "Value for $_w_field $_w_op")
+                    ;;
+                esac
             fi
             if [[ -z "$_w_op" && -z "$_w_field" ]] && ((${#_w_connectors[@]} == 0)); then
                 # Waiting for first field name — force field completions
@@ -354,7 +365,18 @@ do
             elif [[ "$_h_complete" == true ]]; then
                 autocompletion=(--enum and or enum-- --hint "Logical connector (and/or)")
             elif [[ -n "$_h_op" && -z "$_h_val" && "$_h_op" != -isnull && "$_h_op" != -isnotnull ]]; then
-                autocompletion=(--hint "Value for $_h_field $_h_op")
+                case "$_h_op" in
+                -eq|-ne|-in|-notin)
+                    if __bu_out_complete_field_values "$_h_field" && ((${#BU_RET[@]} > 0)); then
+                        autocompletion=(--enum "${BU_RET[@]}" enum-- --hint "Values of $_h_field")
+                    else
+                        autocompletion=(--hint "Value for $_h_field $_h_op")
+                    fi
+                    ;;
+                *)
+                    autocompletion=(--hint "Value for $_h_field $_h_op")
+                    ;;
+                esac
             fi
             if [[ -z "$_h_op" && -z "$_h_field" ]] && ((${#_h_connectors[@]} == 0)); then
                 autocompletion=(--hint "Field name" --pipeline-fields pipeline-fields--)

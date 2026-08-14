@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Dispatch: source
+# Tab-Execute: true
 # Synopsis: List loaded BashTab modules
 # Fields: name version path
 function __bu_bu_get_module_main()
