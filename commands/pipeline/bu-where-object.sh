@@ -203,7 +203,7 @@ Filter a JSONL stream (PowerShell Where-Object). Two syntaxes:
 
 Structured operators:
   -eq -ne -gt -lt -ge -le   scalar comparisons
-  -like -notlike            glob pattern matching (*, ?)
+  -like -notlike            glob pattern matching (*, ?); no wildcard implies *pattern* (substring)
   -match -notmatch          regex matching (RLIKE)
   -contains -notcontains    array contains value
   -in -notin                value in field
@@ -211,12 +211,14 @@ Structured operators:
 
 Chain conditions with `and`/`or`:
   where-object type -eq source and name -like get-*
+  where-object name -like command   # substring: matches get-command, set-module, ...
 
 The current record is '.' in jq expressions. Streams with O(1) latency.
 " \
         --example "Only source commands (structured)" "type -eq source" \
         --example "Only source commands (jq)" "'.type == \"source\"'" \
         --example "Glob pattern match" "name -like get-*" \
+        --example "Substring match (bare pattern)" "name -like command" \
         --example "Regex match (RLIKE)" "name -match '^get-'" \
         --example "And chaining" "type -eq source and name -like get-*" \
         --example "Or chaining" "type -eq source or type -eq alias"

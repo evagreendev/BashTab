@@ -449,13 +449,14 @@ order: WHERE -> GROUP BY -> HAVING -> SELECT -> ORDER BY -> FIRST.
   where     Two syntaxes: raw jq expression ('.field == val') or structured
             comparison (field -op val). Structured operators:
               -eq -ne -gt -lt -ge -le   scalar comparisons
-              -like -notlike            glob pattern matching (* and ?)
+              -like -notlike            glob pattern matching (* and ?); no wildcard implies *pattern* (substring)
               -match -notmatch          regex matching (RLIKE)
               -contains -notcontains    array contains value
               -in -notin                value in field
               -isnull -isnotnull        null checks
             Chain conditions with `and`/`or` inside a single where:
               where type -eq source and name -like get-*
+              where name -like command   # substring: matches get-command, set-module, ...
             Repeatable; multiple where clauses are ANDed.
   group-by  collapses records by key fields (comma-separated composite key)
   agg       aggregates per group: [name=]func[:field], repeatable and/or
@@ -475,6 +476,7 @@ Output ends at Out-Default: a table on a terminal, JSONL when piped.
         --example "Full query (structured)" "where type -eq source select name,verb order-by verb" \
         --example "Full query (jq)" "where '.type == \"source\"' select name,verb order-by verb" \
         --example "Glob pattern matching" "where name -like get-* select name,verb" \
+        --example "Substring match (bare pattern)" "where name -like command select name,verb" \
         --example "Regex matching (RLIKE)" "where name -match '^get-' select name,verb" \
         --example "Multiple conditions (ANDed)" "where type -eq source where verb -ne help" \
         --example "And/or in one where" "where type -eq source and name -like get-*" \

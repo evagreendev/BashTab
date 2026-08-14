@@ -629,6 +629,7 @@ __bu_glob_to_regex()
 # ```bash
 # __bu_query_object_translate_op type -eq source       # .type == "source"
 # __bu_query_object_translate_op name -like "*.sh"     # .name | test("^.*\\.sh$")
+# __bu_query_object_translate_op name -like command    # .name | test("^.*command.*$") (no wildcard => substring)
 # __bu_query_object_translate_op name -match "^get-"   # .name | test("^get-")
 # __bu_query_object_translate_op verb -isnull           # .verb == null
 # ```
@@ -647,15 +648,24 @@ __bu_query_object_translate_op()
     -lt)    jq_expr=".$field < $(__bu_jq_literal "$val")" ;;
     -ge)    jq_expr=".$field >= $(__bu_jq_literal "$val")" ;;
     -le)    jq_expr=".$field <= $(__bu_jq_literal "$val")" ;;
-    -like)
-        local regex; regex=$(__bu_glob_to_regex "$val")
+    -like|-notlike)
+        # PowerShell-flavored -like: a value with no glob wildcard
+        # implies *value* (substring match), not exact match. Explicit
+        # wildcards keep fully-anchored semantics (e.g. "get-*" means
+        # "starts with get-"; "?" counts as a wildcard).
+        local glob=$val
+        if [[ "$glob" != *'*'* && "$glob" != *'?'* ]]
+        then
+            glob="*$glob*"
+        fi
+        local regex; regex=$(__bu_glob_to_regex "$glob")
         local regex_lit; regex_lit=$(__bu_jq_literal "$regex")
-        jq_expr=".$field | test($regex_lit)"
-        ;;
-    -notlike)
-        local regex; regex=$(__bu_glob_to_regex "$val")
-        local regex_lit; regex_lit=$(__bu_jq_literal "$regex")
-        jq_expr=".$field | test($regex_lit) | not"
+        if [[ "$op" == -like ]]
+        then
+            jq_expr=".$field | test($regex_lit)"
+        else
+            jq_expr=".$field | test($regex_lit) | not"
+        fi
         ;;
     -match)
         local re_lit; re_lit=$(__bu_jq_literal "$val")

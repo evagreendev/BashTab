@@ -808,6 +808,59 @@ function test_e2e_query_object_where_dot_completion { #@test
 }
 
 # ===========================================================================
+# -like / -notlike bare-pattern substring semantics
+# ===========================================================================
+
+function test_like_bare_pattern_is_substring { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"get-command"}' '{"name":"set-module"}' \
+        | bu query-object where name -like command select name)
+    assert_equal "$out" '{"name":"get-command"}'
+}
+
+function test_where_object_like_bare_pattern_is_substring { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"get-command"}' '{"name":"set-module"}' \
+        | bu where-object name -like command)
+    assert_equal "$out" '{"name":"get-command"}'
+}
+
+function test_notlike_bare_pattern_is_complement { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"get-command"}' '{"name":"set-module"}' '{"name":"command"}' \
+        | bu query-object where name -notlike command select name)
+    assert_equal "$out" '{"name":"set-module"}'
+}
+
+function test_like_explicit_glob_stays_anchored { #@test
+    # "comm*" still means "starts with comm"
+    local out
+    out=$(printf '%s\n' '{"name":"get-command"}' '{"name":"command"}' \
+        | bu where-object name -like 'comm*')
+    assert_equal "$out" '{"name":"command"}'
+}
+
+function test_like_question_mark_is_wildcard { #@test
+    # "get-?" is anchored with a single-char wildcard
+    local out
+    out=$(printf '%s\n' '{"name":"get-command"}' '{"name":"get-x"}' \
+        | bu where-object name -like 'get-?')
+    assert_equal "$out" '{"name":"get-x"}'
+}
+
+function test_query_object_translate_op_like_substring { #@test
+    local out
+    out=$(__bu_query_object_translate_op name -like command)
+    assert_equal "$out" '.name | test("^.*command.*$")'
+    out=$(__bu_query_object_translate_op name -like 'get-*')
+    assert_equal "$out" '.name | test("^get-.*$")'
+    out=$(__bu_query_object_translate_op name -like 'get-?')
+    assert_equal "$out" '.name | test("^get-.$")'
+    out=$(__bu_query_object_translate_op name -notlike command)
+    assert_equal "$out" '.name | test("^.*command.*$") | not'
+}
+
+# ===========================================================================
 # Alias merging in option completion (--select, select, SELECT are one row)
 # ===========================================================================
 
