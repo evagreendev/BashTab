@@ -68,6 +68,12 @@ cd fig_specs && pnpm install --ignore-workspace && pnpm build && node ../fig_con
 - `bu get-fig-status --useful` — commands on PATH that lack bash completions
 - Automatic fallback: pressing `<TAB>` on an unknown command checks the Fig specs
 
+### 🚀 Datetime releases
+- Calendar-based tags (`v2026.08.15`, `v2026.08.15.1` for same-day) — never a hand-picked semver
+- `./release.sh` cuts + pushes the tag and opens a GitHub Release
+- `bu get-version` reports the active release (`v2026.08.15-3-g1f4ae9c`)
+- See [Releasing](./releasing.md)
+
 ### 🎯 Everything is a script
 Every built-in command — `bu new-command`, `bu import-environment`, `bu get-command` — is a Bash script generated from the same template you use. The framework eats its own dogfood.
 

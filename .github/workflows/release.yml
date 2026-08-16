@@ -1,0 +1,35 @@
+name: Release
+
+# Cut a datetime-based (CalVer) release tag with release.sh.
+#
+# Default: manual — click "Run workflow" (workflow_dispatch) on the main
+# branch, or run ./release.sh locally.
+#
+# To release automatically on every push to main (continuous release),
+# uncomment the `push` trigger below.
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [ main ]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Cut release
+        run: ./release.sh --yes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
