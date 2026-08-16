@@ -2228,6 +2228,7 @@ declare -A -g BU_OUT_STAGE_EFFECT=(
     ["bu get-mount"]=producer
     ["bu get-uptime"]=producer
     ["bu get-system"]=producer
+    ["bu get-version"]=producer
     ["bu get-environment"]=producer
     ["bu get-identity"]=producer
     ["bu get-file-usage"]=producer

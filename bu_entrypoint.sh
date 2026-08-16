@@ -18,9 +18,16 @@ BU_REPO_SHA1_PREV=${BU_REPO_SHA1:-}
 BU_REPO_DIR=$PWD
 # Suppressed: users who downloaded a ZIP/tarball have no .git directory.
 BU_REPO_SHA1=$(git rev-parse @ 2>/dev/null) || BU_REPO_SHA1=unknown
+# Human-readable release identity, derived from the datetime (CalVer) tags cut
+# by release.sh.  `git describe --tags --always --dirty` yields e.g.
+# "v2026.08.15-3-g1f4ae9c" (or "...-dirty" with uncommitted changes) and is
+# stable/meaningless-free — no manual version bump to forget.
+BU_VERSION=$(git describe --tags --always --dirty 2>/dev/null) || BU_VERSION=unknown
+# Nearest release tag (empty → "unknown") for the `bu get-version` catalog.
+BU_VERSION_TAG=$(git describe --tags --abbrev=0 2>/dev/null) || BU_VERSION_TAG=unknown
 if [[ -n "$BU_REPO_SHA1_PREV" && "$BU_REPO_SHA1" != "$BU_REPO_SHA1_PREV" ]]
 then
-    echo "WARN    A different BashTab version is being activated: Prev[$BU_REPO_SHA1_PREV@$BU_REPO_DIR_PREV] Cur[$BU_REPO_SHA1@$BU_REPO_DIR]" >&2
+    echo "WARN    A different BashTab version is being activated: Prev[$BU_REPO_SHA1_PREV@$BU_REPO_DIR_PREV] Cur[$BU_REPO_SHA1@$BU_REPO_DIR] Cur-version[$BU_VERSION]" >&2
 fi
 
 source ./bu_custom_source.sh --__bu-once

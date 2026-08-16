@@ -944,8 +944,8 @@ function test_command_scan_lazy_defers_to_first_dispatch { #@test
     "
     assert_success
     assert_output --partial 'after-init count=3 pending=true'
-    assert_output --partial 'after-dispatch count=200 pending=false'
-    assert_output --partial 'after-second count=200 pending=false'
+    assert_output --partial 'after-dispatch count=201 pending=false'
+    assert_output --partial 'after-second count=201 pending=false'
 }
 
 # ===========================================================================
