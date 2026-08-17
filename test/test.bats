@@ -943,9 +943,21 @@ function test_command_scan_lazy_defers_to_first_dispatch { #@test
         echo \"after-second count=\${#BU_COMMANDS[@]} pending=\${__BU_COMMAND_SCAN_PENDING:-false}\"
     "
     assert_success
+
+    # The fully-populated registry size depends on which optional tools are
+    # installed (--is-compatible probes), so assert the scan's behavior
+    # (near-empty -> populated -> stable) rather than a hardcoded count.
+    local init_count= dispatch_count= second_count=
+    [[ "$output" =~ after-init\ count=([0-9]+) ]] && init_count=${BASH_REMATCH[1]}
+    [[ "$output" =~ after-dispatch\ count=([0-9]+) ]] && dispatch_count=${BASH_REMATCH[1]}
+    [[ "$output" =~ after-second\ count=([0-9]+) ]] && second_count=${BASH_REMATCH[1]}
+
+    assert_equal "$init_count" 3
+    assert [ "$dispatch_count" -gt 3 ]
+    assert_equal "$dispatch_count" "$second_count"
+
     assert_output --partial 'after-init count=3 pending=true'
-    assert_output --partial 'after-dispatch count=201 pending=false'
-    assert_output --partial 'after-second count=201 pending=false'
+    assert_output --partial 'pending=false'
 }
 
 # ===========================================================================

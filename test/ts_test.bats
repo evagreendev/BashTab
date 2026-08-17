@@ -492,8 +492,10 @@ function test_reconstruct_cmdsub { #@test
 function test_reconstruct_pipe { #@test
     local result
     result=$(simulate_selection 'echo $(ls) | gre' '' 'pipe')
-    # pipeBefore should include "echo $(ls) | "
-    [[ "$result" == "echo \$(ls) | grep "* ]]
+    # pipeBefore should include "echo $(ls) | " — the specific completed
+    # command (grep vs another gre* match) is environment-dependent, so
+    # assert only the reconstructed pipe prefix.
+    [[ "$result" == "echo \$(ls) | "* ]]
 }
 
 # ===========================================================================
