@@ -962,6 +962,111 @@ EOF
 }
 
 # ===========================================================================
+# Field completion at the post-pipe position (tab-execute-field opt-in)
+# ===========================================================================
+
+function test_field_completion_tab_execute_field_registry { #@test
+    # A producer with no # Fields: header and no registry entry discovers
+    # its field names from the live first record.
+    local command_line_front_before_pipe="dyn_field_producer | "
+    dyn_field_producer() {
+        printf '%s\n' '{"alpha":1,"beta":"x","gamma":true}'
+    }
+    bu_register_tab_execute_field "dyn_field_producer"
+
+    __bu_out_complete_pipeline_fields ""
+    assert_equal "${BU_RET[*]}" "alpha beta gamma"
+}
+
+function test_field_completion_shares_capture_with_value_gate { #@test
+    local countfile=$BATS_TEST_TMPDIR/tab-exec-field-count
+    local command_line_front_before_pipe="dual_gate_producer | "
+    dual_gate_producer() {
+        echo x >> "$countfile"
+        printf '%s\n' '{"alpha":1,"beta":"z"}' '{"alpha":2,"beta":"y"}'
+    }
+    bu_register_tab_execute_field "dual_gate_producer"
+    bu_register_tab_execute "dual_gate_producer"
+
+    __bu_out_complete_pipeline_fields ""
+    assert_equal "${BU_RET[*]}" "alpha beta"
+    __bu_out_complete_field_values alpha
+    assert_equal "${BU_RET[*]}" "1 2"
+    __bu_out_complete_field_values beta
+    assert_equal "${BU_RET[*]}" "y z"
+    # One execution total across field-name and field-value positions.
+    assert_equal "$(wc -l < "$countfile")" 1
+}
+
+function test_field_completion_value_gate_only_no_execute { #@test
+    local countfile=$BATS_TEST_TMPDIR/tab-exec-valonly
+    local command_line_front_before_pipe="value_only_producer | "
+    value_only_producer() {
+        echo x >> "$countfile"
+        printf '%s\n' '{"alpha":1}'
+    }
+    bu_register_tab_execute "value_only_producer"
+
+    # The value gate does not authorize the field position.
+    run __bu_out_complete_pipeline_fields ""
+    assert_failure
+    assert [ ! -s "$countfile" ]
+}
+
+function test_field_completion_field_gate_only_no_value { #@test
+    local countfile=$BATS_TEST_TMPDIR/tab-exec-fieldonly
+    local command_line_front_before_pipe="field_only_producer | "
+    field_only_producer() {
+        echo x >> "$countfile"
+        printf '%s\n' '{"alpha":1}'
+    }
+    bu_register_tab_execute_field "field_only_producer"
+
+    # The field gate does not authorize the value position.
+    run __bu_out_complete_field_values alpha
+    assert_failure
+    assert [ ! -s "$countfile" ]
+}
+
+function test_field_completion_unregistered_no_execute { #@test
+    local countfile=$BATS_TEST_TMPDIR/tab-exec-field-none
+    local command_line_front_before_pipe="nofield_producer | "
+    nofield_producer() {
+        echo x >> "$countfile"
+        printf '%s\n' '{"alpha":1}'
+    }
+
+    run __bu_out_complete_pipeline_fields ""
+    assert_failure
+    assert [ ! -s "$countfile" ]
+}
+
+function test_field_completion_tab_execute_field_header_fixture { #@test
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    cat > "$tmpdir/fixture-field-producer.sh" <<'EOF'
+#!/usr/bin/env bash
+# Dispatch: source
+# Tab-Execute-Field: true
+printf '%s\n' '{"colA":"x","colB":"y"}'
+EOF
+    chmod 644 "$tmpdir/fixture-field-producer.sh"
+
+    BU_COMMANDS[fixture-field-producer]="$tmpdir/fixture-field-producer.sh"
+
+    # The header registers the producer for field discovery without any central edit.
+    local command_line_front_before_pipe="bu fixture-field-producer | "
+    __bu_out_complete_pipeline_fields ""
+    assert_equal "${BU_RET[*]}" "colA colB"
+
+    # The field gate alone must not enable value-position execution.
+    run __bu_out_complete_field_values colA
+    assert_failure
+
+    rm -rf "$tmpdir"
+}
+
+# ===========================================================================
 # Alias merging in option completion (--select, select, SELECT are one row)
 # ===========================================================================
 

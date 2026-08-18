@@ -111,6 +111,20 @@ declare -A -g BU_OUT_PROBE_COMMANDS=()
 # (parsed lazily and cached here on first use) over central registration.
 declare -A -g BU_OUT_TAB_EXECUTE=()
 
+# Per-producer opt-in for executing a producer during TAB completion to
+# discover FIELD NAMES (a bare <TAB> after a pipe). Independent from the
+# value gate (BU_OUT_TAB_EXECUTE): field completion fires on a casual,
+# exploratory post-pipe TAB, whereas the value position only fires after the
+# user has typed a field and an equality operator, so a command author who
+# accepted value-position execution has not necessarily accepted execution
+# on every post-pipe TAB.
+#
+# Same promise and constraints as BU_OUT_TAB_EXECUTE (read-only, returns
+# promptly; state-changing or slow producers must never carry it). Prefer the
+# `# Tab-Execute-Field: true` header annotation (parsed lazily and cached
+# here on first use) over central registration.
+declare -A -g BU_OUT_TAB_EXECUTE_FIELD=()
+
 # ```
 # *Description*:
 # Register a producer as safe to execute during TAB completion so its
@@ -133,6 +147,30 @@ bu_register_tab_execute()
         return 1
     fi
     BU_OUT_TAB_EXECUTE[$producer]=1
+}
+
+# ```
+# *Description*:
+# Register a producer as safe to execute during TAB completion so its record
+# field names can be discovered at the post-pipe field position.
+#
+# *Params*:
+# - `$1`: Producer command-line prefix (e.g. "bu get-command")
+#
+# *Examples*:
+# ```bash
+# bu_register_tab_execute_field "bu get-command"
+# ```
+# ```
+bu_register_tab_execute_field()
+{
+    local producer=$1
+    if [[ -z "$producer" ]]
+    then
+        bu_log_err "Usage: bu_register_tab_execute_field <producer-prefix>"
+        return 1
+    fi
+    BU_OUT_TAB_EXECUTE_FIELD[$producer]=1
 }
 
 # Record cap for tab-execute row capture: bounds producer cost even against
@@ -1999,6 +2037,31 @@ __bu_out_complete_pipeline_fields()
             [[ -n "$keys" ]] && mapfile -t fields <<<"$keys"
         fi
     fi
+
+    # 4. Tab-Execute-Field gate: producer declared safe to execute for field
+    #    discovery on a bare post-pipe TAB. No master switch — the
+    #    per-producer declaration is the whole gate. The first captured
+    #    record's keys become the field candidates.
+    if ((${#fields[@]} == 0)) && [[ -n "$BU_OUT_JQ" ]]
+    then
+        local _tf_captured=
+        if __bu_out_tab_execute_capture --field "$producer_str" "$producer_eval"
+        then
+            _tf_captured=$BU_RET
+        fi
+        BU_RET=()
+        if [[ -n "$_tf_captured" ]]
+        then
+            local _tf_first_line=
+            _tf_first_line=${_tf_captured%%$'\n'*}
+            if [[ -n "$_tf_first_line" ]]
+            then
+                local _tf_keys=
+                _tf_keys=$("$BU_OUT_JQ" -r 'if type == "object" then keys_unsorted[] else empty end' <<<"$_tf_first_line" 2>/dev/null)
+                [[ -n "$_tf_keys" ]] && mapfile -t fields <<<"$_tf_keys"
+            fi
+        fi
+    fi
     fi
     ((${#fields[@]} == 0)) && return 1
 
@@ -2094,6 +2157,92 @@ __bu_out_complete_pipeline_fields()
 
 # ```
 # *Description*:
+# Capture the first N records from a tab-execute registered producer,
+# memoized per producer string and shared across the field-name and
+# field-value gates (one execution serves both positions on a pipeline).
+#
+# *Params*:
+# - `--field` (optional): select the BU_OUT_TAB_EXECUTE_FIELD /
+#   `# Tab-Execute-Field: true` gate; default is the value gate
+#   (BU_OUT_TAB_EXECUTE / `# Tab-Execute: true`).
+# - `$1`: Canonicalized producer string (e.g. "bu get-command")
+# - `$2`: Eval-able producer command (from __bu_out_resolve_producer)
+#
+# *Returns*:
+# - BU_RET: Captured rows (newline-separated JSONL), empty on failure
+# - exit 0 on success, 1 if the producer isn't registered for the selected
+#   gate, has no eval-able command, or produced no rows
+# ```
+__bu_out_tab_execute_capture()
+{
+    local is_field_gate=false
+    if [[ "$1" == --field ]]
+    then
+        is_field_gate=true
+        shift
+    fi
+    local -r producer_str=$1
+    local -r producer_eval=$2
+    BU_RET=
+
+    # Longest-prefix match against the selected gate's registry, same lookup
+    # as BU_OUT_PRODUCER_FIELDS so flags in the typed pipeline don't defeat it.
+    local -n _gate_registry
+    if "$is_field_gate"
+    then
+        _gate_registry=BU_OUT_TAB_EXECUTE_FIELD
+    else
+        _gate_registry=BU_OUT_TAB_EXECUTE
+    fi
+    local key best_key=
+    for key in "${!_gate_registry[@]}"
+    do
+        if [[ "$producer_str" == "$key" || "$producer_str" == "$key "* ]] && (( ${#key} > ${#best_key} ))
+        then
+            best_key=$key
+        fi
+    done
+
+    # Lazy header annotation scan-and-cache, so command authors declare the
+    # opt-in next to their schema without central edits.
+    if [[ -z "$best_key" ]]
+    then
+        local _te_cmd_name=${producer_str#* }
+        _te_cmd_name=${_te_cmd_name%%[[:space:]]*}
+        if [[ -f "${BU_COMMANDS[$_te_cmd_name]:-}" ]]
+        then
+            local _te_line
+            if "$is_field_gate"
+            then
+                _te_line=$(awk 'FNR>8{exit} /^#[[:space:]]*Tab-Execute-Field:[[:space:]]*true[[:space:]]*$/ {print "1"; exit}' "${BU_COMMANDS[$_te_cmd_name]}" 2>/dev/null)
+            else
+                _te_line=$(awk 'FNR>8{exit} /^#[[:space:]]*Tab-Execute:[[:space:]]*true[[:space:]]*$/ {print "1"; exit}' "${BU_COMMANDS[$_te_cmd_name]}" 2>/dev/null)
+            fi
+            if [[ -n "$_te_line" ]]
+            then
+                _gate_registry[$producer_str]=1
+                best_key=$producer_str
+            fi
+        fi
+    fi
+
+    [[ -z "$best_key" ]] && return 1
+    [[ -z "$producer_eval" ]] && return 1
+
+    # Capture rows once per producer_str per session, capped. BU_COMP_FAKE
+    # prevents the producer (a bu command) from entering autocomplete mode
+    # when COMP_CWORD is set in the completion context.
+    if [[ -z "${__BU_OUT_TAB_ROWS[$producer_str]:-}" ]]
+    then
+        __BU_OUT_TAB_ROWS[$producer_str]=$(BU_COMP_FAKE=1 eval "$producer_eval" 2>/dev/null | head -"$__BU_OUT_VALUE_RECORD_CAP")
+    fi
+    BU_RET=${__BU_OUT_TAB_ROWS[$producer_str]}
+    [[ -z "$BU_RET" ]] && return 1
+    return 0
+}
+
+# ```
+# *Description*:
 # Complete distinct field VALUES from the live upstream pipeline at the
 # where/query value position. Gated per producer: the resolved producer must
 # be registered in BU_OUT_TAB_EXECUTE (a declaration that it is read-only
@@ -2120,49 +2269,10 @@ __bu_out_complete_field_values()
     local producer_eval=$BU_RET_EVAL
     BU_RET=()
 
-    # Longest-prefix match against registered tab-execute producers, same
-    # lookup as BU_OUT_PRODUCER_FIELDS so flags in the typed pipeline don't
-    # defeat the lookup.
-    local key best_key=
-    for key in "${!BU_OUT_TAB_EXECUTE[@]}"
-    do
-        if [[ "$producer_str" == "$key" || "$producer_str" == "$key "* ]] && (( ${#key} > ${#best_key} ))
-        then
-            best_key=$key
-        fi
-    done
-
-    # Lazy `# Tab-Execute: true` header annotation: scanned from the producer
-    # script and cached into the registry, so command authors can declare the
-    # opt-in next to their schema without central edits.
-    if [[ -z "$best_key" ]]
-    then
-        local _te_cmd_name=${producer_str#* }
-        _te_cmd_name=${_te_cmd_name%%[[:space:]]*}
-        if [[ -f "${BU_COMMANDS[$_te_cmd_name]:-}" ]]
-        then
-            local _te_line
-            _te_line=$(awk 'FNR>8{exit} /^#[[:space:]]*Tab-Execute:[[:space:]]*true[[:space:]]*$/ {print "1"; exit}' "${BU_COMMANDS[$_te_cmd_name]}" 2>/dev/null)
-            if [[ -n "$_te_line" ]]
-            then
-                BU_OUT_TAB_EXECUTE[$producer_str]=1
-                best_key=$producer_str
-            fi
-        fi
-    fi
-
-    [[ -z "$best_key" ]] && return 1
-    [[ -z "$BU_OUT_JQ" || -z "$producer_eval" ]] && return 1
-
-    # Capture rows once per producer_str per session, capped.  BU_COMP_FAKE
-    # prevents the producer (a bu command) from entering autocomplete mode
-    # when COMP_CWORD is set in the completion context.
-    if [[ -z "${__BU_OUT_TAB_ROWS[$producer_str]:-}" ]]
-    then
-        __BU_OUT_TAB_ROWS[$producer_str]=$(BU_COMP_FAKE=1 eval "$producer_eval" 2>/dev/null | head -"$__BU_OUT_VALUE_RECORD_CAP")
-    fi
-    local memo=${__BU_OUT_TAB_ROWS[$producer_str]}
-    [[ -z "$memo" ]] && return 1
+    [[ -z "$BU_OUT_JQ" ]] && return 1
+    __bu_out_tab_execute_capture "$producer_str" "$producer_eval" || return 1
+    local memo=$BU_RET
+    BU_RET=()
 
     # Distinct scalar values for the field, capped. Skip values containing
     # newlines (they can't survive the enum round-trip line-oriented).
