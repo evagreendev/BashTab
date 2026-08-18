@@ -2,7 +2,7 @@
 # Dispatch: source
 # Tab-Execute: true
 # Synopsis: List registered commands and their properties
-# Fields: name verb noun namespace type synopsis fields stage
+# Fields: name verb noun namespace type definition synopsis fields stage
 function __bu_bu_get_command_main()
 {
 local -r invocation_dir=$PWD
@@ -90,7 +90,7 @@ do
         ;;
     --columns)# COLUMNS
         # Fields to display, in order (comma-separated)
-        bu_parse_positional $# --delimited name verb noun namespace type synopsis fields stage delimited-- --hint "Comma-separated fields"
+        bu_parse_positional $# --delimited name verb noun namespace type definition synopsis fields stage delimited-- --hint "Comma-separated fields"
         columns=${!shift_by}
         ;;
     -h|--help)# _FLAG
@@ -249,9 +249,9 @@ __bu_get_cmd_registry_lookup()
     fi
 }
 
-# ── Phase 3: Emit TSV records with all 8 columns ──
-# Columns: name verb noun namespace type synopsis fields stage
-# Default --columns for table projection stays name,verb,noun,namespace,type
+# ── Phase 3: Emit TSV records with all 9 columns ──
+# Columns: name verb noun namespace type definition synopsis fields stage
+# Default --columns for table projection is name,type,definition,synopsis
 {
     for command in "${filtered_commands[@]}"
     do
@@ -271,8 +271,8 @@ __bu_get_cmd_registry_lookup()
                 synopsis=${file_synopsis[$_cmd_path]:-}
                 ;;
             alias)
-                # Alias without registered synopsis: auto-synthesize
-                synopsis="alias for: ${BU_COMMANDS[$command]}"
+                # Alias synopsis stays empty unless registered via --synopsis;
+                # the expansion is now the first-class definition column.
                 ;;
             esac
             # function type: stays empty unless registered
@@ -286,12 +286,16 @@ __bu_get_cmd_registry_lookup()
         __bu_get_cmd_registry_lookup BU_OUT_STAGE_EFFECT "$command"
         local stage=$BU_RET
 
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        # Definition: raw BU_COMMANDS value — script path (execute/source),
+        # function name (function), or expansion spec (alias).
+        local definition=${BU_COMMANDS[$command]}
+
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "$command" "$command_verb" "$command_noun" "$command_namespace" \
-            "$command_type" "$synopsis" "$fields" "$stage"
+            "$command_type" "$definition" "$synopsis" "$fields" "$stage"
     done
-} | sort | bu_out_from_tsv --columns name,verb,noun,namespace,type,synopsis,fields,stage \
-    | bu_out --format "$format" --columns "${columns:-name,verb,noun,namespace,type}"
+} | sort | bu_out_from_tsv --columns name,verb,noun,namespace,type,definition,synopsis,fields,stage \
+    | bu_out --format "$format" --columns "${columns:-name,type,definition,synopsis}"
 
 
 bu_scope_pop_function

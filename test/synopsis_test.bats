@@ -101,7 +101,7 @@ function test_synopsis_alias_auto_synthesis { #@test
     bu_preinit_register_new_alias test-alias-auto get-command --format {} {?}
     local result
     result=${BU_COMMAND_PROPERTIES[test-alias-auto,synopsis]:-}
-    # No registered synopsis; get-command would synthesize "alias for: ..."
+    # No registered synopsis; get-command's synopsis stays empty for aliases
     assert_equal "$result" ''
     # Verify the type is alias
     assert_equal "${BU_COMMAND_PROPERTIES[test-alias-auto,type]}" 'alias'

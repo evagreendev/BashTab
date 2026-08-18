@@ -376,16 +376,23 @@ function test_bu_get_module_columns { #@test
 }
 
 function test_bu_get_command_metadata { #@test
-    local out
+    local out def
     out=$(bu get-command | jq -c 'select(.name == "get-module")')
-    assert_equal "$out" '{"name":"get-module","verb":"get","noun":"module","namespace":"bu","type":"source","synopsis":"List loaded BashTab modules","fields":"","stage":"producer"}'
+    # definition shape: an existing file ending in the command script name
+    def=$(printf '%s' "$out" | jq -r .definition)
+    [[ -f "$def" ]]
+    [[ "$def" == */bu-get-module.sh ]]
+    assert_equal "$(printf '%s' "$out" | jq -c 'del(.definition)')" '{"name":"get-module","verb":"get","noun":"module","namespace":"bu","type":"source","synopsis":"List loaded BashTab modules","fields":"","stage":"producer"}'
 }
 
 function test_bu_get_command_multi_word_verb { #@test
     # convert-to is a multi-word verb (BU_MULTI_WORD_VERBS): noun is jsonl, not to-jsonl
-    local out
+    local out def
     out=$(bu get-command | jq -c 'select(.name == "convert-to-jsonl")')
-    assert_equal "$out" '{"name":"convert-to-jsonl","verb":"convert-to","noun":"jsonl","namespace":"bu","type":"source","synopsis":"Normalize and emit JSONL records","fields":"","stage":"passthrough"}'
+    def=$(printf '%s' "$out" | jq -r .definition)
+    [[ -f "$def" ]]
+    [[ "$def" == */bu-convert-to-jsonl.sh ]]
+    assert_equal "$(printf '%s' "$out" | jq -c 'del(.definition)')" '{"name":"convert-to-jsonl","verb":"convert-to","noun":"jsonl","namespace":"bu","type":"source","synopsis":"Normalize and emit JSONL records","fields":"","stage":"passthrough"}'
 }
 
 function test_bu_get_command_verb_filter_multi_word { #@test
@@ -399,7 +406,27 @@ function test_bu_get_command_table_header { #@test
     # varies with the user's modules, so assert on structure not exact widths
     local out
     out=$(bu get-command --format table | head -1)
+    assert_regex "$out" '^name +type +definition +synopsis *$'
+}
+
+function test_bu_get_command_table_legacy_columns { #@test
+    # Explicit --columns still renders the legacy display set
+    local out
+    out=$(bu get-command --format table --columns name,verb,noun,namespace,type | head -1)
     assert_regex "$out" '^name +verb +noun +namespace +type *$'
+}
+
+function test_bu_get_command_alias_definition { #@test
+    local out
+    # gc: definition is the expansion spec verbatim, synopsis empty (unregistered)
+    out=$(bu get-command | jq -c 'select(.name == "gc")')
+    assert_equal "$(printf '%s' "$out" | jq -r .definition)" 'get-command --namespace {} {?} --verb {} {?} --noun {} {...}'
+    assert_equal "$(printf '%s' "$out" | jq -r .synopsis)" ''
+    # A registered --synopsis wins over the empty default
+    bu_preinit_register_new_alias syn-alias-test query-object --where {...} --synopsis "My alias synopsis"
+    out=$(bu get-command | jq -c 'select(.name == "syn-alias-test")')
+    assert_equal "$(printf '%s' "$out" | jq -r .definition)" 'query-object --where {...}'
+    assert_equal "$(printf '%s' "$out" | jq -r .synopsis)" 'My alias synopsis'
 }
 
 function test_bu_pipeline_format_table_cmdlet { #@test
@@ -501,9 +528,12 @@ function test_bu_new_record_cmdlet { #@test
 
 function test_bu_get_command_convert_from_multi_word_verb { #@test
     # convert-from is a multi-word verb: noun is tsv, not from-tsv
-    local out
+    local out def
     out=$(bu get-command | jq -c 'select(.name == "convert-from-tsv")')
-    assert_equal "$out" '{"name":"convert-from-tsv","verb":"convert-from","noun":"tsv","namespace":"bu","type":"source","synopsis":"Convert TSV text to JSONL records","fields":"","stage":"recordify_tsv"}'
+    def=$(printf '%s' "$out" | jq -r .definition)
+    [[ -f "$def" ]]
+    [[ "$def" == */bu-convert-from-tsv.sh ]]
+    assert_equal "$(printf '%s' "$out" | jq -c 'del(.definition)')" '{"name":"convert-from-tsv","verb":"convert-from","noun":"tsv","namespace":"bu","type":"source","synopsis":"Convert TSV text to JSONL records","fields":"","stage":"recordify_tsv"}'
 }
 
 function test_bu_full_powershell_pipeline { #@test
@@ -531,14 +561,14 @@ function test_pipeline_fields_registry_binding_style { #@test
     # The fzf binding exposes the producer text as command_line_front_before_pipe
     local command_line_front_before_pipe="bu get-command | "
     __bu_out_complete_pipeline_fields ""
-    assert_equal "${BU_RET[*]}" "name verb noun namespace type synopsis fields stage"
+    assert_equal "${BU_RET[*]}" "name verb noun namespace type definition synopsis fields stage"
 }
 
 function test_pipeline_fields_registry_prefix_with_flags { #@test
     # Producer carries flags: longest-prefix registry match still applies
     local command_line_front_before_pipe="bu get-command --verb get | "
     __bu_out_complete_pipeline_fields ""
-    assert_equal "${BU_RET[*]}" "name verb noun namespace type synopsis fields stage"
+    assert_equal "${BU_RET[*]}" "name verb noun namespace type definition synopsis fields stage"
 }
 
 function test_pipeline_fields_ts_pipe_before { #@test
@@ -554,7 +584,7 @@ function test_pipeline_fields_comp_words_fallback { #@test
     COMP_WORDS=(bu get-command \| bu select-object "")
     COMP_CWORD=4
     __bu_out_complete_pipeline_fields ""
-    assert_equal "${BU_RET[*]}" "name verb noun namespace type synopsis fields stage"
+    assert_equal "${BU_RET[*]}" "name verb noun namespace type definition synopsis fields stage"
 }
 
 function test_pipeline_fields_no_pipe_empty { #@test
@@ -574,7 +604,7 @@ function test_pipeline_fields_comma_excludes_used { #@test
 function test_pipeline_fields_dot_mode { #@test
     local command_line_front_before_pipe="bu get-command | "
     __bu_out_complete_pipeline_fields --dot ""
-    assert_equal "${BU_RET[*]}" ".name .verb .noun .namespace .type .synopsis .fields .stage"
+    assert_equal "${BU_RET[*]}" ".name .verb .noun .namespace .type .definition .synopsis .fields .stage"
 }
 
 function test_pipeline_fields_register_custom_producer { #@test
@@ -614,7 +644,7 @@ function test_e2e_select_object_pipeline_fields { #@test
     # Full completion driver: bu get-command | bu select-object <TAB>
     local command_line_front_before_pipe="bu get-command | "
     bu_autocomplete_get_autocompletions bu select-object ""
-    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type synopsis fields stage"
+    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type definition synopsis fields stage"
 }
 
 function test_e2e_select_object_comma_continuation { #@test
@@ -626,7 +656,7 @@ function test_e2e_select_object_comma_continuation { #@test
 function test_e2e_where_object_dot_fields { #@test
     local command_line_front_before_pipe="bu get-command | "
     bu_autocomplete_get_autocompletions bu where-object ""
-    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type synopsis fields stage"
+    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type definition synopsis fields stage"
 }
 
 function test_e2e_sort_object_pipeline_fields { #@test
@@ -638,7 +668,7 @@ function test_e2e_sort_object_pipeline_fields { #@test
 function test_e2e_format_table_columns_pipeline_fields { #@test
     local command_line_front_before_pipe="bu get-command | "
     bu_autocomplete_get_autocompletions bu format-table --columns ""
-    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type synopsis fields stage"
+    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type definition synopsis fields stage"
 }
 
 function test_e2e_no_pipeline_shows_hint_only { #@test
@@ -650,7 +680,7 @@ function test_pipeline_fields_dsl_keyword_basic { #@test
     # The --pipeline-fields DSL keyword resolves pipeline producer fields
     local command_line_front_before_pipe="bu get-command | "
     bu_autocomplete_get_autocompletions bu select-object ""
-    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type synopsis fields stage"
+    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type definition synopsis fields stage"
 }
 
 function test_pipeline_fields_dsl_keyword_dot { #@test
@@ -659,7 +689,7 @@ function test_pipeline_fields_dsl_keyword_dot { #@test
     local pipe_before=
     # Test the underlying function directly for the dot variant
     __bu_out_complete_pipeline_fields --dot ""
-    assert_equal "${BU_RET[*]}" ".name .verb .noun .namespace .type .synopsis .fields .stage"
+    assert_equal "${BU_RET[*]}" ".name .verb .noun .namespace .type .definition .synopsis .fields .stage"
 }
 
 function test_pipeline_fields_dsl_dynamic_hint { #@test
@@ -667,7 +697,7 @@ function test_pipeline_fields_dsl_dynamic_hint { #@test
     local command_line_front_before_pipe="bu get-command | "
     bu_autocomplete_get_autocompletions bu sort-object ""
     # The hint should now mention the available fields, not the static text
-    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type synopsis fields stage"
+    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type definition synopsis fields stage"
 }
 
 # ===========================================================================
@@ -787,9 +817,12 @@ function test_bu_query_object_no_clauses_passthrough { #@test
 }
 
 function test_bu_query_object_metadata { #@test
-    local out
+    local out def
     out=$(bu get-command | jq -c 'select(.name == "query-object")')
-    assert_equal "$out" '{"name":"query-object","verb":"query","noun":"object","namespace":"bu","type":"source","synopsis":"Apply SQL-style clauses (where, group-by, select, order-by) to a JSONL stream","fields":"","stage":"query"}'
+    def=$(printf '%s' "$out" | jq -r .definition)
+    [[ -f "$def" ]]
+    [[ "$def" == */bu-query-object.sh ]]
+    assert_equal "$(printf '%s' "$out" | jq -c 'del(.definition)')" '{"name":"query-object","verb":"query","noun":"object","namespace":"bu","type":"source","synopsis":"Apply SQL-style clauses (where, group-by, select, order-by) to a JSONL stream","fields":"","stage":"query"}'
 }
 
 function test_e2e_query_object_clause_completion { #@test
@@ -798,13 +831,13 @@ function test_e2e_query_object_clause_completion { #@test
     bu_autocomplete_get_autocompletions bu query-object se
     assert_equal "${COMPREPLY[*]}" "select"
     bu_autocomplete_get_autocompletions bu query-object select ""
-    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type synopsis fields stage"
+    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type definition synopsis fields stage"
 }
 
 function test_e2e_query_object_where_dot_completion { #@test
     local command_line_front_before_pipe="bu get-command | "
     bu_autocomplete_get_autocompletions bu query-object where ""
-    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type synopsis fields stage"
+    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type definition synopsis fields stage"
 }
 
 # ===========================================================================
@@ -1291,7 +1324,7 @@ function test_e2e_query_object_from_completion { #@test
 function test_e2e_query_object_group_by_completion { #@test
     local command_line_front_before_pipe="bu get-command | "
     bu_autocomplete_get_autocompletions bu query-object group-by ""
-    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type synopsis fields stage"
+    assert_equal "${COMPREPLY[*]}" "name verb noun namespace type definition synopsis fields stage"
 }
 
 # ===========================================================================
@@ -1346,9 +1379,12 @@ function test_bu_distinct_object_cmdlet { #@test
 }
 
 function test_bu_distinct_object_metadata { #@test
-    local out
+    local out def
     out=$(bu get-command | jq -c 'select(.name == "distinct-object")')
-    assert_equal "$out" '{"name":"distinct-object","verb":"distinct","noun":"object","namespace":"bu","type":"source","synopsis":"Remove duplicate records from a JSONL stream","fields":"","stage":"passthrough"}'
+    def=$(printf '%s' "$out" | jq -r .definition)
+    [[ -f "$def" ]]
+    [[ "$def" == */bu-distinct-object.sh ]]
+    assert_equal "$(printf '%s' "$out" | jq -c 'del(.definition)')" '{"name":"distinct-object","verb":"distinct","noun":"object","namespace":"bu","type":"source","synopsis":"Remove duplicate records from a JSONL stream","fields":"","stage":"passthrough"}'
 }
 
 # ===========================================================================

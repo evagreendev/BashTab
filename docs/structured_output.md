@@ -21,11 +21,10 @@ object stream**, and **jq is the engine**. All of it lives in
 ```bash
 # On a terminal, bu commands render tables
 $ bu get-command
-name                     verb        noun              namespace  type
------------------------  ----------  ----------------  ---------  ------
-convert-from-lines       convert-from  lines           bu         source
-convert-from-tsv         convert-from  tsv             bu         source
-get-command              get         command           bu         source
+name                  type    definition                                  synopsis
+--------------------  ------  ------------------------------------------  --------------------------------------------
+convert-from-lines    source  commands/pipeline/bu-convert-from-lines.sh   Convert line-oriented text to JSONL records
+get-command           source  commands/core/bu-get-command.sh              List registered commands and their properties
 ...
 
 # Piped, the same command emits JSONL — jq is your Where-Object
@@ -188,9 +187,9 @@ narrow terminals.
 After a pipe, field names of the producer's records are offered:
 
 ```bash
-bu get-command | bu select-object <TAB>     # name verb noun namespace type
+bu get-command | bu select-object <TAB>     # name verb noun namespace type definition synopsis fields stage
 bu get-command | bu select-object name,<TAB>  # comma-aware: the remaining fields
-bu get-command | bu where-object <TAB>      # .name .verb .noun .namespace .type
+bu get-command | bu where-object <TAB>      # .name .verb .noun .namespace .type .definition .synopsis .fields .stage
 ```
 
 Sources, in order:
@@ -251,8 +250,9 @@ Rules:
   no ANSI color codes. The text is extracted verbatim.
 - First match within the first 30 lines wins; scanning stops there.
 - Non-file commands (aliases, functions) get synopses from the registry
-  (set via `--synopsis` on registration functions) or auto-synthesized
-  for aliases (`alias for: <expansion>`).
+  (set via `--synopsis` on registration functions). An alias without a
+  registered synopsis has an empty synopsis; its expansion is exposed as
+  the `definition` field of `bu get-command`.
 
 ### Agent and script integration
 
@@ -262,14 +262,18 @@ Agents and scripts should enumerate capabilities via:
 bu get-command --format jsonl
 ```
 
-Each record includes all eight fields:
+Each record includes all nine fields:
 
 ```json
 {"name":"get-command","verb":"get","noun":"command","namespace":"bu",
- "type":"source","synopsis":"List registered commands and their properties",
- "fields":"name verb noun namespace type synopsis fields stage","stage":"producer"}
+ "type":"source","definition":"/path/to/commands/core/bu-get-command.sh",
+ "synopsis":"List registered commands and their properties",
+ "fields":"name verb noun namespace type definition synopsis fields stage","stage":"producer"}
 ```
 
+- `definition` — what the name resolves to: the script path for `execute`/`source`
+  commands, the function name for `function` commands, or the full expansion spec
+  for `alias` commands (e.g. `query-object --where {...}`)
 - `synopsis` — one-line description (static, safe to parse)
 - `fields` — output fields this command produces (space-joined, for pipeline composition)
 - `stage` — pipeline stage effect: `producer`, `passthrough`, `project`, `query`,
