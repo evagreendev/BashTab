@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Dispatch: source
 # Synopsis: Show bash shopt settings
+# Fields: name value synopsis
 function __bu_bu_get_shopt_option_main()
 {
 local -r invocation_dir=$PWD
@@ -67,8 +68,9 @@ then
         --description "
 List shopt shell options as records (bash's extended behavior switches).
 Covers globstar, nullglob, dotglob, autocd, extglob, and ~50 more; each
-record has name and value (boolean). Runs in the current shell, so the
-values are the live settings. Toggle them with bu set-shopt-option.
+record has name, value (boolean), and a one-line synopsis describing what
+the option does. Runs in the current shell, so the values are the live
+settings. Toggle them with bu set-shopt-option.
 " \
         --example "All options" "" \
         --example "What is on right now" "" \
@@ -76,12 +78,77 @@ values are the live settings. Toggle them with bu set-shopt-option.
     return 0
 fi
 
+# Static synopsis table: one-line condensed descriptions of each shopt
+# option (stable since bash 4), noting surprising defaults. Options absent
+# from this table get an empty synopsis — never an error — so the command
+# stays forward-compatible with new bash releases.
+local synopsis_table='{
+  "assoc_expand_once": "Evaluate associative array subscripts once instead of twice (deprecated)",
+  "autocd": "Treat a bare directory name as cd to that directory",
+  "cdable_vars": "If the argument to cd is not a directory, treat it as a variable name",
+  "cdspell": "Correct minor spelling errors in directory arguments to cd",
+  "checkhash": "Check the hash table for a command existence before executing it",
+  "checkjobs": "List stopped or running jobs and defer exit if any remain",
+  "checkwinsize": "Check the window size after each command and update LINES and COLUMNS",
+  "cmdhist": "Save multi-line commands to history as single lines",
+  "compat31": "Change quoting and expansion behavior to match bash 3.1",
+  "compat32": "Change quoting and expansion behavior to match bash 3.2",
+  "compat40": "Change quoting and expansion behavior to match bash 4.0",
+  "compat41": "Change quoting and expansion behavior to match bash 4.1",
+  "compat42": "Change quoting and expansion behavior to match bash 4.2",
+  "compat43": "Change quoting and expansion behavior to match bash 4.3",
+  "compat44": "Change quoting and expansion behavior to match bash 4.4",
+  "complete_fullquote": "Quote all shell metacharacters in completion matches; default on",
+  "direxpand": "Filename completion replaces a directory name with the full match",
+  "dirspell": "Correct minor spelling errors in directory names during completion",
+  "dotglob": "Pathname expansion includes filenames beginning with a dot",
+  "execfail": "A non-interactive shell does not exit if exec cannot run its file",
+  "expand_aliases": "Expand aliases; default off in non-interactive shells",
+  "extdebug": "Enable extended debugging with a DEBUG trap on every command",
+  "extglob": "Enable extended pattern matching operators such as @(...) and +(...)",
+  "extquote": "Allow ANSI-C and locale quoting inside double-quoted parameter expansions; default on",
+  "failglob": "Patterns that match no filenames cause an expansion error",
+  "force_fignore": "Completion ignores FIGNORE suffixes even if it would ignore everything; default on",
+  "globasciiranges": "Bracket range expressions use ASCII (C locale) ordering; default on",
+  "globskipdots": "Pathname expansion never matches dot or dot-dot; default on",
+  "globstar": "Double-star matches files and zero or more directory levels recursively",
+  "gnu_errfmt": "Error messages use the GNU file and line format",
+  "histappend": "Append to the history file on exit instead of overwriting it",
+  "histreedit": "Load a failed history substitution into the edit line for fixing",
+  "histverify": "Load history substitutions for editing instead of executing them",
+  "hostcomplete": "Attempt hostname completion for words containing an at-sign; default on",
+  "huponexit": "Send SIGHUP to all jobs when an interactive login shell exits",
+  "inherit_errexit": "Command substitutions inherit the errexit (set -e) setting",
+  "interactive_comments": "Allow # to begin a comment in an interactive shell; default on",
+  "lastpipe": "Run the last pipeline command in the current shell when job control is off",
+  "lithist": "Save multi-line history entries with newlines instead of semicolons",
+  "localvar_inherit": "Local variables inherit the value and attributes of same-named globals",
+  "localvar_unset": "A variable unset as local stays unset in functions it calls",
+  "login_shell": "Read-only; set when the shell is a login shell",
+  "mailwarn": "Warn if the file checked for mail was accessed since the last check",
+  "no_empty_cmd_completion": "Do not attempt completion on an empty command line",
+  "nocaseglob": "Pathname expansion matches filenames case-insensitively",
+  "nocasematch": "case and [[ matching is case-insensitive",
+  "noexpand_translation": "Do not expand the text after a locale translation (deprecated)",
+  "nullglob": "Patterns matching nothing expand to the empty string",
+  "patsub_replacement": "Ampersand in pattern replacement expands to the matched text; default on",
+  "progcomp": "Enable programmable completion facilities; default on",
+  "progcomp_alias": "Expand aliases in the command name for programmable completion",
+  "promptvars": "Prompt strings undergo parameter, command, and arithmetic expansion; default on",
+  "restricted_shell": "Read-only; set when the shell runs in restricted mode",
+  "shift_verbose": "shift prints an error if the count exceeds the number of arguments",
+  "sourcepath": "source searches PATH when the filename is not found; default on",
+  "varredir_close": "Automatically close brace-variable file descriptors opened for redirection",
+  "xpg_echo": "echo expands backslash escape sequences by default"
+}'
+
 # Runs sourced, so `shopt` reports the current shell's live settings
-shopt | jq -R -c --arg name "$name" '
+shopt | jq -R -c --arg name "$name" --argjson synopsis "$synopsis_table" '
     select(. != "")
     | capture("^(?<name>\\S+)\\s+(?<value>on|off)$")
     | select($name == "" or .name == $name)
     | .value |= (. == "on")
+    | .synopsis = ($synopsis[.name] // "")
 ' | bu_out --format "$format"
 
 bu_scope_pop_function

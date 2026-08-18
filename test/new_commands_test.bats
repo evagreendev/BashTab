@@ -517,18 +517,30 @@ function test_bu_set_shell_option_invalid_name_fails { #@test
 
 function test_bu_get_shopt_option_single { #@test
     local out
-    out=$(bu get-shopt-option nullglob)
+    # name/value contract is unchanged; synopsis is asserted separately
+    out=$(bu get-shopt-option nullglob | jq -c 'del(.synopsis)')
     assert_equal "$out" '{"name":"nullglob","value":false}'
+}
+
+function test_bu_get_shopt_option_synopsis { #@test
+    local out
+    # (a) a known option's synopsis is non-empty and mentions its behavior
+    out=$(bu get-shopt-option nullglob | jq -r .synopsis)
+    [[ -n "$out" ]]
+    [[ "$out" == *"empty string"* ]]
+    # (b) full coverage: every option on the running bash has a synopsis
+    out=$(bu get-shopt-option | jq -r 'select(.synopsis == "") | .name')
+    assert_equal "$out" ""
 }
 
 function test_bu_set_shopt_option_toggles { #@test
     local out
-    out=$(bu set-shopt-option nullglob >/dev/null; bu get-shopt-option nullglob)
+    out=$(bu set-shopt-option nullglob >/dev/null; bu get-shopt-option nullglob | jq -c 'del(.synopsis)')
     assert_equal "$out" '{"name":"nullglob","value":true}'
-    out=$(bu set-shopt-option nullglob --unset >/dev/null; bu get-shopt-option nullglob)
+    out=$(bu set-shopt-option nullglob --unset >/dev/null; bu get-shopt-option nullglob | jq -c 'del(.synopsis)')
     assert_equal "$out" '{"name":"nullglob","value":false}'
     # Confirm no leak
-    out=$(bu get-shopt-option nullglob)
+    out=$(bu get-shopt-option nullglob | jq -c 'del(.synopsis)')
     assert_equal "$out" '{"name":"nullglob","value":false}'
 }
 
