@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Dispatch: source
-# Synopsis: List registered command aliases
-function __bu_bu_get_alias_main()
+# Synopsis: Show bash shell aliases (alias builtin)
+# Fields: name definition
+function __bu_bu_get_shell_alias_main()
 {
 local -r invocation_dir=$PWD
 
@@ -34,7 +35,7 @@ do
         if bu_env_is_in_autocomplete && [[ "$1" != -* ]]
         then
             # Name positional: complete from defined aliases
-            autocompletion=(--ret __bu_bu_get_alias_complete_names ret-- --hint "Alias name")
+            autocompletion=(--ret __bu_bu_get_shell_alias_complete_names ret-- --hint "Alias name")
         fi
         if [[ -z "$name" ]]
         then
@@ -65,9 +66,10 @@ if "$is_help"
 then
     bu_autohelp \
         --description "
-List defined shell aliases as records (PowerShell Get-Alias).
+List bash shell aliases (the alias builtin) as records.
 Runs in the current shell, so it sees your interactive aliases. Each
 record has name and definition. Give a name to show just that alias.
+For the CLI's own registered aliases use get-alias.
 " \
         --example "All aliases" "" \
         --example "One alias" "ll"
@@ -98,7 +100,7 @@ bu_scope_pop_function
 }
 
 # Completion helper: defined alias names.
-__bu_bu_get_alias_complete_names()
+__bu_bu_get_shell_alias_complete_names()
 {
     BU_RET=()
     local a
@@ -108,4 +110,4 @@ __bu_bu_get_alias_complete_names()
     done < <(alias | sed -n "s/^alias \([^=]*\)=.*/\1/p")
 }
 
-__bu_bu_get_alias_main "$@"
+__bu_bu_get_shell_alias_main "$@"

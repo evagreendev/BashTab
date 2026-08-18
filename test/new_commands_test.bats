@@ -6,7 +6,7 @@
 # convert-from-* parsers, base64, filesystem item commands, and the bash
 # builtin wrappers (get/set-shell-option, get/set-shopt-option, get-variable,
 # get-builtin, get-completion, get-resource-limit, get-umask, get-trap,
-# get/push/pop-location, get-location-stack, get-alias, get-job).
+# get/push/pop-location, get-location-stack, get-shell-alias, get-alias, get-job).
 #
 # All tests are TTY-independent: stdout inside $( ) / run is a pipe, so
 # `bu out` auto-dispatch deterministically resolves to jsonl.
@@ -634,16 +634,51 @@ function test_bu_get_location_stack { #@test
 # Shell utilities: alias / job / guid / sleep / measure-command / history
 # ===========================================================================
 
-function test_bu_get_alias { #@test
+function test_bu_get_shell_alias { #@test
     local out
-    out=$(shopt -s expand_aliases; alias zztest='echo hi'; bu get-alias zztest)
+    out=$(shopt -s expand_aliases; alias zztest='echo hi'; bu get-shell-alias zztest)
     assert_equal "$out" '{"name":"zztest","definition":"echo hi"}'
 }
 
-function test_bu_get_alias_escaped_quotes { #@test
+function test_bu_get_shell_alias_escaped_quotes { #@test
     local out
-    out=$(shopt -s expand_aliases; alias zzq='echo '\''a b'\'''; bu get-alias zzq)
+    out=$(shopt -s expand_aliases; alias zzq='echo '\''a b'\'''; bu get-shell-alias zzq)
     assert_equal "$out" '{"name":"zzq","definition":"echo '\''a b'\''"}'
+}
+
+function test_bu_get_alias_gc_record { #@test
+    local out
+    out=$(bu get-alias gc)
+    assert_equal "$out" '{"name":"gc","root":"get-command","definition":"get-command --namespace {} {?} --verb {} {?} --noun {} {...}","synopsis":""}'
+}
+
+function test_bu_get_alias_root_filter { #@test
+    # Register two throwaway aliases with different roots, then filter each way
+    bu_preinit_register_new_alias alias-root-a query-object --select {...}
+    bu_preinit_register_new_alias alias-root-b get-command --format {...}
+    local out
+    out=$(bu get-alias --root query-object | jq -r .name)
+    [[ "$out" == *"alias-root-a"* ]]
+    [[ "$out" != *"alias-root-b"* ]]
+    # Glob filter matches the whole get-* root family
+    out=$(bu get-alias --root 'get-*' | jq -r .name)
+    [[ "$out" == *"alias-root-b"* ]]
+    [[ "$out" == *"gc"* ]]
+    [[ "$out" != *"alias-root-a"* ]]
+}
+
+function test_bu_get_alias_excludes_bash_aliases { #@test
+    # A bash alias must never appear in get-alias output
+    local out
+    out=$(shopt -s expand_aliases; alias zz='echo hi'; bu get-alias zz)
+    assert_equal "$out" ""
+}
+
+function test_bu_get_alias_synopsis { #@test
+    bu_preinit_register_new_alias alias-syn query-object --where {...} --synopsis "Synopsis wins"
+    local out
+    out=$(bu get-alias alias-syn | jq -r .synopsis)
+    assert_equal "$out" "Synopsis wins"
 }
 
 function test_bu_new_guid_shape { #@test

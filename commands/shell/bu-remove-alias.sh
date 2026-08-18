@@ -103,12 +103,12 @@ then
 Remove shell aliases (PowerShell Remove-Alias analog, structured unalias).
 Runs sourced in the current shell. Emits one record per alias: name, removed (boolean).
 
-Accepts pipeline input from get-alias (reads .name field).
+Accepts pipeline input from get-shell-alias (reads .name field).
 " \
         --example "One alias" "ll" \
         --example "Multiple aliases" "gs gp gl" \
         --example "Dry run" "ll --what-if" \
-        --example "Pipeline from get-alias" ""
+        --example "Pipeline from get-shell-alias" ""
     return 0
 fi
 

@@ -122,11 +122,11 @@ Set shell aliases (PowerShell Set-Alias analog, structured alias).
 Runs sourced in the current shell. Unmatched names get the last-seen
 definition. Emits one record per alias.
 
-Accepts pipeline input from get-alias (reads .name and .definition fields).
+Accepts pipeline input from get-shell-alias (reads .name and .definition fields).
 " \
         --example "Simple alias" "ll 'ls -la'" \
         --example "Named flags" "--name gs --definition 'git status'" \
-        --example "Pipeline from get-alias" ""
+        --example "Pipeline from get-shell-alias" ""
     return 0
 fi
 

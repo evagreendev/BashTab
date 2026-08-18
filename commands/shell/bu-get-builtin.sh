@@ -66,8 +66,9 @@ Each record: name, enabled (boolean), overridden (boolean), override_type
 
 Builtins can be shadowed by aliases (first in lookup order), then by
 functions, and also explicitly disabled via 'enable -n' (shown as
-enabled=false). See also bu get-command for BashTab commands and
-bu get-alias for aliases.
+enabled=false). See also bu get-command for BashTab commands,
+bu get-alias for the CLI's registered aliases, and bu get-shell-alias
+for bash shell aliases.
 " \
         --example "All builtins" "" \
         --example "One builtin" "printf" \

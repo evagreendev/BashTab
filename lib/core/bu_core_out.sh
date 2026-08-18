@@ -2305,6 +2305,8 @@ __bu_out_complete_field_values()
 declare -A -g BU_OUT_STAGE_EFFECT=(
     ["bu get-command"]=producer
     ["bu get-module"]=producer
+    ["bu get-alias"]=producer
+    ["bu get-shell-alias"]=producer
     ["bu where-object"]=passthrough
     ["bu sort-object"]=passthrough
     ["bu distinct-object"]=passthrough

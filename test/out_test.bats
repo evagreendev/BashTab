@@ -909,6 +909,12 @@ function test_query_object_value_completion_eq { #@test
     assert_equal "${COMPREPLY[*]}" "alias execute source"
 }
 
+function test_value_completion_get_alias_root { #@test
+    local command_line_front_before_pipe="bu get-alias | "
+    bu_autocomplete_get_autocompletions bu where-object root -eq ""
+    assert_equal "${COMPREPLY[*]}" "get-command query-object"
+}
+
 function test_value_completion_like_and_gt_never_probe { #@test
     local command_line_front_before_pipe="bu get-command | "
     # Pattern and ordered operators keep the plain static hint.
