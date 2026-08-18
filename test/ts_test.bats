@@ -5,6 +5,55 @@
 #
 # Requires: BU_AUTOCOMPLETE_USE_TREE_SITTER=true
 
+# ---------------------------------------------------------------------------
+# Diagnostic logging (enable with TS_TEST_DIAG=1, optionally TS_TEST_TRACE=1).
+# Proves a missing TAP result is a signal kill and identifies the signal.
+#
+# IMPORTANT: log to fd 3 (the TAP stream), NOT stderr. Bats redirects the
+# test's stderr into BATS_OUT and only displays it on a normal (non-killed)
+# failure — so stderr output vanishes exactly when a test is signal-killed.
+# fd 3 is forwarded unconditionally by the parallel runner, so it survives.
+# ---------------------------------------------------------------------------
+__ts_diag_chain_trap() {
+    local sig=$1 handler=$2
+    local existing
+    existing=$(trap -p "$sig" 2>/dev/null)
+    if [[ "$existing" == "trap -- '*"* ]]
+    then
+        existing=${existing#trap -- \'}
+        existing=${existing%\' "$sig"}
+        eval "trap '$handler; $existing' $sig"
+    else
+        trap "$handler" "$sig"
+    fi
+}
+
+__ts_diag_log() {
+    printf '# TS_DIAG: %s\n' "$*" >&3
+}
+
+__ts_diag_on_signal() {
+    local sig=$1
+    __ts_diag_log "SIGNAL pid=$$ sig=$sig test=${BATS_TEST_NAME:-<none>} last=${BASH_COMMAND:-}"
+    trap - "$sig"
+    kill -"$sig" "$$"
+}
+
+__ts_diag_install() {
+    __ts_diag_log "START pid=$$ test=${BATS_TEST_NAME:-<none>}"
+
+    local sig
+    for sig in HUP INT TERM QUIT ABRT SEGV BUS PIPE ALRM USR1 USR2; do
+        __ts_diag_chain_trap "$sig" "__ts_diag_on_signal $sig"
+    done
+
+    if [[ -n "${TS_TEST_TRACE:-}" ]]; then
+        export PS4='+ [${BASH_SOURCE##*/}:${LINENO}] ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
+        BASH_XTRACEFD=3
+        set -x
+    fi
+}
+
 setup() {
     load "test_helper/bats-assert/load.bash"
     load "test_helper/bats-support/load.bash"
@@ -18,6 +67,10 @@ setup() {
     fi
 
     BU_AUTOCOMPLETE_USE_TREE_SITTER=true
+
+    if [[ -n "${TS_TEST_DIAG:-}" ]]; then
+        __ts_diag_install
+    fi
 }
 
 teardown() {
