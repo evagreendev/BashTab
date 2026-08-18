@@ -482,19 +482,31 @@ function test_bu_select_string_stdin { #@test
 
 function test_bu_get_shell_option_single { #@test
     local out
-    out=$(bu get-shell-option pipefail)
+    # name/value contract is unchanged; synopsis is asserted separately
+    out=$(bu get-shell-option pipefail | jq -c 'del(.synopsis)')
     assert_equal "$out" '{"name":"pipefail","value":false}'
+}
+
+function test_bu_get_shell_option_synopsis { #@test
+    local out
+    # (a) a known option's synopsis is non-empty and mentions its behavior
+    out=$(bu get-shell-option pipefail | jq -r .synopsis)
+    [[ -n "$out" ]]
+    [[ "$out" == *"exit status"* ]]
+    # (b) full coverage: every option on the running bash has a synopsis
+    out=$(bu get-shell-option | jq -r 'select(.synopsis == "") | .name')
+    assert_equal "$out" ""
 }
 
 function test_bu_set_shell_option_toggles { #@test
     # $( ) subshell isolation: the setting must not leak into the test runner
     local out
-    out=$(bu set-shell-option pipefail >/dev/null; bu get-shell-option pipefail)
+    out=$(bu set-shell-option pipefail >/dev/null; bu get-shell-option pipefail | jq -c 'del(.synopsis)')
     assert_equal "$out" '{"name":"pipefail","value":true}'
-    out=$(bu set-shell-option pipefail --off >/dev/null; bu get-shell-option pipefail)
+    out=$(bu set-shell-option pipefail --off >/dev/null; bu get-shell-option pipefail | jq -c 'del(.synopsis)')
     assert_equal "$out" '{"name":"pipefail","value":false}'
     # Confirm no leak: still off in the test shell
-    out=$(bu get-shell-option pipefail)
+    out=$(bu get-shell-option pipefail | jq -c 'del(.synopsis)')
     assert_equal "$out" '{"name":"pipefail","value":false}'
 }
 
