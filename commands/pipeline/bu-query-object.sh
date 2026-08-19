@@ -16,6 +16,7 @@ local is_select_expand=false
 local from_file=
 local out_file=
 local -a where_exprs=()
+local -a grep_exprs=()
 local group_keys=
 local -a agg_specs=()
 local -a having_exprs=()
@@ -225,6 +226,47 @@ do
                 done
                 where_exprs+=("$_w_combined")
             fi
+        fi
+        ;;
+    --grep|grep)# GREP
+        # Search a pattern across any field value of each record (a grep of
+        # the row). Default is regex; -like/-ilike switch to glob (bare
+        # pattern = substring); -i/-ilike make matching case-insensitive.
+        local grep_mode=regex
+        local grep_modifier=
+        if (($# >= 2)); then
+            case "$2" in
+            -like)  grep_mode=glob;   grep_modifier=$2 ;;
+            -ilike) grep_mode=iglob;  grep_modifier=$2 ;;
+            -i)     grep_mode=iregex; grep_modifier=$2 ;;
+            esac
+        fi
+        if [[ -n "$grep_modifier" ]]; then
+            : $((shift_by++))
+        fi
+        local grep_hint=
+        case "$grep_mode" in
+        glob)   grep_hint="Glob pattern (matches any field value)" ;;
+        iglob)  grep_hint="Glob pattern, case-insensitive (matches any field value)" ;;
+        iregex) grep_hint="Regex pattern, case-insensitive (matches any field value)" ;;
+        *)      grep_hint="Regex pattern (matches any field value)" ;;
+        esac
+        bu_parse_positional $# --hint "$grep_hint"
+        local grep_pattern=${!shift_by}
+
+        # When the token right after grep is a flag prefix but not a full
+        # modifier, offer the mode flags instead of a pattern hint.
+        if [[ -z "$grep_modifier" && "${2:-}" == -* && "${2:-}" != -- ]]; then
+            autocompletion=(--enum -like -ilike -i enum-- --hint "Match mode")
+        fi
+
+        if ! bu_env_is_in_autocomplete && [[ -n "$grep_pattern" ]]; then
+            local grep_jq
+            grep_jq=$(__bu_query_object_translate_grep "$grep_mode" "$grep_pattern") || {
+                error_msg="Invalid grep pattern[$grep_pattern]"
+                bu_autohelp; bu_scope_pop_function; return 1
+            }
+            grep_exprs+=("$grep_jq")
         fi
         ;;
     --group-by|group-by)# GROUP_BY
@@ -480,6 +522,13 @@ order: WHERE -> GROUP BY -> HAVING -> SELECT -> ORDER BY -> FIRST.
               where type -eq source and name -like get-*
               where name -like command   # substring: matches get-command, set-module, ...
             Repeatable; multiple where clauses are ANDed.
+  grep      search a pattern across any field value of each record (a grep of
+            the row). Default is regex; -like/-ilike switch to glob (*/?)
+            with bare-pattern substring semantics; -i/-ilike case-insensitive.
+              grep get-            any field matches regex "get-"
+              grep -like command   any field contains "command"
+              grep -ilike get-*    any field starts with "get-" (any case)
+            Repeatable; multiple grep clauses are ANDed.
   group-by  collapses records by key fields (comma-separated composite key)
   agg       aggregates per group: [name=]func[:field], repeatable and/or
             comma-separated. funcs: count, sum, avg, min, max, first, last, collect
@@ -504,6 +553,9 @@ Output ends at Out-Default: a table on a terminal, JSONL when piped.
         --example "And/or in one where" "where type -eq source and name -like get-*" \
         --example "Or condition" "where type -eq source or type -eq alias" \
         --example "Null check" "where version -isnotnull select name,version" \
+        --example "Grep any field (regex)" "grep '^get-' select name,verb" \
+        --example "Grep any field (glob/substring)" "grep -like command select name" \
+        --example "Grep any field (case-insensitive glob)" "grep -ilike get-* select name" \
         --example "Any clause order" "order-by noun select name,noun where namespace -eq bu" \
         --example "Rename then order by the alias" "select name,ver=version order-by ver" \
         --example "Top 3" "order-by name first 3" \
@@ -526,6 +578,17 @@ then
     for w in "${where_exprs[@]:1}"
     do
         where_expr+=" and ($w)"
+    done
+fi
+
+local grep_expr=
+if ((${#grep_exprs[@]} > 0))
+then
+    grep_expr="(${grep_exprs[0]})"
+    local g
+    for g in "${grep_exprs[@]:1}"
+    do
+        grep_expr+=" and ($g)"
     done
 fi
 
@@ -605,6 +668,7 @@ then
     local -a output_fields=()
 
     [[ -n "$where_expr" ]] && clauses+=(where)
+    [[ -n "$grep_expr" ]] && clauses+=(grep)
     [[ -n "$group_keys" ]] && clauses+=(group-by)
     ((${#agg_specs[@]} > 0)) && clauses+=(agg)
     [[ -n "$having_expr" ]] && clauses+=(having)
@@ -670,9 +734,15 @@ fi
 
 __bu_query_object_where()
 {
-    if [[ -n "$where_expr" ]]
+    if [[ -n "$where_expr" && -n "$grep_expr" ]]
+    then
+        bu_out_where "($where_expr) and ($grep_expr)"
+    elif [[ -n "$where_expr" ]]
     then
         bu_out_where "$where_expr"
+    elif [[ -n "$grep_expr" ]]
+    then
+        bu_out_where "$grep_expr"
     else
         cat
     fi

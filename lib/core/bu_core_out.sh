@@ -788,6 +788,64 @@ __bu_query_object_translate_op()
 
 # ```
 # *Description*:
+# Build the jq boolean expression for `bu query-object grep`: true when the
+# pattern matches ANY top-level field value of a record (a grep of the row).
+# Each value is stringified first (`tostring`), so numbers, booleans, and null
+# participate too (e.g. grep "42" matches {"count":42}).
+#
+# *Params*:
+# - `$1`: Match mode: regex | iregex | glob | iglob
+#         - regex/iregex: pattern is a regex (case-sensitive / insensitive)
+#         - glob/iglob:   PowerShell -like glob semantics — `*`/`?` wildcards
+#           are anchored; a bare pattern with no wildcard means substring
+#           (case-sensitive / insensitive)
+# - `$2`: Pattern string
+#
+# *Returns*:
+# - stdout: jq boolean expression, e.g.
+#   `[.[] | tostring] | any(test("^get-.*$"))`
+# - exit 0 on success
+#
+# *Examples*:
+# ```bash
+# __bu_query_object_translate_grep regex '^get-'   # any value matches the regex
+# __bu_query_object_translate_grep glob command    # any value contains "command"
+# __bu_query_object_translate_grep iglob 'GET-*'   # case-insensitive glob
+# ```
+# ```
+__bu_query_object_translate_grep()
+{
+    local mode=$1
+    local pattern=$2
+    local re=$pattern
+
+    case "$mode" in
+    glob|iglob)
+        # PowerShell-flavored -like: a value with no glob wildcard
+        # implies *value* (substring match), not exact match.
+        local glob=$pattern
+        if [[ "$glob" != *'*'* && "$glob" != *'?'* ]]
+        then
+            glob="*$glob*"
+        fi
+        re=$(__bu_glob_to_regex "$glob")
+        ;;
+    esac
+
+    local re_lit=${re//\\/\\\\}
+    re_lit=${re_lit//\"/\\\"}
+    case "$mode" in
+    iregex|iglob)
+        printf '[.[] | tostring] | any(test("%s"; "i"))' "$re_lit"
+        ;;
+    *)
+        printf '[.[] | tostring] | any(test("%s"))' "$re_lit"
+        ;;
+    esac
+}
+
+# ```
+# *Description*:
 # Project a JSONL stream to a subset of fields, reordering and optionally
 # renaming them (PowerShell Select-Object).
 #

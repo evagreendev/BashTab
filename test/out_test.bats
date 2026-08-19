@@ -894,6 +894,80 @@ function test_query_object_translate_op_like_substring { #@test
 }
 
 # ===========================================================================
+# grep (search a pattern across any field value)
+# ===========================================================================
+
+function test_query_object_grep_regex_any_field { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"get-command","verb":"get"}' '{"name":"set-module","verb":"set"}' \
+        | bu query-object grep '^get' select name)
+    assert_equal "$out" '{"name":"get-command"}'
+}
+
+function test_query_object_grep_like_substring { #@test
+    # bare pattern is a substring, searched across every field value
+    local out
+    out=$(printf '%s\n' '{"name":"get-command","verb":"get"}' '{"name":"set-module","verb":"set"}' \
+        | bu query-object grep -like command select name)
+    assert_equal "$out" '{"name":"get-command"}'
+}
+
+function test_query_object_grep_ilike_case_insensitive { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"get-command"}' '{"name":"GET-MODULE"}' '{"name":"set-thing"}' \
+        | bu query-object grep -ilike 'get-*' select name)
+    assert_equal "$out" '{"name":"get-command"}
+{"name":"GET-MODULE"}'
+}
+
+function test_query_object_grep_i_regex_case_insensitive { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"get-command"}' '{"name":"GET-MODULE"}' '{"name":"set-thing"}' \
+        | bu query-object grep -i '^get' select name)
+    assert_equal "$out" '{"name":"get-command"}
+{"name":"GET-MODULE"}'
+}
+
+function test_query_object_grep_matches_nonstring_value { #@test
+    # numbers are stringified, so grep 42 matches {"count":42}
+    local out
+    out=$(printf '%s\n' '{"name":"a","count":42}' '{"name":"b","count":7}' \
+        | bu query-object grep 42 select name)
+    assert_equal "$out" '{"name":"a"}'
+}
+
+function test_query_object_grep_anded_with_where { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"get-command","verb":"get"}' '{"name":"set-module","verb":"set"}' \
+        | bu query-object grep command where verb -eq get select name)
+    assert_equal "$out" '{"name":"get-command"}'
+}
+
+function test_query_object_translate_grep { #@test
+    local out
+    out=$(__bu_query_object_translate_grep regex '^get-')
+    assert_equal "$out" '[.[] | tostring] | any(test("^get-"))'
+    out=$(__bu_query_object_translate_grep iregex '^get-')
+    assert_equal "$out" '[.[] | tostring] | any(test("^get-"; "i"))'
+    out=$(__bu_query_object_translate_grep glob command)
+    assert_equal "$out" '[.[] | tostring] | any(test("^.*command.*$"))'
+    out=$(__bu_query_object_translate_grep glob 'get-*')
+    assert_equal "$out" '[.[] | tostring] | any(test("^get-.*$"))'
+    out=$(__bu_query_object_translate_grep iglob 'get-*')
+    assert_equal "$out" '[.[] | tostring] | any(test("^get-.*$"; "i"))'
+}
+
+function test_e2e_query_object_grep_completion { #@test
+    local command_line_front_before_pipe="bu get-command | "
+    bu_autocomplete_get_autocompletions bu query-object grep ""
+    assert_equal "${COMPREPLY[0]}" "Hint: Regex pattern (matches any field value)"
+    bu_autocomplete_get_autocompletions bu query-object grep "-"
+    assert_equal "${COMPREPLY[*]}" "-like -ilike -i"
+    bu_autocomplete_get_autocompletions bu query-object grep -like ""
+    assert_equal "${COMPREPLY[0]}" "Hint: Glob pattern (matches any field value)"
+}
+
+# ===========================================================================
 # Value completion at the where/query value position (tab-execute opt-in)
 # ===========================================================================
 

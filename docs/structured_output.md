@@ -143,6 +143,7 @@ where → group-by → having → select → distinct → order-by → first
 | Clause | Semantics |
 |---|---|
 | `where '<jq expr>'` | Pre-group filter, **source** field names. Repeatable, ANDed. |
+| `grep 'pattern'` | Search a pattern across any field value of each record (grep of a row). Default regex; `-like`/`-ilike` glob (`*`/`?`, bare = substring); `-i`/`-ilike` case-insensitive. Repeatable, ANDed. |
 | `group-by a[,b]` | Collapse to one record per (composite) key. No `agg` = SELECT DISTINCT keys. |
 | `agg [name=]func[:field]` | Aggregates, repeatable and/or comma-separated. `count`, `sum:f`, `avg:f` (numeric only), `min:f`, `max:f`, `first:f`, `last:f`, `collect:f` (array of values). Default name: `func_field`. |
 | `having '<jq expr>'` | Post-group filter on group/aggregate fields. Repeatable, ANDed. |
@@ -156,6 +157,11 @@ where → group-by → having → select → distinct → order-by → first
 bu get-command | bu query-object where '.type == "source"' \
     group-by verb agg count,collect:noun having '.count > 1' \
     select v=verb,n=count order-by n desc first 3
+
+# grep a pattern across any field (regex), or glob/case-insensitive:
+bu get-command | bu query-object grep '^get-' select name,verb
+bu get-command | bu query-object grep -like command select name
+bu get-command | bu query-object grep -ilike get-* select name
 ```
 
 Design notes:
