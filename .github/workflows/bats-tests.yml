@@ -20,6 +20,8 @@ jobs:
           - test/first_test.bats
           - test/fzf_dims_test.bats
           - test/integration_test.bats
+          - test/location_test.bats
+          - test/module_provenance_test.bats
           - test/new_commands_test.bats
           - test/npm_test.bats
           - test/out_test.bats
