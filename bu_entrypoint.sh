@@ -60,6 +60,10 @@ bu_source_user_defined_configs
 
 source ./lib/core/bu_core_var.sh --__bu-once
 source ./lib/core/bu_core_base.sh --__bu-once
+# Location/repo registries are re-sourced every activation (no --__bu-once) so
+# their arrays reset before preinits and the local file re-register entries.
+source ./lib/core/bu_core_location.sh
+source ./lib/core/bu_core_repo.sh
 source ./lib/core/bu_core_out.sh --__bu-once
 source ./lib/core/bu_core_compat.sh --__bu-once
 source ./lib/core/bu_core_cap.sh --__bu-once
@@ -80,6 +84,9 @@ __bu_try_load_command_cache || true
 source ./lib/core/bu_core_early_init.sh
 
 bu_source_user_defined_pre_init_callbacks
+
+# User-local named locations (after preinits so user registrations win).
+bu_location_source_local_file
 
 source ./lib/core/bu_core_init.sh
 
