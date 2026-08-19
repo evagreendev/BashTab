@@ -2,7 +2,7 @@
 # Dispatch: source
 # Tab-Execute: true
 # Synopsis: List registered commands and their properties
-# Fields: name verb noun namespace type definition synopsis fields stage
+# Fields: name verb noun namespace type definition synopsis fields stage module
 function __bu_bu_get_command_main()
 {
 local -r invocation_dir=$PWD
@@ -90,7 +90,7 @@ do
         ;;
     --columns)# COLUMNS
         # Fields to display, in order (comma-separated)
-        bu_parse_positional $# --delimited name verb noun namespace type definition synopsis fields stage delimited-- --hint "Comma-separated fields"
+        bu_parse_positional $# --delimited name verb noun namespace type definition synopsis fields stage module delimited-- --hint "Comma-separated fields"
         columns=${!shift_by}
         ;;
     -h|--help)# _FLAG
@@ -249,8 +249,8 @@ __bu_get_cmd_registry_lookup()
     fi
 }
 
-# ── Phase 3: Emit TSV records with all 9 columns ──
-# Columns: name verb noun namespace type definition synopsis fields stage
+# ── Phase 3: Emit TSV records with all 10 columns ──
+# Columns: name verb noun namespace type definition synopsis fields stage module
 # Default --columns for table projection is name,type,definition,synopsis
 {
     for command in "${filtered_commands[@]}"
@@ -260,6 +260,7 @@ __bu_get_cmd_registry_lookup()
         command_verb=${BU_COMMAND_PROPERTIES[$command,verb]:-}
         command_noun=${BU_COMMAND_PROPERTIES[$command,noun]:-}
         command_namespace=${BU_COMMAND_PROPERTIES[$command,namespace]:-}
+        local command_module=${BU_COMMAND_PROPERTIES[$command,module]:-}
 
         # Synopsis precedence: registry → file scan → alias synthesis → empty
         local synopsis=${BU_COMMAND_PROPERTIES[$command,synopsis]:-}
@@ -290,11 +291,11 @@ __bu_get_cmd_registry_lookup()
         # function name (function), or expansion spec (alias).
         local definition=${BU_COMMANDS[$command]}
 
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "$command" "$command_verb" "$command_noun" "$command_namespace" \
-            "$command_type" "$definition" "$synopsis" "$fields" "$stage"
+            "$command_type" "$definition" "$synopsis" "$fields" "$stage" "$command_module"
     done
-} | sort | bu_out_from_tsv --columns name,verb,noun,namespace,type,definition,synopsis,fields,stage \
+} | sort | bu_out_from_tsv --columns name,verb,noun,namespace,type,definition,synopsis,fields,stage,module \
     | bu_out --format "$format" --columns "${columns:-name,type,definition,synopsis}"
 
 

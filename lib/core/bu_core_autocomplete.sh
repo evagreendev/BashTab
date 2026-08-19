@@ -2182,10 +2182,28 @@ __bu_autocomplete_completion_func_cli()
         then
             local i
             local color
+            # Only surface module provenance when more than one module is
+            # registered — a single-module project renders byte-identically
+            # to the pre-provenance dropdown.
+            local _show_module_tag=false
+            if ((${#BU_MODULE_REGISTRY[@]} > 1))
+            then
+                _show_module_tag=true
+            fi
             for (( i = 0; i < ${#COMPREPLY[@]}; i++ ))
             do
                 __bu_cli_command_type "${COMPREPLY[i]}"
                 BU_COMPREPLY_METADATA[i]="${BU_TPUT_GREY}$BU_RET${BU_TPUT_RESET}"
+                if "$_show_module_tag"
+                then
+                    local _mod=${BU_COMMAND_PROPERTIES[${COMPREPLY[i]},module]:-}
+                    local _mod_display=bu
+                    if [[ -n "$_mod" ]]
+                    then
+                        _mod_display=${BU_MODULE_DISPLAY_NAMES[$_mod]:-$_mod}
+                    fi
+                    BU_COMPREPLY_METADATA[i]+=" ${BU_TPUT_VSCODE_BLUE}[${_mod_display}]${BU_TPUT_RESET}"
+                fi
                 case "$BU_RET" in
                 alias)
                     color=$BU_TPUT_VSCODE_DARK_BLUE
