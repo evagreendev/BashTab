@@ -13,9 +13,11 @@ bu_run_log_command "$@"
 
 local module_name=
 local commands_dir=
+local location_name=
 local is_cache=false
 local is_bash_tab=false
 local is_dry_run=false
+local is_no_enter_hook=
 local is_help=false
 local error_msg=
 local autocompletion=()
@@ -48,13 +50,26 @@ do
     --dry-run|--what-if) # _FLAG
         is_dry_run=true
         ;;
+    --no-enter-hook)# _FLAG
+        # Skip the location's on-enter callback
+        is_no_enter_hook=true
+        ;;
     -h|--help)# _FLAG
         # Print help
         is_help=true
         ;;
     *)
-        bu_parse_error_enum "$1"
-        break
+        if [[ "$1" != -* ]]
+        then
+            if bu_env_is_in_autocomplete
+            then
+                autocompletion=(--stdout bu_location_names --kind dir --with-aliases stdout-- --hint "Location name")
+            fi
+            location_name=$1
+        else
+            bu_parse_error_enum "$1"
+            break
+        fi
         ;;
     esac
     if "$is_help"
@@ -82,11 +97,44 @@ Change the current working directory to a well-known project location.
 
 Runs in the current shell (sourceable command) so cd takes effect.
 Equivalent to PowerShell's Set-Location.
+
+With a NAME positional, resolves a registered dir location (see
+bu new-location / bu get-location-registry) and cds into it.
 " \
+    --example "Jump to a registered location" "myproj" \
     --example "Jump to the top-level module root" "--module" \
     --example "Jump to a specific module" "--module mylib" \
     --example "Jump to a commands directory" "--commands-dir /path/to/commands" \
     --example "Jump to the cache directory" "--cache"
+    return 0
+fi
+
+if [[ -n "$location_name" ]]
+then
+    if "$is_dry_run"
+    then
+        __bu_location_resolve_key "$location_name" --kind dir 2>/dev/null || {
+            error_msg="Unknown dir location[$location_name]"
+            bu_autohelp
+            bu_scope_pop_function
+            return 1
+        }
+        local _loc_key=$BU_RET
+        bu_location_resolve "$location_name" --kind dir 2>/dev/null || {
+            bu_scope_pop_function
+            return 1
+        }
+        local _loc_path=${BU_RET[0]}
+        local _loc_hook=${BU_LOCATION_PROPERTIES[$_loc_key,on_enter]:-}
+        bu_out_record name="$location_name" path="$_loc_path" on_enter="$_loc_hook" action="would-cd" dry_run:=true | bu_out --format auto
+        bu_scope_pop_function
+        return 0
+    fi
+    bu_location_enter "$location_name" ${is_no_enter_hook:+--no-enter-hook} || {
+        bu_scope_pop_function
+        return 1
+    }
+    bu_scope_pop_function
     return 0
 fi
 

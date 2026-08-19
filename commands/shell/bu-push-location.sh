@@ -37,8 +37,8 @@ do
     *)
         if bu_env_is_in_autocomplete
         then
-            # Path positional: complete directories
-            autocompletion=("${BU_AUTOCOMPLETE_SPEC_DIRECTORY[@]}")
+            # Positional: registry dir names plus directories
+            autocompletion=(--ret __bu_push_location_complete ret--)
         fi
         if [[ -z "$path" ]]
         then
@@ -79,6 +79,17 @@ bu pop-location and inspect with bu get-location-stack.
     return 0
 fi
 
+if [[ -n "$path" && ! -d "$path" ]] \
+    && [[ -n "${BU_LOCATION_ALIASES[$path]:-}" || -n "${BU_LOCATION_REGISTRY[$path]:-}" ]]
+then
+    # Not an existing directory, but a registered dir name (alias-aware).
+    # A real ./name directory always beats a registered name (checked above).
+    if bu_location_resolve "$path" --kind dir
+    then
+        path=${BU_RET[0]}
+    fi
+fi
+
 if "$is_dry_run"; then
     if [[ -n "$path" ]]; then
         bu_out_record path="$path" action="would-push" dry_run:=true | bu_out --format "$format"
@@ -107,6 +118,26 @@ bu_out_record path="$PWD" | bu_out --format "$format"
 
 fi
 bu_scope_pop_function
+}
+
+# Completion helper: registry dir names (with aliases) plus current-directory
+# subdirectories.
+__bu_push_location_complete()
+{
+    BU_RET=()
+    local name
+    while IFS= read -r name
+    do
+        [[ -n "$name" ]] && BU_RET+=("$name")
+    done < <(bu_location_names --kind dir --with-aliases 2>/dev/null)
+    local d
+    for d in ./*/
+    do
+        [[ -d "$d" ]] || continue
+        d=${d%/}
+        d=${d#./}
+        BU_RET+=("$d")
+    done
 }
 
 __bu_bu_push_location_main "$@"
