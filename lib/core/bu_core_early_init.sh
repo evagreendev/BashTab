@@ -186,6 +186,12 @@ __bu_init_env_commands()
             fi
 
             BU_COMMANDS[$command]=$script_path
+
+            local _dir_module=${BU_COMMAND_SEARCH_DIR_MODULE[$dir]:-}
+            if [[ -n "$_dir_module" ]]
+            then
+                BU_COMMAND_PROPERTIES[$command,module]=$_dir_module
+            fi
         done
     done
 

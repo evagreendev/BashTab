@@ -25,7 +25,25 @@ bu_source_user_defined_configs()
 # ```
 bu_source_user_defined_pre_init_callbacks()
 {
-    bu_source_multi_once "${BU_USER_DEFINED_STATIC_PRE_INIT_ENTRYPOINT_CALLBACKS[@]}"
+    local -r saved_module=${BU_CURRENT_MODULE:-}
+    local filepath
+    if ! "$BU_SOURCE_IS_CUSTOM" && ((${#BU_USER_DEFINED_STATIC_PRE_INIT_ENTRYPOINT_CALLBACKS[@]}))
+    then
+        for filepath in "${BU_USER_DEFINED_STATIC_PRE_INIT_ENTRYPOINT_CALLBACKS[@]}"
+        do
+            BU_CURRENT_MODULE=${BU_MODULE_PREINIT_MAP[$filepath]:-}
+            # shellcheck disable=SC1090
+            source "$filepath"
+        done
+    else
+        for filepath in "${BU_USER_DEFINED_STATIC_PRE_INIT_ENTRYPOINT_CALLBACKS[@]}"
+        do
+            BU_CURRENT_MODULE=${BU_MODULE_PREINIT_MAP[$filepath]:-}
+            # shellcheck disable=SC1090
+            source "$filepath" --__bu-once --__bu-no-inline
+        done
+    fi
+    BU_CURRENT_MODULE=$saved_module
     bu_source_multi "${BU_USER_DEFINED_DYNAMIC_POST_ENTRYPOINT_CALLBACKS[@]}"
 }
 
@@ -146,6 +164,7 @@ __bu_parse_module_list()
     local -A seen_names=()
     local -A seen_paths=()
     local deduped=
+    BU_MODULE_PREINIT_MAP=()
 
     for entry in "${entries[@]}"
     do
@@ -171,6 +190,7 @@ __bu_parse_module_list()
         if [[ -n "$path" && -z "${seen_paths[$path]:-}" ]]; then
             seen_paths[$path]=1
             BU_USER_DEFINED_STATIC_PRE_INIT_ENTRYPOINT_CALLBACKS+=("$path")
+            BU_MODULE_PREINIT_MAP[$path]=$name
         fi
     done
 

@@ -94,6 +94,19 @@ fi
 # Populated by __bu_parse_module_list from BU_MODULE_LIST. Inspected by bu get-module.
 # ```
 declare -A -g BU_MODULE_REGISTRY=()
+# Reverse map: preinit_path → module name, built by __bu_parse_module_list.
+# Used by bu_source_user_defined_pre_init_callbacks to expose BU_CURRENT_MODULE.
+declare -A -g BU_MODULE_PREINIT_MAP=()
+# Transient owning-module name while a module preinit callback is sourced.
+# Set/cleared by bu_source_user_defined_pre_init_callbacks; registrations that
+# run inside the callback inherit it as their provenance.
+declare -g BU_CURRENT_MODULE=
+# Command-search directory → owning module name, stamped when a module preinit
+# registers a subcommand dir. The command scanner copies it onto each command.
+declare -A -g BU_COMMAND_SEARCH_DIR_MODULE=()
+# Optional presentation alias: module name → short display label (dropdown tag).
+# Registry keys always use the full module name.
+declare -A -g BU_MODULE_DISPLAY_NAMES=()
 # Exportable scalar version of the registry for subshell inspection
 # Format: "name:version:path;name:version:path;..."
 export BU_MODULE_LIST=${BU_MODULE_LIST:-}

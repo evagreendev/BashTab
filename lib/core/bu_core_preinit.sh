@@ -107,6 +107,10 @@ bu_preinit_register_user_defined_subcommand_dir()
     fi
 
     BU_COMMAND_SEARCH_DIRS[$dir]=$convert_file_to_command
+    if [[ -n "${BU_CURRENT_MODULE:-}" ]]
+    then
+        BU_COMMAND_SEARCH_DIR_MODULE[$dir]=$BU_CURRENT_MODULE
+    fi
 }
 
 # ```
@@ -160,6 +164,11 @@ bu_preinit_register_user_defined_subcommand_file()
     fi
 
     BU_COMMANDS[$command]=$file
+
+    if [[ -n "${BU_CURRENT_MODULE:-}" ]]
+    then
+        BU_COMMAND_PROPERTIES[$command,module]=$BU_CURRENT_MODULE
+    fi
 
     if [[ -n "$type" ]]
     then
@@ -221,6 +230,11 @@ bu_preinit_register_user_defined_subcommand_function()
     fi
 
     BU_COMMANDS[$command]=$fn
+
+    if [[ -n "${BU_CURRENT_MODULE:-}" ]]
+    then
+        BU_COMMAND_PROPERTIES[$command,module]=$BU_CURRENT_MODULE
+    fi
 
     if [[ -n "$type" ]]
     then
@@ -486,6 +500,10 @@ bu_preinit_register_new_alias()
     local alias_spec=$*
     BU_COMMANDS[$alias_name]="$alias_spec"
     BU_COMMAND_PROPERTIES[$alias_name,type]=alias
+    if [[ -n "${BU_CURRENT_MODULE:-}" ]]
+    then
+        BU_COMMAND_PROPERTIES[$alias_name,module]=$BU_CURRENT_MODULE
+    fi
     if [[ -n "$synopsis" ]]
     then
         BU_COMMAND_PROPERTIES[$alias_name,synopsis]=$synopsis
