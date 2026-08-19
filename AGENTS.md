@@ -14,10 +14,25 @@ BashTab is a Bash scripting framework providing intelligent autocompletion, argu
 # Initialize test submodules (first time only)
 git submodule update --init
 
-# Run tests with parallel execution
 source ./activate -t
-bats --jobs "$((($(nproc) + 1) / 2))" ./test/test.bats
 ```
+
+Do **not** run the full test suite locally — it takes extremely long on a
+normal machine (anything less than ~64-way parallelism is impractical).
+Leave full-suite runs to CI.
+
+Even a single `.bats` file can be very slow, so **handpick individual test
+cases** with `--filter` instead of running a whole file:
+
+```bash
+# One test function
+bats --filter 'test_bu_query_object_grep_regex_any_field' ./test/out_test.bats
+
+# A few related tests by regex
+bats --filter 'grep|query_object' ./test/out_test.bats
+```
+
+Only test what your change touches.
 
 ### Development Environment
 
