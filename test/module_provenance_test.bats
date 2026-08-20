@@ -164,6 +164,7 @@ function test_namespace_row_metadata_count_and_nospace { #@test
         COMPREPLY=(); COMP_CWORD=1; COMP_WORDS=(bu ":"); COMP_LINE="bu :"
         BU_AUTOCOMPLETE_ACCEPT_ANSI_COLORS=true
         BU_COMPOPT_CURRENT_COMPLETION_OPTIONS=()
+        BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS=()
         __bu_autocomplete_completion_func_cli "$BU_CLI_COMMAND_NAME" ":" ""
         strip() { sed -r "s/\x1B\[[0-9;]*[mGK]//g; s/\x1B\(B//g"; }
         for i in "${!COMPREPLY[@]}"
@@ -171,7 +172,7 @@ function test_namespace_row_metadata_count_and_nospace { #@test
             c=$(printf "%s" "${COMPREPLY[i]}" | strip)
             [[ "$c" == :moda: ]] && echo "MODA_META=$(printf "%s" "${BU_COMPREPLY_METADATA[i]}" | strip)"
         done
-        echo "NOSPACE=${BU_COMPOPT_CURRENT_COMPLETION_OPTIONS[nospace]:-EMPTY}"
+        echo "NOSPACE=${BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS[nospace]:-EMPTY}"
     ' _ "$pre_a" "$pre_b" "$DIR"/..
     assert_success
     assert_line "MODA_META=namespace (1 command)"
@@ -189,6 +190,7 @@ function test_scoped_rows_resolve_type_module_no_nospace { #@test
         COMPREPLY=(); COMP_CWORD=1; COMP_WORDS=(bu ":moda:"); COMP_LINE="bu :moda:"
         BU_AUTOCOMPLETE_ACCEPT_ANSI_COLORS=true
         BU_COMPOPT_CURRENT_COMPLETION_OPTIONS=()
+        BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS=()
         __bu_autocomplete_completion_func_cli "$BU_CLI_COMMAND_NAME" ":moda:" ""
         strip() { sed -r "s/\x1B\[[0-9;]*[mGK]//g; s/\x1B\(B//g"; }
         for i in "${!COMPREPLY[@]}"
@@ -196,7 +198,7 @@ function test_scoped_rows_resolve_type_module_no_nospace { #@test
             c=$(printf "%s" "${COMPREPLY[i]}" | strip)
             [[ "$c" == :moda:get-alpha-thing ]] && echo "ROW_META=$(printf "%s" "${BU_COMPREPLY_METADATA[i]}" | strip)"
         done
-        echo "NOSPACE=${BU_COMPOPT_CURRENT_COMPLETION_OPTIONS[nospace]:-EMPTY}"
+        echo "NOSPACE=${BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS[nospace]:-EMPTY}"
     ' _ "$pre_a" "$pre_b" "$DIR"/..
     assert_success
     assert_line "ROW_META=execute [moda]"

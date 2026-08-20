@@ -54,10 +54,11 @@ _fzf_format() {
 # the final command line in $BU_RET.
 # $1: command prefix (e.g. "docker")
 # $2: completion to select (e.g. "images")
-# $3: is_nospace flag (true/false)
+# $3: is_nospace flag (true/false) — static compspec nospace
 # $4: is_filenames flag (true/false)
+# $5: is_dynamic_nospace flag (true/false) — compopt -o nospace during completion
 _simulate_selection() {
-    local cmd=$1 target=$2 is_nospace=$3 is_filenames=$4
+    local cmd=$1 target=$2 is_nospace=$3 is_filenames=$4 is_dynamic_nospace=${5:-false}
     local D=$'\x01'
 
     # Format for fzf
@@ -85,7 +86,8 @@ _simulate_selection() {
     local cmd_back=""
 
     # Space-adding logic (exactly from production)
-    if ! { "$is_filenames" && [[ "${rl:${#rl}-1}" = / ]]; } && \
+    if ! "$is_dynamic_nospace" && \
+       ! { "$is_filenames" && [[ "${rl:${#rl}-1}" = / ]]; } && \
        ! { "$is_nospace" && [[ "${rl:${#rl}-1}" = [/=:@] ]]; } && \
        [[ "${rl:${#rl}-1}" != ' ' && "${cmd_back:0:1}" != ' ' ]]
     then
@@ -94,6 +96,26 @@ _simulate_selection() {
 
     BU_RET="$rl"
     return 0
+}
+
+# Contract: __bu_autocomplete_quote_prefix splits a typed opening quote off the
+# word so fzf can query/insert without it, and reports it for re-attachment.
+function test_quote_prefix_contract { #@test
+    __bu_autocomplete_quote_prefix "'so"
+    assert_equal "${BU_RET[0]}" "'"
+    assert_equal "${BU_RET[1]}" "so"
+
+    __bu_autocomplete_quote_prefix '"so'
+    assert_equal "${BU_RET[0]}" '"'
+    assert_equal "${BU_RET[1]}" "so"
+
+    __bu_autocomplete_quote_prefix "so"
+    assert_equal "${BU_RET[0]}" ""
+    assert_equal "${BU_RET[1]}" "so"
+
+    __bu_autocomplete_quote_prefix ""
+    assert_equal "${BU_RET[0]}" ""
+    assert_equal "${BU_RET[1]}" ""
 }
 
 # Verify: completion part is clean (no trailing spaces, no metadata leaked)
@@ -169,6 +191,23 @@ function test_nospace_respected_for_option_equal { #@test
     _simulate_selection cmd --format= true false
     # --format= ends with = and nospace=true → no space
     assert_equal "$BU_RET" "cmd --format="
+}
+
+# Contract: compopt -o nospace issued DURING a completion lands in the dynamic
+# map and is honored unconditionally at insertion (even for a plain subcommand
+# that would otherwise get a trailing space).
+function test_dynamic_nospace_contract { #@test
+    BU_COMPOPT_CURRENT_COMPLETION_OPTIONS=()
+    BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS=()
+    compopt -o nospace 2>/dev/null || true
+    assert_equal "${BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS[nospace]}" "-o"
+    assert_equal "${BU_COMPOPT_CURRENT_COMPLETION_OPTIONS[nospace]:-}" ""
+
+    COMPREPLY=(images ps run)
+    BU_COMPREPLY_METADATA=("List images" "List containers" "Run a command")
+    _simulate_selection docker images false false true
+    # dynamic nospace → no trailing space, even though 'images' has no suffix
+    assert_equal "$BU_RET" "docker images"
 }
 
 function test_space_added_for_short_subcommand_ps { #@test

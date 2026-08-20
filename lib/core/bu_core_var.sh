@@ -123,6 +123,14 @@ declare -g __bu_g_shift_by=0
 declare -A -g BU_COMPOPT_CURRENT_COMPLETION_OPTIONS=()
 
 # ```
+# Dynamic compopt options set DURING a completion via the compopt wrapper.
+# Kept separate from BU_COMPOPT_CURRENT_COMPLETION_OPTIONS (the static
+# compspec) so dynamic nospace can be honored unconditionally at insertion,
+# while static nospace keeps the suffix heuristic.
+# ```
+declare -A -g BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS=()
+
+# ```
 # Whether the current compopt builtin is overridden by a custom func
 # ```
 declare -g BU_COMPOPT_IS_CUSTOM=false

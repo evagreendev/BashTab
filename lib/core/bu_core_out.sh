@@ -703,11 +703,16 @@ __bu_glob_to_regex()
 # - `$1`: Field name (e.g. `type`, `name` — no leading dot)
 # - `$2`: Operator: one of -eq -ne -gt -lt -ge -le -like -notlike -match
 #         -notmatch -contains -notcontains -in -notin -isnull -isnotnull
-# - `$3`: Value (empty for -isnull / -isnotnull)
+# - `$3`: Value (empty for -isnull / -isnotnull). For -in / -notin this is a
+#         comma-separated list: each element is literalized independently
+#         (numbers/booleans/null keep their type, strings are quoted) and the
+#         comparison becomes a jq `IN(...)` set-membership test. A value that
+#         contains a literal comma cannot be expressed this way — use the raw
+#         jq syntax instead.
 #
 # *Returns*:
 # - stdout: jq boolean expression, e.g. `.type == "source"`
-# - exit 0 on success, 1 if operator is unknown
+# - exit 0 on success, 1 if operator is unknown or the -in/-notin list is empty
 #
 # *Examples*:
 # ```bash
@@ -716,6 +721,8 @@ __bu_glob_to_regex()
 # __bu_query_object_translate_op name -like command    # .name | test("^.*command.*$") (no wildcard => substring)
 # __bu_query_object_translate_op name -match "^get-"   # .name | test("^get-")
 # __bu_query_object_translate_op verb -isnull           # .verb == null
+# __bu_query_object_translate_op type -in source,alias # .type | IN("source","alias")
+# __bu_query_object_translate_op type -notin source,alias # .type | IN("source","alias") | not
 # ```
 # ```
 __bu_query_object_translate_op()
@@ -767,13 +774,40 @@ __bu_query_object_translate_op()
         local val_lit; val_lit=$(__bu_jq_literal "$val")
         jq_expr=".$field | index($val_lit) == null"
         ;;
-    -in)
-        local val_lit; val_lit=$(__bu_jq_literal "$val")
-        jq_expr=".$field == $val_lit"
-        ;;
-    -notin)
-        local val_lit; val_lit=$(__bu_jq_literal "$val")
-        jq_expr=".$field != $val_lit"
+    -in|-notin)
+        # PowerShell-flavored -in/-notin: the RHS is a comma-separated list
+        # (set membership), not a scalar. Split on commas without glob
+        # expansion, literalize each element independently (numbers, booleans,
+        # and null keep their types; strings get quoted), and emit a jq
+        # `IN(...)` membership test. A single element degenerates to a
+        # one-element IN(...). Empty elements (leading/trailing/doubled
+        # commas) are dropped.
+        local -a elems=()
+        local elem
+        local item_lit
+        local items=
+        IFS=',' read -r -a elems <<< "$val"
+        for elem in "${elems[@]}"
+        do
+            [[ -z "$elem" ]] && continue
+            item_lit=$(__bu_jq_literal "$elem")
+            if [[ -z "$items" ]]
+            then
+                items=$item_lit
+            else
+                items+=",$item_lit"
+            fi
+        done
+        if [[ -z "$items" ]]
+        then
+            bu_log_err "Empty -in/-notin value[$val] for __bu_query_object_translate_op"
+            return 1
+        fi
+        jq_expr=".$field | IN($items)"
+        if [[ "$op" == -notin ]]
+        then
+            jq_expr+=" | not"
+        fi
         ;;
     -isnull)    jq_expr=".$field == null" ;;
     -isnotnull) jq_expr=".$field != null" ;;

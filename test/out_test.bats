@@ -894,6 +894,67 @@ function test_query_object_translate_op_like_substring { #@test
 }
 
 # ===========================================================================
+# -in / -notin (set membership against a comma-separated list)
+# ===========================================================================
+
+function test_query_object_translate_op_in_notin { #@test
+    local out
+    out=$(__bu_query_object_translate_op type -in source,alias)
+    assert_equal "$out" '.type | IN("source","alias")'
+    out=$(__bu_query_object_translate_op type -notin source,alias)
+    assert_equal "$out" '.type | IN("source","alias") | not'
+    out=$(__bu_query_object_translate_op type -in source)
+    assert_equal "$out" '.type | IN("source")'
+    out=$(__bu_query_object_translate_op count -in 1,2,null)
+    assert_equal "$out" '.count | IN(1,2,null)'
+    out=$(__bu_query_object_translate_op type -in 'source,,alias,')
+    assert_equal "$out" '.type | IN("source","alias")'
+    run __bu_query_object_translate_op type -in ''
+    assert_failure
+    run __bu_query_object_translate_op type -in ','
+    assert_failure
+}
+
+function test_query_object_in_membership { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"a","type":"source"}' '{"name":"b","type":"alias"}' '{"name":"c","type":"function"}' \
+        | bu query-object where type -in source,alias select name)
+    assert_equal "$out" '{"name":"a"}
+{"name":"b"}'
+}
+
+function test_query_object_notin_complement { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"a","type":"source"}' '{"name":"b","type":"alias"}' '{"name":"c","type":"function"}' \
+        | bu query-object where type -notin source,alias select name)
+    assert_equal "$out" '{"name":"c"}'
+}
+
+function test_where_object_in_membership { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"a","type":"source"}' '{"name":"b","type":"alias"}' '{"name":"c","type":"function"}' \
+        | bu where-object type -in source,alias)
+    assert_equal "$out" '{"name":"a","type":"source"}
+{"name":"b","type":"alias"}'
+}
+
+function test_in_numeric_membership_end_to_end { #@test
+    local out
+    out=$(printf '%s\n' '{"count":1}' '{"count":2}' '{"count":3}' '{"count":null}' \
+        | bu query-object where count -in 1,2,null select count)
+    assert_equal "$out" '{"count":1}
+{"count":2}
+{"count":null}'
+}
+
+function test_in_chains_with_and_or { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"a","type":"source"}' '{"name":"b","type":"alias"}' '{"name":"c","type":"function"}' \
+        | bu query-object where type -in source,alias and name -eq a select name)
+    assert_equal "$out" '{"name":"a"}'
+}
+
+# ===========================================================================
 # grep (search a pattern across any field value)
 # ===========================================================================
 

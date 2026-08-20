@@ -107,6 +107,7 @@ bu_autocomplete_initialize_current_completion_options()
     # shellcheck disable=SC2046
     __bu_autocomplete_collect_compopt $(compopt "$completion_command" 2>/dev/null)
     bu_copy_associative_array completion_options BU_COMPOPT_CURRENT_COMPLETION_OPTIONS
+    BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS=()
     # bu_print_var BU_COMPOPT_CURRENT_COMPLETION_OPTIONS 
 }
 
@@ -123,7 +124,7 @@ bu_autocomplete_def_compopt()
 
         if ! "$has_name"
         then
-            bu_insert_associative_array completion_options BU_COMPOPT_CURRENT_COMPLETION_OPTIONS
+            bu_insert_associative_array completion_options BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS
         fi
 
         builtin compopt "$@"
@@ -137,6 +138,33 @@ bu_autocomplete_undef_compopt()
 }
 
 bu_autocomplete_def_compopt
+
+# ```
+# *Description*:
+# Split a leading quote (single or double) off a word being completed, so the
+# completion machinery can match and display candidates without the quote, then
+# re-attach it at insertion time.  Candidates cannot carry the opening quote
+# through `compgen -W`, and a leading `'` would otherwise be misread by fzf as
+# an extended-search operator when seeding --query.
+#
+# *Params*:
+# - `$1`: The word being completed (e.g. `'so`, `"so`, or `so`)
+#
+# *Returns*:
+# - `${BU_RET[0]}`: The quote prefix (`'`, `"`, or empty)
+# - `${BU_RET[1]}`: The dequoted remainder
+# ```
+__bu_autocomplete_quote_prefix()
+{
+    local word=$1
+    local prefix=
+    local rest=$word
+    case "$word" in
+    \'*) prefix="'"; rest=${word#\'} ;;
+    \"*) prefix='"'; rest=${word#\"} ;;
+    esac
+    BU_RET=("$prefix" "$rest")
+}
 
 # MARK: Parsers
 __BU_AUTOCOMPLETE_WORKING_DIRECTORY=.
@@ -409,8 +437,53 @@ EOF
         if ( $0 ~ /^[[:space:]]*# ?.*/ ) {
             state = in_documentation
         } else {
-            state = post_documentation
+            # Close the docs string, then re-check this line against the two
+            # option-arm patterns before dropping to post_documentation.
+            # Single-line arms (e.g. `alpha) a=true;;`) put the next arm on
+            # the line that terminates the previous arm doc scan; this
+            # re-check exists so a cleanup does not silently swallow every
+            # other single-line arm.
             printf "\"\n"
+
+            if ( /^[[:space:]]*'"$__BU_AUTOCOMPLETE_OPTION_REGEX"'\|\\/ ) {
+                if (debug_print) {
+                    printf "# 8: %s\n", NR
+                }
+                # Multi-line alternatives group directly after a single-line
+                # arm: open a new options row.
+                gsub( /\|\\/, "", line )
+                gsub(/^[[:space:]]*/, "", line)
+                idx = idx + 1
+                state = in_alternatives
+                printf "bu_script_options[%d]=\"%s\n", idx, esc(line)
+                next
+            }
+
+            if ( /^[[:space:]]*'"$__BU_AUTOCOMPLETE_OPTION_REGEX"'\)/ ) {
+                if (debug_print) {
+                    printf "# 9: %s\n", NR
+                }
+                # Next single-line arm: emit its option row exactly like the
+                # primary arm-close matcher outside branch, and stay in
+                # pre_documentation so a chain of consecutive single-line arms
+                # is all caught.
+                gsub( /\).*/, "", line )
+                gsub(/^[[:space:]]*/, "", line)
+                idx = idx + 1
+                printf "bu_script_options[%d]=\"%s\"\n", idx, esc(line)
+
+                option_parameter_description = $0
+                if (! sub(/.*\) *# */, "", option_parameter_description)) {
+                    option_parameter_description = ""
+                }
+                printf "bu_script_option_synopsis[%d]=\"%s\"\n", idx, esc(option_parameter_description)
+
+                printf "bu_script_option_docs[%d]=\"", idx, line
+                state = pre_documentation
+                next
+            }
+
+            state = post_documentation
         }
     }
 
@@ -630,8 +703,53 @@ EOF
         if ( $0 ~ /^[[:space:]]*# ?.*/ ) {
             state = in_documentation
         } else {
-            state = post_documentation
+            # Close the docs string, then re-check this line against the two
+            # option-arm patterns before dropping to post_documentation.
+            # Single-line arms (e.g. `alpha) a=true;;`) put the next arm on
+            # the line that terminates the previous arm doc scan; this
+            # re-check exists so a cleanup does not silently swallow every
+            # other single-line arm.
             printf "\"\n"
+
+            if ( /^[[:space:]]*'"$__BU_AUTOCOMPLETE_OPTION_REGEX"'\|\\/ ) {
+                if (debug_print) {
+                    printf "# 8: %s\n", NR
+                }
+                # Multi-line alternatives group directly after a single-line
+                # arm: open a new options row.
+                gsub( /\|\\/, "", line )
+                gsub(/^[[:space:]]*/, "", line)
+                idx = idx + 1
+                state = in_alternatives
+                printf "bu_script_options[%d]=\"%s\n", idx, esc(line)
+                next
+            }
+
+            if ( /^[[:space:]]*'"$__BU_AUTOCOMPLETE_OPTION_REGEX"'\)/ ) {
+                if (debug_print) {
+                    printf "# 9: %s\n", NR
+                }
+                # Next single-line arm: emit its option row exactly like the
+                # primary arm-close matcher outside branch, and stay in
+                # pre_documentation so a chain of consecutive single-line arms
+                # is all caught.
+                gsub( /\).*/, "", line )
+                gsub(/^[[:space:]]*/, "", line)
+                idx = idx + 1
+                printf "bu_script_options[%d]=\"%s\"\n", idx, esc(line)
+
+                option_parameter_description = $0
+                if (! sub(/.*\) *# */, "", option_parameter_description)) {
+                    option_parameter_description = ""
+                }
+                printf "bu_script_option_synopsis[%d]=\"%s\"\n", idx, esc(option_parameter_description)
+
+                printf "bu_script_option_docs[%d]=\"", idx, line
+                state = pre_documentation
+                next
+            }
+
+            state = post_documentation
         }
     }
 
@@ -1990,11 +2108,11 @@ __bu_autocomplete_completion_func_master_impl()
     local is_filenames=false
     if ((${#command_line[@]} > 1))
     then
-        if [[ "${BU_COMPOPT_CURRENT_COMPLETION_OPTIONS[nospace]}" = -o ]]
+        if [[ "${BU_COMPOPT_CURRENT_COMPLETION_OPTIONS[nospace]}" = -o || "${BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS[nospace]}" = -o ]]
         then
             is_nospace=true
         fi
-        if [[ "${BU_COMPOPT_CURRENT_COMPLETION_OPTIONS[filenames]}" = -o ]]
+        if [[ "${BU_COMPOPT_CURRENT_COMPLETION_OPTIONS[filenames]}" = -o || "${BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS[filenames]}" = -o ]]
         then
             is_filenames=true
         fi
@@ -3150,7 +3268,9 @@ __bu_bind_fzf_autocomplete_impl()
         bu_autocomplete_initialize_current_completion_options "${command_line[0]}"
     else
         BU_COMPOPT_CURRENT_COMPLETION_OPTIONS=()
+        BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS=()
     fi
+
     BU_RET_MAP=()
     local BU_COMPREPLY_HINT=
     # "Type info"
@@ -3178,6 +3298,7 @@ __bu_bind_fzf_autocomplete_impl()
     local completion_func_has_ansi_colors=${BU_RET_MAP[has_ansi_colors]:-false}
     # bu_print_var BU_COMPOPT_CURRENT_COMPLETION_OPTIONS > /dev/tty
     local is_nospace=false
+    local is_dynamic_nospace=false
     local is_filenames=false
     if ((${#command_line[@]} > 1))
     then
@@ -3185,7 +3306,11 @@ __bu_bind_fzf_autocomplete_impl()
         then
             is_nospace=true
         fi
-        if [[ "${BU_COMPOPT_CURRENT_COMPLETION_OPTIONS[filenames]}" = -o ]]
+        if [[ "${BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS[nospace]}" = -o ]]
+        then
+            is_dynamic_nospace=true
+        fi
+        if [[ "${BU_COMPOPT_CURRENT_COMPLETION_OPTIONS[filenames]}" = -o || "${BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS[filenames]}" = -o ]]
         then
             is_filenames=true
         fi
@@ -3293,7 +3418,16 @@ __bu_bind_fzf_autocomplete_impl()
     local left_pos=${BU_RET[0]}
     local right_margin=${BU_RET[1]}
     local box_length=${BU_RET[2]}
-    
+
+    # Preserve a typed opening quote across whole-word replacement: candidates
+    # can't carry the quote through compgen -W, and fzf misreads a leading `'`
+    # as an extended-search operator. Strip it for --query, re-attach on insert.
+    local quote_prefix=
+    local query_word=${command_line[-1]}
+    __bu_autocomplete_quote_prefix "$query_word"
+    quote_prefix=${BU_RET[0]}
+    query_word=${BU_RET[1]}
+
     local fzf_opts=(
         --exit-0
         --select-1
@@ -3304,7 +3438,7 @@ __bu_bind_fzf_autocomplete_impl()
         --no-sort
         --sync
         --margin "0,$right_margin,0,$left_pos"
-        --query "${command_line[-1]}"
+        --query "$query_word"
     )
 
     if [[ -n "$BU_COMPREPLY_HINT" ]]
@@ -3464,7 +3598,7 @@ __bu_bind_fzf_autocomplete_impl()
         # So we use these temporary variables, and set READLINE_LINE, READLINE_POINT in one shot at the end
         local readline_line
         local readline_point
-        command_line[-1]=$selected_command
+        command_line[-1]="${quote_prefix}${selected_command}"
         readline_line=${command_line[*]}
         # Remove the last word of command_line_back
         command_line_back=${command_line_back:${#command_line_back_no_operator}}
@@ -3472,10 +3606,14 @@ __bu_bind_fzf_autocomplete_impl()
         command_line_back=${command_line_back# }
         
         # If we are expecting filenames, then if the file is a directory, we're not done, so don't append a space.
-        # If nospace is enabled, respect it only when the completed word looks like
-        # it needs a suffix (directory /, option =, namespace :, etc.) — not for
-        # subcommands that just happen to have nospace set by their completion spec.
-        if ! { "$is_filenames" && [[ "${readline_line:${#readline_line}-1}" = / ]]; } && \
+        # Dynamic nospace (compopt -o nospace issued DURING the completion) is
+        # honored unconditionally — the completion function asked for no space.
+        # Static spec nospace keeps the suffix heuristic: respect it only when
+        # the completed word looks like it needs a suffix (directory /, option
+        # =, namespace :, etc.) — not for subcommands that just happen to have
+        # nospace set by their completion spec.
+        if ! "$is_dynamic_nospace" && \
+           ! { "$is_filenames" && [[ "${readline_line:${#readline_line}-1}" = / ]]; } && \
            ! { "$is_nospace" && [[ "${readline_line:${#readline_line}-1}" = [/=:@] ]]; } && \
            [[ "${readline_line:${#readline_line}-1}" != ' ' && "${command_line_back:0:1}" != ' ' ]]
         then
@@ -3668,6 +3806,7 @@ __bu_bind_fzf_autocomplete_impl_ts()
             bu_autocomplete_initialize_current_completion_options "${command_line[0]}"
         else
             BU_COMPOPT_CURRENT_COMPLETION_OPTIONS=()
+            BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS=()
         fi
         bu_autocomplete_get_autocompletions --accept-ansi-colors "${command_line[@]}"
         is_ansi=${BU_RET_MAP[has_ansi_colors]:-false}
@@ -3680,10 +3819,12 @@ __bu_bind_fzf_autocomplete_impl_ts()
     fi
 
     local is_nospace=false
+    local is_dynamic_nospace=false
     local is_filenames=false
     if ((${#command_line[@]} > 1)); then
         [[ "${BU_COMPOPT_CURRENT_COMPLETION_OPTIONS[nospace]}" = -o ]] && is_nospace=true
-        [[ "${BU_COMPOPT_CURRENT_COMPLETION_OPTIONS[filenames]}" = -o ]] && is_filenames=true
+        [[ "${BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS[nospace]}" = -o ]] && is_dynamic_nospace=true
+        [[ "${BU_COMPOPT_CURRENT_COMPLETION_OPTIONS[filenames]}" = -o || "${BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS[filenames]}" = -o ]] && is_filenames=true
     fi
 
     # --- Enrich preview from external command --help / fig specs (TS path) ---
@@ -3753,7 +3894,16 @@ __bu_bind_fzf_autocomplete_impl_ts()
     local box_length=${BU_RET[2]}
 
     fzf_opts+=(--margin "0,$right_margin,0,$left_pos")
-    fzf_opts+=(--query "${BU_TS_RESULT[cursor,replaceText]}")
+
+    # Preserve a typed opening quote across whole-word replacement (same as the
+    # non-TS path): candidates can't carry the quote through compgen -W, and a
+    # leading `'` would be misread by fzf as an extended-search operator.
+    local quote_prefix=
+    local query_word=${BU_TS_RESULT[cursor,replaceText]}
+    __bu_autocomplete_quote_prefix "$query_word"
+    quote_prefix=${BU_RET[0]}
+    query_word=${BU_RET[1]}
+    fzf_opts+=(--query "$query_word")
 
     if [[ -n "$BU_COMPREPLY_HINT" ]]; then
         fzf_opts+=(--header "Hint: $BU_COMPREPLY_HINT")
@@ -3845,7 +3995,7 @@ __bu_bind_fzf_autocomplete_impl_ts()
             readline_point=${#readline_line}
         else
             # --- Whole-word replacement (traditional) ---
-            command_line[-1]=$selected_command
+            command_line[-1]="${quote_prefix}${selected_command}"
             readline_line=${command_line[*]}
             # Remove the last word of command_line_back
             local back_no_op=${command_line_back%%[[:space:]]*}
@@ -3855,7 +4005,8 @@ __bu_bind_fzf_autocomplete_impl_ts()
             back_no_op=${back_no_op%%|*}
             command_line_back=${command_line_back:${#back_no_op}}
             command_line_back=${command_line_back# }
-            if ! { "$is_filenames" && [[ "${readline_line:${#readline_line}-1}" = / ]]; } && \
+            if ! "$is_dynamic_nospace" && \
+               ! { "$is_filenames" && [[ "${readline_line:${#readline_line}-1}" = / ]]; } && \
                ! { "$is_nospace" && [[ "${readline_line:${#readline_line}-1}" = [/=:@] ]]; } && \
                [[ "${readline_line:${#readline_line}-1}" != ' ' && "${command_line_back:0:1}" != ' ' ]]; then
                 readline_line+=' '

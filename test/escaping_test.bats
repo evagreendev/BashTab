@@ -33,6 +33,57 @@ __parse_docs() {
 # Tests
 # ===========================================================================
 
+function test_single_line_case_arms_both_parsers { #@test
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    trap 'rm -rf "$tmpdir"' EXIT
+    cat > "$tmpdir/demo.sh" <<'SCRIPT'
+case "$1" in
+alpha-one) a=true;;
+beta-two) b=true;;
+gamma-three) c=true;;
+delta-four) d=true;;
+epsilon-five) e=true;;
+esac
+SCRIPT
+    # shellcheck disable=SC2034
+    local -a bu_script_options=() bu_script_option_synopsis=() bu_script_option_docs=()
+    eval "$(bu_autocomplete_parse_case_block_options_v2 "$tmpdir/demo.sh" "" "" "")"
+    assert_equal "${bu_script_options[*]}" "alpha-one beta-two gamma-three delta-four epsilon-five"
+
+    bu_script_options=()
+    bu_script_option_synopsis=()
+    bu_script_option_docs=()
+    eval "$(bu_autohelp_parse_case_block_help "$tmpdir/demo.sh" "" "" "")"
+    assert_equal "${bu_script_options[*]}" "alpha-one beta-two gamma-three delta-four epsilon-five"
+}
+
+function test_single_line_then_alternatives_group { #@test
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    trap 'rm -rf "$tmpdir"' EXIT
+    cat > "$tmpdir/demo.sh" <<'SCRIPT'
+case "$1" in
+alpha-one) a=true;;
+beta-two|\
+    beta-three|\
+    beta-four) b=true;;
+gamma-three) c=true;;
+esac
+SCRIPT
+    local parser
+    for parser in bu_autocomplete_parse_case_block_options_v2 bu_autohelp_parse_case_block_help
+    do
+        # shellcheck disable=SC2034
+        local -a bu_script_options=() bu_script_option_synopsis=() bu_script_option_docs=()
+        eval "$("$parser" "$tmpdir/demo.sh" "" "" "")"
+        assert_equal "${#bu_script_options[@]}" 3
+        assert_equal "${bu_script_options[0]}" "alpha-one"
+        assert_equal "${bu_script_options[1]}" $'beta-two\nbeta-three\nbeta-four'
+        assert_equal "${bu_script_options[2]}" "gamma-three"
+    done
+}
+
 function test_escaping_backticks_verbatim { #@test
     local tmpdir
     tmpdir=$(mktemp -d)

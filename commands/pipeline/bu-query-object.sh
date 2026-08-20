@@ -516,7 +516,7 @@ order: WHERE -> GROUP BY -> HAVING -> SELECT -> ORDER BY -> FIRST.
               -like -notlike            glob pattern matching (* and ?); no wildcard implies *pattern* (substring)
               -match -notmatch          regex matching (RLIKE)
               -contains -notcontains    array contains value
-              -in -notin                value in field
+              -in -notin                value in comma-separated list
               -isnull -isnotnull        null checks
             Chain conditions with `and`/`or` inside a single where:
               where type -eq source and name -like get-*
@@ -551,7 +551,7 @@ Output ends at Out-Default: a table on a terminal, JSONL when piped.
         --example "Regex matching (RLIKE)" "where name -match '^get-' select name,verb" \
         --example "Multiple conditions (ANDed)" "where type -eq source where verb -ne help" \
         --example "And/or in one where" "where type -eq source and name -like get-*" \
-        --example "Or condition" "where type -eq source or type -eq alias" \
+        --example "Membership (comma-separated list)" "where type -in source,alias select name" \
         --example "Null check" "where version -isnotnull select name,version" \
         --example "Grep any field (regex)" "grep '^get-' select name,verb" \
         --example "Grep any field (glob/substring)" "grep -like command select name" \
