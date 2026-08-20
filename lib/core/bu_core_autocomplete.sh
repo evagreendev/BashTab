@@ -2135,6 +2135,7 @@ __bu_autocomplete_completion_func_cli()
     COMPREPLY=()
     if ((COMP_CWORD == 1))
     then
+        local _completion_kind=command
         if [[ "$cur_word" == :* ]]
         then
             # Namespace-qualified command syntax: :<ns>:<verb-noun>
@@ -2145,6 +2146,7 @@ __bu_autocomplete_completion_func_cli()
             if [[ "$ns_part" == *:* ]]
             then
                 # Namespace specified: complete commands within it
+                _completion_kind=scoped-command
                 local ns_name=${ns_part%%:*}
                 local ns_prefix=":$ns_name:"
                 local cmd_prefix=${ns_part#$ns_name:}
@@ -2166,6 +2168,7 @@ __bu_autocomplete_completion_func_cli()
                 fi
             else
                 # No namespace yet: complete namespace names
+                _completion_kind=namespace-list
                 local -a namespaces=()
                 local ns
                 for ns in "${!BU_COMMAND_NAMESPACES[@]}"
@@ -2174,6 +2177,9 @@ __bu_autocomplete_completion_func_cli()
                     namespaces+=(":$ns:")
                 done
                 bu_compgen -W "${namespaces[*]}" -- "$cur_word"
+                # Accepting a bare :ns: must NOT add a trailing space — the
+                # user continues typing the command part.
+                compopt -o nospace
             fi
         else
             bu_compgen -W "${!BU_COMMANDS[*]}" -- "$cur_word"
@@ -2192,11 +2198,42 @@ __bu_autocomplete_completion_func_cli()
             fi
             for (( i = 0; i < ${#COMPREPLY[@]}; i++ ))
             do
-                __bu_cli_command_type "${COMPREPLY[i]}"
+                # Namespace rows are not registry keys — purpose-built
+                # metadata (live command count), never a type probe.
+                if [[ "$_completion_kind" == namespace-list ]]
+                then
+                    local _ns_name=${COMPREPLY[i]#:}
+                    _ns_name=${_ns_name%:}
+                    local _ns_count=0
+                    local _c
+                    for _c in "${!BU_COMMANDS[@]}"
+                    do
+                        [[ "${BU_COMMAND_PROPERTIES[$_c,namespace]:-}" == "$_ns_name" ]] && : $((_ns_count++))
+                    done
+                    local _ns_label=commands
+                    if (( _ns_count == 1 ))
+                    then
+                        _ns_label=command
+                    fi
+                    BU_COMPREPLY_METADATA[i]="${BU_TPUT_VSCODE_DARK_GREEN}namespace${BU_TPUT_RESET} (${_ns_count} ${_ns_label})"
+                    COMPREPLY[i]=${BU_TPUT_VSCODE_PINK}${COMPREPLY[i]}${BU_TPUT_RESET}
+                    continue
+                fi
+
+                # Scoped rows are ":ns:cmd" — strip the qualifier before any
+                # registry lookup (the display string is not a registry key).
+                local _lookup=${COMPREPLY[i]}
+                if [[ "$_completion_kind" == scoped-command ]]
+                then
+                    _lookup=${_lookup#*:}
+                    _lookup=${_lookup#*:}
+                fi
+
+                __bu_cli_command_type "$_lookup"
                 BU_COMPREPLY_METADATA[i]="${BU_TPUT_GREY}$BU_RET${BU_TPUT_RESET}"
                 if "$_show_module_tag"
                 then
-                    local _mod=${BU_COMMAND_PROPERTIES[${COMPREPLY[i]},module]:-}
+                    local _mod=${BU_COMMAND_PROPERTIES[$_lookup,module]:-}
                     local _mod_display=bu
                     if [[ -n "$_mod" ]]
                     then
