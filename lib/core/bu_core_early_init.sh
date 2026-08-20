@@ -190,7 +190,7 @@ __bu_init_env_commands()
             local _dir_module=${BU_COMMAND_SEARCH_DIR_MODULE[$dir]:-}
             if [[ -n "$_dir_module" ]]
             then
-                BU_COMMAND_PROPERTIES[$command,module]=$_dir_module
+                __bu_stamp_command_module "$command" "$_dir_module"
             fi
         done
     done

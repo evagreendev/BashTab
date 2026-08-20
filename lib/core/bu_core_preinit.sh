@@ -115,6 +115,29 @@ bu_preinit_register_user_defined_subcommand_dir()
 
 # ```
 # *Description*:
+# Stamp the owning module onto a registered command.  When the command's
+# namespace is empty (no filename-converter namespace), default it to the
+# module name and add the name to the namespace set, so `:<module>:`
+# namespace-qualified dispatch works for converter-less module commands.
+#
+# *Params*:
+# - `$1`: command name
+# - `$2`: owning module name
+# ```
+__bu_stamp_command_module()
+{
+    local command=$1
+    local module=$2
+    BU_COMMAND_PROPERTIES[$command,module]=$module
+    if [[ -z "${BU_COMMAND_PROPERTIES[$command,namespace]:-}" ]]
+    then
+        BU_COMMAND_PROPERTIES[$command,namespace]=$module
+        BU_COMMAND_NAMESPACES[$module]=1
+    fi
+}
+
+# ```
+# *Description*:
 # Register a single user-defined subcommand file
 #
 # *Params*:
@@ -167,7 +190,7 @@ bu_preinit_register_user_defined_subcommand_file()
 
     if [[ -n "${BU_CURRENT_MODULE:-}" ]]
     then
-        BU_COMMAND_PROPERTIES[$command,module]=$BU_CURRENT_MODULE
+        __bu_stamp_command_module "$command" "$BU_CURRENT_MODULE"
     fi
 
     if [[ -n "$type" ]]
@@ -233,7 +256,7 @@ bu_preinit_register_user_defined_subcommand_function()
 
     if [[ -n "${BU_CURRENT_MODULE:-}" ]]
     then
-        BU_COMMAND_PROPERTIES[$command,module]=$BU_CURRENT_MODULE
+        __bu_stamp_command_module "$command" "$BU_CURRENT_MODULE"
     fi
 
     if [[ -n "$type" ]]
@@ -502,7 +525,7 @@ bu_preinit_register_new_alias()
     BU_COMMAND_PROPERTIES[$alias_name,type]=alias
     if [[ -n "${BU_CURRENT_MODULE:-}" ]]
     then
-        BU_COMMAND_PROPERTIES[$alias_name,module]=$BU_CURRENT_MODULE
+        __bu_stamp_command_module "$alias_name" "$BU_CURRENT_MODULE"
     fi
     if [[ -n "$synopsis" ]]
     then
