@@ -2734,6 +2734,27 @@ __bu_out_parse_select_fields()
 
     [[ -z "$field_spec" ]] && return 1
 
+    __bu_out_parse_field_spec "$field_spec" out_fields
+    ((${#out_fields[@]} > 0)) && return 0
+    return 1
+}
+
+# ```
+# *Description*:
+# Split a comma-separated field spec into output field names, keeping the
+# left-hand name of "new=old" rename pairs. Shared by select-object and
+# query-object select-clause parsing.
+#
+# *Params*:
+# - `$1`: Field spec (e.g. "name,ver=version")
+# - nameref `$2`: Output array of field names
+# ```
+__bu_out_parse_field_spec()
+{
+    local field_spec=$1
+    local -n _pfs_fields=$2
+    _pfs_fields=()
+
     # Parse comma-separated specs: "new=old" → "new", "field" → "field"
     local spec new_name
     local ifs=$IFS
@@ -2745,9 +2766,65 @@ __bu_out_parse_select_fields()
         *=*) new_name=${spec%%=*} ;;
         *)   new_name=$spec ;;
         esac
-        out_fields+=("$new_name")
+        _pfs_fields+=("$new_name")
     done
     IFS=$ifs
+    ((${#_pfs_fields[@]} > 0)) && return 0
+    return 1
+}
+
+# ```
+# *Description*:
+# Statically extract the output field names from a query-object stage that
+# carries a select clause (e.g. "bu query-object select name,ver=version").
+# Mirrors how select-object's project effect parses its field spec, so the
+# projected columns are known without running the stage.
+#
+# *Params*:
+# - `$1`: Stage text (e.g. "bu query-object where verb -eq get select name")
+# - nameref `$2`: Output array of field names
+#
+# *Returns*:
+# - 0 if a select clause was found and parsed, 1 otherwise
+# ```
+__bu_out_parse_query_select_fields()
+{
+    local stage_text=$1
+    local -n out_fields=$2
+    out_fields=()
+
+    __bu_out_canonicalize_stage "$stage_text"
+    local canon=$BU_CANONICAL_STAGE
+
+    local -a words=()
+    # shellcheck disable=SC2206
+    words=($canon)
+    ((${#words[@]} < 3)) && return 1
+
+    local i word prev field_spec
+    for (( i = 1; i < ${#words[@]} - 1; i++ ))
+    do
+        word=${words[i]}
+        case "$word" in
+        select|--select)
+            # Skip a bare "select" that is actually a comparison VALUE
+            # (e.g. "where type -eq select") or a grep pattern ("grep select").
+            prev=${words[i-1]}
+            case "$prev" in
+            -eq|-ne|-gt|-lt|-ge|-le|-like|-notlike|-match|-notmatch|-contains|-notcontains|-in|-notin|-ilike|-i|grep)
+                continue
+                ;;
+            esac
+            field_spec=${words[i+1]}
+            [[ -z "$field_spec" || "$field_spec" == -* ]] && continue
+            if __bu_out_parse_field_spec "$field_spec" out_fields
+            then
+                return 0
+            fi
+            ;;
+        esac
+    done
+    return 1
 }
 
 # ```
@@ -2820,14 +2897,22 @@ __bu_out_analyze_stage()
         __bu_out_parse_select_fields "$canon" _out_fields || _out_fields=("${_in_fields[@]}")
         ;;
     query)
-        # Run the stage with --debug appended to get the query plan.
-        # This is safe: --debug only parses arguments, doesn't read stdin or
-        # execute jq expressions. Uses eval on CST-vetted text (same trust
-        # boundary as the existing probing system).
-        if [[ -n "$BU_OUT_JQ" ]]
+        # Statically parse a select clause first: when the query projects
+        # fields (select a,b=version), the projected names are the output
+        # fields, mirroring how the project effect handles select-object.
+        if __bu_out_parse_query_select_fields "$canon" _out_fields
         then
+            : # projected fields populated statically
+        elif [[ -n "$BU_OUT_JQ" ]]
+        then
+            # No static select clause: fall back to the query plan. --debug only
+            # parses arguments (no stdin read, no jq expression execution).
+            # BU_COMP_FAKE keeps a bu command from entering autocomplete mode
+            # when COMP_CWORD is set in the completion context (same pattern as
+            # __bu_out_tab_execute_capture). Uses eval on CST-vetted text (same
+            # trust boundary as the existing probing system).
             local debug_out
-            debug_out=$(eval "$stage_text --debug" 2>/dev/null) || true
+            debug_out=$(BU_COMP_FAKE=1 eval "$stage_text --debug" 2>/dev/null) || true
             if [[ -n "$debug_out" ]]
             then
                 local output_fields_json

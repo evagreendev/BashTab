@@ -841,6 +841,52 @@ function test_e2e_query_object_where_dot_completion { #@test
 }
 
 # ===========================================================================
+# query-object select projections in multi-stage static analysis
+# ===========================================================================
+
+function test_query_object_analyze_select_projection { #@test
+    # The query effect statically parses a select clause, like select-object's
+    # project effect, so projected columns are known without running --debug.
+    local -a qas_in=(aa bb cc)
+    local -a qas_out=()
+    __bu_out_analyze_stage "bu query-object select name,ver=version" qas_in qas_out
+    assert_equal "${qas_out[*]}" "name ver"
+}
+
+function test_query_object_analyze_select_among_clauses { #@test
+    # select may appear after where; the parser still finds it
+    local -a qas_in=(aa bb cc)
+    local -a qas_out=()
+    __bu_out_analyze_stage "bu query-object where verb -eq get select name" qas_in qas_out
+    assert_equal "${qas_out[*]}" "name"
+}
+
+function test_query_object_analyze_select_value_not_clause { #@test
+    # A bare "select" used as a comparison VALUE must not be mistaken for a clause
+    local -a qas_in=(aa bb cc)
+    local -a qas_out=()
+    __bu_out_analyze_stage "bu query-object where type -eq select" qas_in qas_out
+    assert_equal "${qas_out[*]}" "aa bb cc"
+}
+
+function test_query_object_pipeline_select_propagation { #@test
+    # Full completion path: the projected field is what the next stage sees
+    local pipe_before="bu get-command | bu query-object select name"
+    local command_line_front_before_pipe=
+    __bu_out_complete_pipeline_fields ""
+    assert_equal "${BU_RET[*]}" "name"
+}
+
+function test_query_object_pipeline_group_by_propagation { #@test
+    # No select clause: --debug computes group keys + aggregate names even in
+    # the completion context (BU_COMP_FAKE keeps it out of autocomplete mode).
+    local pipe_before="bu get-command | bu query-object group-by verb agg count"
+    local command_line_front_before_pipe=
+    __bu_out_complete_pipeline_fields ""
+    assert_equal "${BU_RET[*]}" "verb count"
+}
+
+# ===========================================================================
 # -like / -notlike bare-pattern substring semantics
 # ===========================================================================
 
