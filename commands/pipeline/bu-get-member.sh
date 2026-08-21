@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Dispatch: source
-# Synopsis: List members of a local group
+# Synopsis: Show the schema of records in a JSONL stream
 function __bu_bu_get_member_main()
 {
 local -r invocation_dir=$PWD
