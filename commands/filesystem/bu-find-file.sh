@@ -131,7 +131,7 @@ Filters: --name (glob), --type (f/d/l), --mindepth, --maxdepth,
         --example "Shell scripts" "--name '*.sh' --type f" \
         --example "Large files" "--larger 10M --type f" \
         --example "Recent changes" "--newer . --maxdepth 2" \
-        --example "Find + act pipeline" "| bu sort-object size --desc | bu select-object path,size"
+        --example "Find + act pipeline" "| bu sort size --desc | bu select path,size"
     return 0
 fi
 

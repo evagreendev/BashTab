@@ -99,7 +99,7 @@ value=${value:-on}
 
 # Pipeline input: when no name is given and stdin is a pipe, read JSONL
 # records and toggle each option's .name to the value (from .value or --on/--off).
-# 'bu get-shell-option | bu where-object ".value == false" | bu set-shell-option'
+# 'bu get-shell-option | bu where ".value == false" | bu set-shell-option'
 # enables every currently-off option.
 if [[ -z "$name" ]] && [[ ! -t 0 ]]
 then

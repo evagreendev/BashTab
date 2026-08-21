@@ -26,7 +26,7 @@ _TV_ROWS=(
     '{"name":"get-command","verb":"get","noun":"command","namespace":"bu","type":"source"}'
     '{"name":"format-table","verb":"format","noun":"table","namespace":"bu","type":"source"}'
     '{"name":"convert-from-asciitable","verb":"convert-from","noun":"asciitable","namespace":"bu","type":"execute"}'
-    '{"name":"where-object","verb":"where","noun":"object","namespace":"bu","type":"function"}'
+    '{"name":"query-object","verb":"query","noun":"object","namespace":"bu","type":"source"}'
     '{"name":"select-string","verb":"select","noun":"string","namespace":"bu","type":"alias"}'
 )
 _TV_NUM_ROWS=${#_TV_ROWS[@]}

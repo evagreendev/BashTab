@@ -62,7 +62,7 @@ The first occurrence wins; original order is preserved. Records are
 compared with key-order canonicalization, so {\"a\":1,\"b\":2} equals
 {\"b\":2,\"a\":1}.
 " \
-        --example "Distinct verbs" "< /dev/null; bu get-command | bu select-object verb | bu distinct-object"
+        --example "Distinct verbs" "< /dev/null; bu get-command | bu select verb | bu distinct-object"
     return 0
 fi
 

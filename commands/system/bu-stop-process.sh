@@ -85,7 +85,7 @@ then
 Send a signal to processes (PowerShell Stop-Process, structured kill).
 PIDs come from positional arguments or, when stdin is a JSONL stream, from
 the .pid field of incoming records — enabling pipelines like
-'bu get-process | bu where-object ... | bu stop-process'. Emits one
+'bu get-process | bu where ... | bu stop-process'. Emits one
 record per PID: pid, signal, stopped (boolean).
 " \
         --example "Terminate by PID" "1234" \

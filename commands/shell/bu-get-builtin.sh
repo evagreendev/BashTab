@@ -72,7 +72,7 @@ for bash shell aliases.
 " \
         --example "All builtins" "" \
         --example "One builtin" "printf" \
-        --example "Find overridden builtins" "| bu where-object '.overridden'"
+        --example "Find overridden builtins" "| bu where '.overridden'"
     return 0
 fi
 

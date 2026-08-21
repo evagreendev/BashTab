@@ -536,10 +536,13 @@ bu_preinit_register_new_alias()
 
 bu_preinit_register_new_alias gc get-command --namespace {} {?} --verb {} {?} --noun {} {...}
 
-# Short aliases that expand to query-object --where / --select / --grep.
+# Short aliases that expand to query-object --where / --select / --grep /
+# --order-by.
 #   bu get-process | bu where type -eq source
 #   bu get-process | bu select name,verb
 #   bu get-process | bu grep get
+#   bu get-process | bu sort name desc
 bu_preinit_register_new_alias where query-object --where {...}
 bu_preinit_register_new_alias select query-object --select {...}
 bu_preinit_register_new_alias grep query-object --grep {...}
+bu_preinit_register_new_alias sort query-object --order-by {...}

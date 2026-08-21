@@ -76,7 +76,7 @@ Accepts file paths as positional arguments. When no paths are given and stdin
 is a pipe, reads JSONL records from stdin and stages the file named in each
 record's .path field. This enables composability:
 
-  bu get-git-status | bu where-object '.staged == \"?\"' | bu add-git-file
+  bu get-git-status | bu where '.staged == \"?\"' | bu add-git-file
 
 Flags:
   --all        Stage all tracked, modified files (git add -u for tracked only)

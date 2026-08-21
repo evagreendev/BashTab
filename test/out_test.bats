@@ -449,7 +449,7 @@ function test_bu_pipeline_out_default_cmdlet { #@test
     assert_equal "$out" 'alpha'
 }
 
-function test_bu_pipeline_jq_as_where_object { #@test
+function test_bu_pipeline_jq_as_where { #@test
     # The PowerShell pipeline payoff: jq between bu commands as Where-Object
     local out
     out=$(bu get-command | jq -c 'select(.verb == "get" and .namespace == "bu" and (.name == "get-command" or .name == "get-module"))' | bu out-default --format tsv --columns name | tr '\n' ' ')
@@ -468,42 +468,32 @@ alpha  2.0.0'
 }
 
 # ===========================================================================
-# Cmdlet wrappers: where-object / select-object / sort-object /
+# Cmdlet wrappers: where / select / sort /
 # convert-from-* / new-record
 # ===========================================================================
 
-function test_bu_where_object_cmdlet { #@test
+function test_bu_where_alias_cmdlet { #@test
     local out
-    out=$(bu get-command | bu where-object '.verb == "get" and .namespace == "bu" and (.name == "get-command" or .name == "get-module")' | jq -r .name | tr '\n' ' ')
+    out=$(bu get-command | bu where '.verb == "get" and .namespace == "bu" and (.name == "get-command" or .name == "get-module")' | jq -r .name | tr '\n' ' ')
     assert_equal "$out" 'get-command get-module '
 }
 
-function test_bu_where_object_missing_expression { #@test
-    run bu where-object </dev/null
-    assert_failure
-}
-
-function test_bu_select_object_cmdlet { #@test
+function test_bu_select_alias_cmdlet { #@test
     local out
-    out=$(BU_MODULE_LIST="alpha:1.0.0:/a" bu get-module | bu select-object name,ver=version)
+    out=$(BU_MODULE_LIST="alpha:1.0.0:/a" bu get-module | bu select name,ver=version)
     assert_equal "$out" '{"name":"alpha","ver":"1.0.0"}'
 }
 
-function test_bu_sort_object_cmdlet { #@test
+function test_bu_sort_alias_cmdlet { #@test
     local out
-    out=$(printf '%s\n' '{"n":3}' '{"n":1}' | bu sort-object n | jq -r .n | tr '\n' ' ')
+    out=$(printf '%s\n' '{"n":3}' '{"n":1}' | bu sort n | jq -r .n | tr '\n' ' ')
     assert_equal "$out" '1 3 '
 }
 
-function test_bu_sort_object_cmdlet_desc { #@test
+function test_bu_sort_alias_cmdlet_desc { #@test
     local out
-    out=$(printf '%s\n' '{"n":3}' '{"n":1}' | bu sort-object n --desc | jq -r .n | tr '\n' ' ')
+    out=$(printf '%s\n' '{"n":3}' '{"n":1}' | bu sort n --desc | jq -r .n | tr '\n' ' ')
     assert_equal "$out" '3 1 '
-}
-
-function test_bu_sort_object_missing_key { #@test
-    run bu sort-object </dev/null
-    assert_failure
 }
 
 function test_bu_convert_from_tsv_roundtrip { #@test
@@ -540,9 +530,9 @@ function test_bu_full_powershell_pipeline { #@test
     # The whole story in one pipeline: produce | Where | Select | Sort | Format
     local out
     out=$(bu get-command \
-        | bu where-object '.namespace == "bu" and .verb == "convert-to"' \
-        | bu select-object name \
-        | bu sort-object name \
+        | bu where '.namespace == "bu" and .verb == "convert-to"' \
+        | bu select name \
+        | bu sort name \
         | bu format-table)
     assert_equal "$out" 'name
 -----------------
@@ -581,7 +571,7 @@ function test_pipeline_fields_ts_pipe_before { #@test
 function test_pipeline_fields_comp_words_fallback { #@test
     # No binding locals: walk COMP_WORDS for the last standalone pipe
     local command_line_front_before_pipe= pipe_before=
-    COMP_WORDS=(bu get-command \| bu select-object "")
+    COMP_WORDS=(bu get-command \| bu select "")
     COMP_CWORD=4
     __bu_out_complete_pipeline_fields ""
     assert_equal "${BU_RET[*]}" "name verb noun namespace type definition synopsis fields stage module"
@@ -589,7 +579,7 @@ function test_pipeline_fields_comp_words_fallback { #@test
 
 function test_pipeline_fields_no_pipe_empty { #@test
     local command_line_front_before_pipe= pipe_before=
-    COMP_WORDS=(bu select-object na)
+    COMP_WORDS=(bu select na)
     COMP_CWORD=2
     run __bu_out_complete_pipeline_fields "na"
     assert_failure
@@ -640,28 +630,28 @@ function test_pipeline_fields_probe_requires_allowlist { #@test
     assert_failure
 }
 
-function test_e2e_select_object_pipeline_fields { #@test
-    # Full completion driver: bu get-command | bu select-object <TAB>
+function test_e2e_select_pipeline_fields { #@test
+    # Full completion driver: bu get-command | bu select <TAB>
     local command_line_front_before_pipe="bu get-command | "
-    bu_autocomplete_get_autocompletions bu select-object ""
+    bu_autocomplete_get_autocompletions bu select ""
     assert_equal "${COMPREPLY[*]}" "name verb noun namespace type definition synopsis fields stage module"
 }
 
-function test_e2e_select_object_comma_continuation { #@test
+function test_e2e_select_comma_continuation { #@test
     local command_line_front_before_pipe="bu get-command | "
-    bu_autocomplete_get_autocompletions bu select-object name,ve
+    bu_autocomplete_get_autocompletions bu select name,ve
     assert_equal "${COMPREPLY[*]}" "name,verb"
 }
 
-function test_e2e_where_object_dot_fields { #@test
+function test_e2e_where_dot_fields { #@test
     local command_line_front_before_pipe="bu get-command | "
-    bu_autocomplete_get_autocompletions bu where-object ""
+    bu_autocomplete_get_autocompletions bu where ""
     assert_equal "${COMPREPLY[*]}" "name verb noun namespace type definition synopsis fields stage module"
 }
 
-function test_e2e_sort_object_pipeline_fields { #@test
+function test_e2e_sort_pipeline_fields { #@test
     local pipe_before="bu get-module | "
-    bu_autocomplete_get_autocompletions bu sort-object ""
+    bu_autocomplete_get_autocompletions bu sort ""
     assert_equal "${COMPREPLY[*]}" "name version path"
 }
 
@@ -672,14 +662,14 @@ function test_e2e_format_table_columns_pipeline_fields { #@test
 }
 
 function test_e2e_no_pipeline_shows_hint_only { #@test
-    bu_autocomplete_get_autocompletions bu select-object na
+    bu_autocomplete_get_autocompletions bu select na
     assert_equal "${COMPREPLY[0]}" "Hint: field"
 }
 
 function test_pipeline_fields_dsl_keyword_basic { #@test
     # The --pipeline-fields DSL keyword resolves pipeline producer fields
     local command_line_front_before_pipe="bu get-command | "
-    bu_autocomplete_get_autocompletions bu select-object ""
+    bu_autocomplete_get_autocompletions bu select ""
     assert_equal "${COMPREPLY[*]}" "name verb noun namespace type definition synopsis fields stage module"
 }
 
@@ -695,7 +685,7 @@ function test_pipeline_fields_dsl_keyword_dot { #@test
 function test_pipeline_fields_dsl_dynamic_hint { #@test
     # When pipeline is detected, hint updates to show available fields
     local command_line_front_before_pipe="bu get-command | "
-    bu_autocomplete_get_autocompletions bu sort-object ""
+    bu_autocomplete_get_autocompletions bu sort ""
     # The hint should now mention the available fields, not the static text
     assert_equal "${COMPREPLY[*]}" "name verb noun namespace type definition synopsis fields stage module"
 }
@@ -706,9 +696,9 @@ function test_pipeline_fields_dsl_dynamic_hint { #@test
 
 function test_cmdlets_jsonl_when_piped { #@test
     # $( ) capture is not a terminal, so transforms stay JSONL (already covered
-    # by the cmdlet tests above); assert explicitly for select-object
+    # by the cmdlet tests above); assert explicitly for select
     local out
-    out=$(BU_MODULE_LIST="a:1.0.0:/x" bu get-module | bu select-object name,version)
+    out=$(BU_MODULE_LIST="a:1.0.0:/x" bu get-module | bu select name,version)
     assert_equal "$out" '{"name":"a","version":"1.0.0"}'
 }
 
@@ -720,7 +710,7 @@ function test_cmdlets_table_when_terminal { #@test
     local helper=$BATS_TEST_TMPDIR/pty_select.sh
     cat > "$helper" <<EOF
 source "$DIR/../bu_entrypoint.sh" >/dev/null 2>&1
-BU_MODULE_LIST="a:1.0.0:/x" bu get-module | bu select-object name,version
+BU_MODULE_LIST="a:1.0.0:/x" bu get-module | bu select name,version
 EOF
     local out
     out=$(script -qec "bash $helper" /dev/null </dev/null | tr -d '\r\000\016\017' | sed 's/\x1b\[[0-9;]*m//g;s/\x1b(B//g')
@@ -732,17 +722,17 @@ a     1.0.0'
 function test_cmdlets_env_format_override { #@test
     # BU_OUTPUT_FORMAT flows through the transform's implicit bu_out
     local out
-    out=$(BU_MODULE_LIST="a:1.0.0:/x" bu get-module | BU_OUTPUT_FORMAT=tsv bu select-object name)
+    out=$(BU_MODULE_LIST="a:1.0.0:/x" bu get-module | BU_OUTPUT_FORMAT=tsv bu select name)
     assert_equal "$out" 'a'
 }
 
 function test_cmdlets_intermediate_stays_jsonl { #@test
     # Even on a terminal, a non-terminus transform must emit JSONL: here
-    # where-object is mid-pipeline, convert-to-tsv is the terminus
+    # where is mid-pipeline, convert-to-tsv is the terminus
     local helper=$BATS_TEST_TMPDIR/pty_chain.sh
     cat > "$helper" <<EOF
 source "$DIR/../bu_entrypoint.sh" >/dev/null 2>&1
-BU_MODULE_LIST="a:1.0.0:/x;b:2.0.0:/y" bu get-module | bu where-object '.name == "b"' | bu convert-to-tsv --columns name
+BU_MODULE_LIST="a:1.0.0:/x;b:2.0.0:/y" bu get-module | bu where '.name == "b"' | bu convert-to-tsv --columns name
 EOF
     local out
     out=$(script -qec "bash $helper" /dev/null </dev/null | tr -d '\r\000\016\017')
@@ -845,8 +835,9 @@ function test_e2e_query_object_where_dot_completion { #@test
 # ===========================================================================
 
 function test_query_object_analyze_select_projection { #@test
-    # The query effect statically parses a select clause, like select-object's
-    # project effect, so projected columns are known without running --debug.
+    # The query effect statically parses a select clause (like the project
+    # effect parses a field spec), so projected columns are known without
+    # running --debug.
     local -a qas_in=(aa bb cc)
     local -a qas_out=()
     __bu_out_analyze_stage "bu query-object select name,ver=version" qas_in qas_out
@@ -897,10 +888,10 @@ function test_like_bare_pattern_is_substring { #@test
     assert_equal "$out" '{"name":"get-command"}'
 }
 
-function test_where_object_like_bare_pattern_is_substring { #@test
+function test_where_like_bare_pattern_is_substring { #@test
     local out
     out=$(printf '%s\n' '{"name":"get-command"}' '{"name":"set-module"}' \
-        | bu where-object name -like command)
+        | bu where name -like command)
     assert_equal "$out" '{"name":"get-command"}'
 }
 
@@ -915,7 +906,7 @@ function test_like_explicit_glob_stays_anchored { #@test
     # "comm*" still means "starts with comm"
     local out
     out=$(printf '%s\n' '{"name":"get-command"}' '{"name":"command"}' \
-        | bu where-object name -like 'comm*')
+        | bu where name -like 'comm*')
     assert_equal "$out" '{"name":"command"}'
 }
 
@@ -923,7 +914,7 @@ function test_like_question_mark_is_wildcard { #@test
     # "get-?" is anchored with a single-char wildcard
     local out
     out=$(printf '%s\n' '{"name":"get-command"}' '{"name":"get-x"}' \
-        | bu where-object name -like 'get-?')
+        | bu where name -like 'get-?')
     assert_equal "$out" '{"name":"get-x"}'
 }
 
@@ -976,10 +967,10 @@ function test_query_object_notin_complement { #@test
     assert_equal "$out" '{"name":"c"}'
 }
 
-function test_where_object_in_membership { #@test
+function test_where_in_membership { #@test
     local out
     out=$(printf '%s\n' '{"name":"a","type":"source"}' '{"name":"b","type":"alias"}' '{"name":"c","type":"function"}' \
-        | bu where-object type -in source,alias)
+        | bu where type -in source,alias)
     assert_equal "$out" '{"name":"a","type":"source"}
 {"name":"b","type":"alias"}'
 }
@@ -1078,9 +1069,9 @@ function test_e2e_query_object_grep_completion { #@test
 # Value completion at the where/query value position (tab-execute opt-in)
 # ===========================================================================
 
-function test_where_object_value_completion_eq { #@test
+function test_where_value_completion_eq { #@test
     local command_line_front_before_pipe="bu get-command | "
-    bu_autocomplete_get_autocompletions bu where-object type -eq ""
+    bu_autocomplete_get_autocompletions bu where type -eq ""
     assert_equal "${COMPREPLY[*]}" "alias execute source"
 }
 
@@ -1092,16 +1083,16 @@ function test_query_object_value_completion_eq { #@test
 
 function test_value_completion_get_alias_root { #@test
     local command_line_front_before_pipe="bu get-alias | "
-    bu_autocomplete_get_autocompletions bu where-object root -eq ""
+    bu_autocomplete_get_autocompletions bu where root -eq ""
     assert_equal "${COMPREPLY[*]}" "get-command query-object"
 }
 
 function test_value_completion_like_and_gt_never_probe { #@test
     local command_line_front_before_pipe="bu get-command | "
     # Pattern and ordered operators keep the plain static hint.
-    bu_autocomplete_get_autocompletions bu where-object type -like ""
+    bu_autocomplete_get_autocompletions bu where type -like ""
     assert_equal "${COMPREPLY[0]}" "Hint: Value for type -like"
-    bu_autocomplete_get_autocompletions bu where-object type -gt ""
+    bu_autocomplete_get_autocompletions bu where type -gt ""
     assert_equal "${COMPREPLY[0]}" "Hint: Value for type -gt"
 }
 
@@ -1119,7 +1110,7 @@ function test_value_completion_unregistered_producer_no_execute { #@test
     assert [ ! -s "$countfile" ]
 
     # e2e: the value position falls back to the static hint only.
-    bu_autocomplete_get_autocompletions bu where-object type -eq ""
+    bu_autocomplete_get_autocompletions bu where type -eq ""
     assert_equal "${COMPREPLY[0]}" "Hint: Value for type -eq"
 }
 
@@ -1560,7 +1551,7 @@ function test_bu_query_object_distinct_order_by { #@test
 function test_bu_distinct_object_cmdlet { #@test
     local out
     out=$(BU_MODULE_LIST="a:1.0.0:/x;b:2.0.0:/y;c:1.0.0:/z" bu get-module \
-        | bu select-object version | bu distinct-object)
+        | bu select version | bu distinct-object)
     assert_equal "$out" '{"version":"1.0.0"}
 {"version":"2.0.0"}'
 }

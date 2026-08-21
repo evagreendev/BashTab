@@ -80,7 +80,7 @@ then
 Read files as line records (PowerShell Get-Content, structured cat/head/tail).
 Emits one record per line: path, line_number, line. Line numbers restart
 at 1 for --tail output. With no files, reads stdin (path is <stdin>).
-Combine with bu where-object to filter lines, bu select-object line to
+Combine with bu where to filter lines, bu select line to
 recover plain text.
 " \
         --example "Whole file" "app.log" \

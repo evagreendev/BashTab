@@ -91,7 +91,7 @@ Fields: name, severity, is_direct, title, url, range, fix_version, fix_is_breaki
         --example "Current project" "" \
         --example "Production only" "--production" \
         --example "Critical only" "--level critical" \
-        --example "Direct deps only" "| bu where-object '.is_direct'"
+        --example "Direct deps only" "| bu where '.is_direct'"
     return 0
 fi
 

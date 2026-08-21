@@ -77,7 +77,7 @@ Fields: name, version, resolved, from, description, license, path, depth, _path,
 " \
         --example "Current project" "" \
         --example "Specific directory" "--cwd /path/to/project" \
-        --example "Filter by license" "| bu where-object '.license == \"MIT\"'"
+        --example "Filter by license" "| bu where '.license == \"MIT\"'"
     return 0
 fi
 

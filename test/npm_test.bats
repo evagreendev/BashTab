@@ -71,14 +71,14 @@ function test_bu_get_npm_package_path_structure { #@test
 function test_bu_get_npm_package_filter_depth { #@test
     cd "$FIXTURE"
     local names
-    names=$(bu get-npm-package | bu where-object '.depth == 1' | bu select-object name | jq -r .name | sort | tr '\n' ' ')
+    names=$(bu get-npm-package | bu where '.depth == 1' | bu select name | jq -r .name | sort | tr '\n' ' ')
     assert_equal "$names" "chalk debug "
 }
 
 function test_bu_get_npm_package_subtree_filter { #@test
     cd "$FIXTURE"
     local names
-    names=$(bu get-npm-package | bu where-object '._path | startswith("bashtab-npm-fixture/debug")' | bu select-object name | jq -r .name | sort | tr '\n' ' ')
+    names=$(bu get-npm-package | bu where '._path | startswith("bashtab-npm-fixture/debug")' | bu select name | jq -r .name | sort | tr '\n' ' ')
     assert_equal "$names" "debug ms "
 }
 
@@ -95,7 +95,7 @@ function test_bu_get_npm_package_total_count { #@test
 
 function test_e2e_get_npm_package_pipeline_fields { #@test
     local command_line_front_before_pipe="bu get-npm-package | "
-    bu_autocomplete_get_autocompletions bu select-object ""
+    bu_autocomplete_get_autocompletions bu select ""
     assert_equal "${COMPREPLY[*]}" "name version resolved depth _path _parent_path"
 }
 
@@ -126,7 +126,7 @@ function test_bu_get_npm_outdated_field_keys { #@test
 function test_bu_get_npm_outdated_pipeline { #@test
     cd "$FIXTURE"
     local out
-    out=$(bu get-npm-outdated | bu select-object name,current,wanted,latest | jq -c 'select(.name == "chalk")')
+    out=$(bu get-npm-outdated | bu select name,current,wanted,latest | jq -c 'select(.name == "chalk")')
     assert_equal "$(jq -r .current <<<"$out")" "5.3.0"
     # wanted may equal current for pinned versions; just verify it is a semver
     assert_regex "$(jq -r .wanted <<<"$out")" '^[0-9]+\.[0-9]+\.[0-9]+'

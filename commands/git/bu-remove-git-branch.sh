@@ -69,7 +69,7 @@ Accepts branch names as positional arguments. When no names are given and
 stdin is a pipe, reads JSONL records and deletes branches from each record's
 .name field. This enables composability:
 
-  bu get-git-branch --merged | bu where-object '.current != true' | bu remove-git-branch
+  bu get-git-branch --merged | bu where '.current != true' | bu remove-git-branch
 
 Flags:
   --force      Force delete even if not merged (git branch -D)

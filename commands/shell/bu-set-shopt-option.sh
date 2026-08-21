@@ -100,7 +100,7 @@ action=${action:-set}
 
 # Pipeline input: when no name is given and stdin is a pipe, read JSONL
 # records and toggle each option's .name to the value (from .value or --set/--unset).
-# 'bu get-shopt-option | bu where-object ".value == false" | bu set-shopt-option'
+# 'bu get-shopt-option | bu where ".value == false" | bu set-shopt-option'
 # enables every currently-off option.
 if [[ -z "$name" ]] && [[ ! -t 0 ]]
 then

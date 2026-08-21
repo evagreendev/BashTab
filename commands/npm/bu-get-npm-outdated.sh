@@ -91,7 +91,7 @@ Fields: name, current, wanted, latest, dependent, location
         --example "Current project" "" \
         --example "Long format" "--long" \
         --example "Production only" "--production" \
-        --example "Filter devDependencies" "| bu where-object '.location | test(\"node_modules\")'"
+        --example "Filter devDependencies" "| bu where '.location | test(\"node_modules\")'"
     return 0
 fi
 

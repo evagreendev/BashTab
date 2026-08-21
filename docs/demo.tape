@@ -43,7 +43,7 @@ Type "clear"
 Enter
 
 # ── Beat 3: structured output pipeline ─────────────────────
-Type "bu get-process | bu where-object '.mem_percent > 1' | bu sort-object mem_percent --desc | bu select-object pid,command,mem_percent"
+Type "bu get-process | bu where '.mem_percent > 1' | bu sort mem_percent --desc | bu select pid,command,mem_percent"
 Enter
 Sleep 3.5s
 

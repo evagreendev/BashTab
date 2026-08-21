@@ -78,7 +78,7 @@ Accepts file paths as positional arguments. When no paths are given and stdin
 is a pipe, reads JSONL records from stdin and operates on each record's .path
 field:
 
-  bu get-file /var/www | bu where-object '.mode | startswith(\"7\")' | bu set-file-permission --mode 755
+  bu get-file /var/www | bu where '.mode | startswith(\"7\")' | bu set-file-permission --mode 755
 
 At least one of --mode, --owner, or --group is required.  --recursive applies
 changes to directories and their contents.

@@ -1576,7 +1576,7 @@ bu_out_group_by()
 # ```
 # *Description*:
 # Register the record fields that a producer command emits, enabling
-# pipeline-aware field completion after a pipe (e.g. in bu select-object).
+# pipeline-aware field completion after a pipe (e.g. in bu select).
 #
 # *Params*:
 # - `$1`: Producer command-line prefix (e.g. `bu get-pokemon`, `kubectl get pods`)
@@ -1618,7 +1618,7 @@ bu_register_output_fields()
 #
 # *Params*:
 # - `--dot` (optional): Prefix suggestions with `.` for jq-style expressions
-#           (e.g. `.name`), used by bu where-object
+#           (e.g. `.name`), used by bu where
 # - `$1`: Current word being completed (appended by the --ret DSL)
 #
 # *Returns*:
@@ -2067,7 +2067,7 @@ __bu_out_complete_pipeline_fields()
     local -a fields=()
 
     # 1. Multi-stage pipeline static analysis: walk all stages, track field
-    #    propagation through transforms (select-object, query-object, etc.)
+    #    propagation through transforms (query-object, select/where aliases, etc.)
     if __bu_out_analyze_pipeline "$producer_str" fields && ((${#fields[@]} > 0))
     then
         : # fields populated by the analyzer
@@ -2389,8 +2389,8 @@ __bu_out_complete_field_values()
 # Values:
 #   producer           - emits initial fields (looked up in BU_OUT_PRODUCER_FIELDS)
 #   passthrough        - output fields = input fields (where, sort, distinct, format-*, etc.)
-#   project            - output fields = parsed from positional field-spec argument (select-object)
-#   query              - output fields determined by running the stage with --debug (query-object)
+#   project            - output fields = parsed from positional field-spec argument (compare-object)
+#   query              - output fields determined by running the stage with --debug (query-object, where/select/grep/sort)
 #   recordify_tsv      - output fields = parsed from --columns (convert-from-tsv)
 #   recordify_lines    - output field = parsed from --column (convert-from-lines)
 #   recordify_new      - output fields = keys from key=value pairs (new-record)
@@ -2399,8 +2399,6 @@ declare -A -g BU_OUT_STAGE_EFFECT=(
     ["bu get-module"]=producer
     ["bu get-alias"]=producer
     ["bu get-shell-alias"]=producer
-    ["bu where-object"]=passthrough
-    ["bu sort-object"]=passthrough
     ["bu distinct-object"]=passthrough
     ["bu format-table"]=passthrough
     ["bu format-list"]=passthrough
@@ -2408,8 +2406,11 @@ declare -A -g BU_OUT_STAGE_EFFECT=(
     ["bu convert-to-jsonl"]=passthrough
     ["bu convert-to-tsv"]=passthrough
     ["bu out-default"]=passthrough
-    ["bu select-object"]=project
     ["bu query-object"]=query
+    ["bu where"]=query
+    ["bu select"]=query
+    ["bu grep"]=query
+    ["bu sort"]=query
     ["bu convert-from-tsv"]=recordify_tsv
     ["bu convert-from-lines"]=recordify_lines
     ["bu new-record"]=recordify_new
@@ -2460,15 +2461,15 @@ declare -A -g BU_OUT_STAGE_EFFECT=(
 # Register a command's pipeline stage effect for static field analysis.
 #
 # *Params*:
-# - `$1`: Command name (e.g. `bu get-command`, `bu select-object`)
+# - `$1`: Command name (e.g. `bu get-command`, `bu query-object`)
 # - `$2`: Effect type: producer, passthrough, project, query, recordify_tsv,
 #         recordify_lines, recordify_new
 #
 # *Examples*:
 # ```bash
 # bu_register_stage_effect "bu get-command" producer
-# bu_register_stage_effect "bu where-object" passthrough
-# bu_register_stage_effect "bu select-object" project
+# bu_register_stage_effect "bu where" query
+# bu_register_stage_effect "bu select" query
 # ```
 # ```
 bu_register_stage_effect()
@@ -2491,7 +2492,7 @@ bu_register_stage_effect()
 # subshells are excluded.
 #
 # *Params*:
-# - `$1`: Pipeline text (e.g. "bu get-command | bu select-object name")
+# - `$1`: Pipeline text (e.g. "bu get-command | bu select name")
 # - nameref `$2`: Output array of trimmed stage texts
 # ```
 __bu_out_split_pipeline()
@@ -2538,7 +2539,7 @@ __bu_out_split_pipeline()
 # upstream producer's fields.
 #
 # *Params*:
-# - `$1`: Command name (e.g. "bu select-object")
+# - `$1`: Command name (e.g. "bu query-object")
 # - `$2`: Indent string (e.g. "\t")
 # - nameref `$3`: Output variable (receives the help text)
 #
@@ -2716,11 +2717,12 @@ __bu_out_extract_command()
 
 # ```
 # *Description*:
-# Parse the output field names from a select-object stage's field spec.
-# Handles "new=old" rename syntax — keeps the "new" (left-hand) names.
+# Parse the output field names from a project-effect stage's field spec
+# (e.g. compare-object). Handles "new=old" rename syntax — keeps the
+# "new" (left-hand) names.
 #
 # *Params*:
-# - `$1`: Stage text (e.g. "bu select-object name,ver=version --unique")
+# - `$1`: Stage text (e.g. "bu compare-object name,ver=version")
 # - nameref `$2`: Output array of field names
 # ```
 __bu_out_parse_select_fields()
@@ -2729,7 +2731,7 @@ __bu_out_parse_select_fields()
     local -n out_fields=$2
     out_fields=()
 
-    # Canonicalize for registry key matching ("xx select-object" → "bu select-object")
+    # Canonicalize for registry key matching ("xx compare-object" → "bu compare-object")
     __bu_out_canonicalize_stage "$stage_text"
     stage_text=$BU_CANONICAL_STAGE
 
@@ -2766,7 +2768,7 @@ __bu_out_parse_select_fields()
 # ```
 # *Description*:
 # Split a comma-separated field spec into output field names, keeping the
-# left-hand name of "new=old" rename pairs. Shared by select-object and
+# left-hand name of "new=old" rename pairs. Shared by compare-object and
 # query-object select-clause parsing.
 #
 # *Params*:
@@ -2801,8 +2803,8 @@ __bu_out_parse_field_spec()
 # *Description*:
 # Statically extract the output field names from a query-object stage that
 # carries a select clause (e.g. "bu query-object select name,ver=version").
-# Mirrors how select-object's project effect parses its field spec, so the
-# projected columns are known without running the stage.
+# Mirrors how the project effect parses a field spec, so the projected
+# columns are known without running the stage.
 #
 # *Params*:
 # - `$1`: Stage text (e.g. "bu query-object where verb -eq get select name")
@@ -2923,7 +2925,7 @@ __bu_out_analyze_stage()
     query)
         # Statically parse a select clause first: when the query projects
         # fields (select a,b=version), the projected names are the output
-        # fields, mirroring how the project effect handles select-object.
+        # fields, mirroring how the project effect parses a field spec.
         if __bu_out_parse_query_select_fields "$canon" _out_fields
         then
             : # projected fields populated statically

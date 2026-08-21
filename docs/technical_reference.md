@@ -168,7 +168,7 @@ The `__bu_fzf_compute_dimensions` function handles dropdown positioning (tested 
 
 PowerShell-inspired structured output: **JSONL (one JSON object per line) is the object stream**, jq is the backend. Commands emit records, transforms shape them, and a sink formatter decides presentation at the end of the pipeline (Out-Default: table on a terminal, JSONL when piped).
 
-Implemented in [bu_core_out.sh](../lib/core/bu_core_out.sh) with cmdlet commands (`bu where-object`, `bu select-object`, `bu sort-object`, `bu query-object`, `bu format-table`, ...), including:
+Implemented in [bu_core_out.sh](../lib/core/bu_core_out.sh) with cmdlet commands (`bu where`, `bu select`, `bu sort`, `bu query-object`, `bu format-table`, ...), including:
 
 - Recordifiers / transforms / sinks with documented streaming-vs-buffering behavior
 - `bu query-object` — SQL-style clauses (`where group-by agg having select distinct order-by first`)

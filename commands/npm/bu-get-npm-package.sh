@@ -77,8 +77,8 @@ Fields: name, version, resolved, depth, _path, _parent_path
 " \
         --example "Current project" "" \
         --example "Specific directory" "--cwd /path/to/project" \
-        --example "Filter top-level deps only" "| bu where-object '.depth == 1'" \
-        --example "Find packages in a subtree" "| bu where-object '._path | startswith(\"debug\")'"
+        --example "Filter top-level deps only" "| bu where '.depth == 1'" \
+        --example "Find packages in a subtree" "| bu where '._path | startswith(\"debug\")'"
     return 0
 fi
 

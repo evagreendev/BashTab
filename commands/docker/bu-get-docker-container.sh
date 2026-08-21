@@ -101,7 +101,7 @@ Fields: ID, Image, Command, CreatedAt, RunningFor, Ports, State, Status, Size, N
         --example "Filter by name" "--filter name=web" \
         --example "Filter by status" "--filter status=exited" \
         --example "Latest container" "--latest" \
-        --example "Show names and ports" "| bu select-object Names,Ports,Status"
+        --example "Show names and ports" "| bu select Names,Ports,Status"
     return 0
 fi
 

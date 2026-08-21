@@ -79,7 +79,7 @@ Requires jc (pip install jc). See https://github.com/kellyjonbrazil/jc
 " \
         --example "Pipe mode (ls)" "--parser ls" \
         --example "Magic mode (ps)" "ps aux" \
-        --example "Filter with BashTab" "--parser df | bu where-object '.use_percent > 50'"
+        --example "Filter with BashTab" "--parser df | bu where '.use_percent > 50'"
     return 0
 fi
 

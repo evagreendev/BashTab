@@ -31,8 +31,8 @@ get-command           source  commands/core/bu-get-command.sh              List 
 $ bu get-command | jq -r 'select(.type == "source") | .name'
 
 # SQL-style cmdlets compose the same operations
-$ bu get-command | bu where-object '.type == "source"' \
-    | bu select-object name,verb | bu sort-object verb
+$ bu get-command | bu where '.type == "source"' \
+    | bu select name,verb | bu sort verb
 
 # ...or as a single query
 $ bu get-command | bu query-object where '.type == "source"' \
@@ -58,7 +58,7 @@ producer → recordify → transform → sink
 | Layer | Core functions | Cmdlets |
 |---|---|---|
 | Recordifiers | `bu_out_record`, `bu_out_from_tsv`, `bu_out_from_lines` | `bu new-record`, `bu convert-from-tsv`, `bu convert-from-lines` |
-| Transforms | `bu_out_where`, `bu_out_select`, `bu_out_sort_by`, `bu_out_group_by`, `bu_out_distinct` | `bu where-object`, `bu select-object`, `bu sort-object`, `bu query-object`, `bu distinct-object` |
+| Transforms | `bu_out_where`, `bu_out_select`, `bu_out_sort_by`, `bu_out_group_by`, `bu_out_distinct` | `bu where`, `bu select`, `bu sort`, `bu query-object`, `bu distinct-object` |
 | Sinks | `bu_format_table`, `bu_format_list`, `bu_format_json`, `bu_format_jsonl`, `bu_format_tsv` | `bu format-table`, `bu format-list`, `bu convert-to-json`, `bu convert-to-jsonl`, `bu convert-to-tsv` |
 | Dispatcher | `bu_out` | `bu out-default` |
 
@@ -121,9 +121,9 @@ bu_register_output_fields "bu get-pokemon" name id type hp attack
 |---|---|
 | `[PSCustomObject]@{...}` | `bu new-record k=v` / `bu_out_record` |
 | ConvertFrom-Csv | `bu convert-from-tsv`, `bu convert-from-lines` |
-| Where-Object | `bu where-object '<jq expr>'` (or raw `jq`) |
-| Select-Object | `bu select-object a,b=version` |
-| Sort-Object | `bu sort-object key [--desc]` |
+| Where-Object | `bu where '<jq expr>'` (or raw `jq`) |
+| Select-Object | `bu select a,b=version` |
+| Sort-Object | `bu sort key [--desc]` |
 | Group-Object + Measure-Object | `group-by` + `agg` (flat records, not nested) |
 | Select-Object -Unique | `bu distinct-object` |
 | Format-Table / Format-List | `bu format-table` / `bu format-list` |
@@ -193,9 +193,9 @@ narrow terminals.
 After a pipe, field names of the producer's records are offered:
 
 ```bash
-bu get-command | bu select-object <TAB>     # name verb noun namespace type definition synopsis fields stage
-bu get-command | bu select-object name,<TAB>  # comma-aware: the remaining fields
-bu get-command | bu where-object <TAB>      # .name .verb .noun .namespace .type .definition .synopsis .fields .stage
+bu get-command | bu select <TAB>     # name verb noun namespace type definition synopsis fields stage
+bu get-command | bu select name,<TAB>  # comma-aware: the remaining fields
+bu get-command | bu where <TAB>      # .name .verb .noun .namespace .type .definition .synopsis .fields .stage
 ```
 
 Sources, in order:

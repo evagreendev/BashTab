@@ -272,7 +272,7 @@ __bu_cli_help()
     echo
     echo "${em}Pipelines${rst}"
     echo "  Commands emit ${em}JSONL${rst} (one JSON object per line). Chain them with | :"
-    echo "    ${dim}${cli} get-command | ${cli} where-object '.type == \"source\"' | ${cli} format-table${rst}"
+    echo "    ${dim}${cli} get-command | ${cli} where '.type == \"source\"' | ${cli} format-table${rst}"
     echo "  Or use classic Unix pipes — jq, awk, etc. work on the JSONL stream."
     echo
     local ctrl_label alt_label

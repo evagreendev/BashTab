@@ -63,7 +63,7 @@ Delete git tags (git tag -d / git push --delete).
 Accepts tag names as positional arguments. When no names are given and stdin
 is a pipe, reads JSONL records and deletes tags from each record's .name field.
 
-  bu get-git-tag | bu where-object '.name | test(\"rc\")' | bu remove-git-tag
+  bu get-git-tag | bu where '.name | test(\"rc\")' | bu remove-git-tag
 
 Flags:
   --remote     Also delete from remote (git push --delete TAG)

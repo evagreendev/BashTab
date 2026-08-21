@@ -594,7 +594,7 @@ function test_bu_get_completion_has_bu { #@test
 
 function test_bu_get_resource_limit_structure { #@test
     local out
-    out=$(bu get-resource-limit | bu where-object '.flag == "-n"')
+    out=$(bu get-resource-limit | bu where '.flag == "-n"')
     [[ "$out" == *'"resource":"open files"'* ]]
     [[ "$out" == *'"soft":'* ]]
     [[ "$out" == *'"hard":'* ]]
@@ -609,7 +609,7 @@ function test_bu_get_umask { #@test
 function test_bu_get_trap_lists_handler { #@test
     local out
     # bats installs its own DEBUG/ERR traps; filter down to ours
-    out=$(trap 'echo hi' USR1; bu get-trap | bu where-object '.signal == "SIGUSR1"')
+    out=$(trap 'echo hi' USR1; bu get-trap | bu where '.signal == "SIGUSR1"')
     assert_equal "$out" '{"signal":"SIGUSR1","handler":"echo hi"}'
 }
 
@@ -731,7 +731,7 @@ function test_bu_measure_command_propagates_exit_code { #@test
 function test_bu_get_history { #@test
     command -v jc >/dev/null || skip "jc not installed"
     local out
-    out=$(history -s 'echo marker-cmd'; bu get-history | bu select-object command | bu where-object '.command == "echo marker-cmd"')
+    out=$(history -s 'echo marker-cmd'; bu get-history | bu select command | bu where '.command == "echo marker-cmd"')
     assert_equal "$out" '{"command":"echo marker-cmd"}'
 }
 
@@ -773,7 +773,7 @@ function test_bu_get_local_user_root { #@test
     command -v jc >/dev/null || skip "jc not installed"
     command -v getent >/dev/null || skip "no getent"
     local out
-    out=$(bu get-local-user | bu where-object '.username == "root"')
+    out=$(bu get-local-user | bu where '.username == "root"')
     [[ "$out" == *'"uid":0'* ]]
 }
 
@@ -781,7 +781,7 @@ function test_bu_get_local_group_root { #@test
     command -v jc >/dev/null || skip "jc not installed"
     command -v getent >/dev/null || skip "no getent"
     local out
-    out=$(bu get-local-group | bu where-object '.group_name == "root"')
+    out=$(bu get-local-group | bu where '.group_name == "root"')
     [[ "$out" == *'"gid":0'* ]]
 }
 
@@ -838,7 +838,7 @@ function test_bu_get_git_branch { #@test
     command -v git >/dev/null || skip "git not installed"
     git -C "$DIR"/.. rev-parse --git-dir >/dev/null 2>&1 || skip "not a git repo"
     local out
-    out=$(bu get-git-branch | bu where-object '.current')
+    out=$(bu get-git-branch | bu where '.current')
     [[ "$out" == *'"current":true'* ]]
 }
 
@@ -856,7 +856,7 @@ function test_bu_get_git_log { #@test
 
 function test_bu_pipeline_get_member_after_select { #@test
     local out
-    out=$(BU_MODULE_LIST='alpha:1.0.0:/a' bu get-module | bu select-object name | bu get-member)
+    out=$(BU_MODULE_LIST='alpha:1.0.0:/a' bu get-module | bu select name | bu get-member)
     assert_equal "$out" '{"name":"name","types":"string","count":1,"null_count":0}'
 }
 

@@ -115,7 +115,7 @@ path, bytes_appended, appended (boolean).
 " \
         --example "Append a line" "--path /tmp/log.txt '[ERROR] something went wrong'" \
         --example "Bare positionals" "/tmp/log.txt '[ERROR] something went wrong'" \
-        --example "Pipeline from get-content" "| bu where-object '.line | test(\"ERROR\")' | bu add-content --path /tmp/errors.log"
+        --example "Pipeline from get-content" "| bu where '.line | test(\"ERROR\")' | bu add-content --path /tmp/errors.log"
     bu_log_trace "after bu_autohelp"
 
     return 0

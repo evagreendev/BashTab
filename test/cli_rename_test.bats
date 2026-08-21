@@ -35,7 +35,7 @@ function test_cli_rename_help_uses_cli_name { #@test
     plain=$(printf '%s' "$output" | sed 's/'$'\e''\[[0-9;]*[a-zA-Z]//g' | sed 's/'$'\e''[()].//g')
     [[ "$plain" == *'Help for xx'* ]]
     [[ "$plain" == *'xx is a Verb-Noun CLI'* ]]
-    [[ "$plain" == *'xx get-command | xx where-object'* ]]
+    [[ "$plain" == *'xx get-command | xx where'* ]]
 }
 
 function test_cli_rename_pipeline_field_completion { #@test
