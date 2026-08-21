@@ -615,6 +615,20 @@ bu_autohelp()
         done
     fi
 
+    # SEE ALSO back-reference: point at this command's subsystem topic when
+    # one is registered (explicit # Help-Topic: header, else parent dir).
+    # Guarded with type -t so autohelp still works in stripped-down contexts
+    # where the help-topic core was not sourced.
+    if type -t bu_help_topic_for_script &>/dev/null
+    then
+        if bu_help_topic_for_script "$script_path"
+        then
+            local _see_also_topic=$BU_RET
+            printf '\n%s\n\n' "${BU_TPUT_BOLD}SEE ALSO${BU_TPUT_RESET}"
+            printf "$padding%s\n" "${BU_CLI_COMMAND_NAME} get-help ${_see_also_topic} (the ${_see_also_topic} subsystem topic)"
+        fi
+    fi
+
     bu_scope_pop_function 2>/dev/null || true
     return "$exit_code"
 }

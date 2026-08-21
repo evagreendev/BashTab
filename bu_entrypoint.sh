@@ -60,10 +60,17 @@ bu_source_user_defined_configs
 
 source ./lib/core/bu_core_var.sh --__bu-once
 source ./lib/core/bu_core_base.sh --__bu-once
-# Location/repo registries are re-sourced every activation (no --__bu-once) so
-# their arrays reset before preinits and the local file re-register entries.
+# Location/repo/help-topic registries are re-sourced every activation (no
+# --__bu-once) so their arrays reset before preinits and the local file
+# re-register entries.
 source ./lib/core/bu_core_location.sh
 source ./lib/core/bu_core_repo.sh
+source ./lib/core/bu_core_help_topic.sh
+# BashTab's own subsystem topics live in <repo>/help and are registered from
+# core (not a module preinit) so the builtin CLI always ships them. They
+# re-register on every activation because bu_core_help_topic.sh resets the
+# registry above, before module preinits add theirs.
+bu_help_topic_register_dir "$BU_DIR/help"
 source ./lib/core/bu_core_out.sh --__bu-once
 source ./lib/core/bu_core_compat.sh --__bu-once
 source ./lib/core/bu_core_cap.sh --__bu-once
