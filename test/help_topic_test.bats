@@ -254,6 +254,7 @@ INNER"
     assert_equal "$(printf '%s\n' "$output" | jq -r '.topic')" "widgets"
     assert_equal "$(printf '%s\n' "$output" | jq -r '.synopsis')" "Widget subsystem"
     assert_equal "$(printf '%s\n' "$output" | jq -r '.file')" "$d/widgets.help.sh"
+    assert_equal "$(printf '%s\n' "$output" | jq -r '.module')" ""
     assert [ -n "$(printf '%s\n' "$output" | jq -r '.source')" ]
 }
 
@@ -386,4 +387,194 @@ function test_core_pipeline_topic { #@test
     assert_output --partial "object protocol"
     assert_output --partial "bu query-object"
     [[ "$output" != *$'\x1B'* ]]
+}
+
+function test_core_config_topic { #@test
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=coretopic
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        bu get-help config
+    ' _ "$DIR"/..
+    assert_success
+    assert_output --partial "declarative configuration"
+    assert_output --partial "bu set-config"
+    assert_output --partial "bu get-config"
+    [[ "$output" != *$'\x1B'* ]]
+
+    # The two config commands back-reference the topic via # Help-Topic:.
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=coretopic
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        bu set-config --help
+    ' _ "$DIR"/..
+    assert_success
+    assert_output --partial "SEE ALSO"
+    assert_output --partial "get-help config"
+
+    # A sibling core command with no # Help-Topic: header does not.
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=coretopic
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        bu get-version --help
+    ' _ "$DIR"/..
+    assert_success
+    refute_output --partial "SEE ALSO"
+}
+
+function test_core_modules_topic { #@test
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=coretopic
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        bu get-help modules
+    ' _ "$DIR"/..
+    assert_success
+    assert_output --partial "module system"
+    assert_output --partial "bu get-module"
+    [[ "$output" != *$'\x1B'* ]]
+
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=coretopic
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        bu get-module --help
+    ' _ "$DIR"/..
+    assert_success
+    assert_output --partial "SEE ALSO"
+    assert_output --partial "get-help modules"
+}
+
+function test_core_commands_topic { #@test
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=coretopic
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        bu get-help commands
+    ' _ "$DIR"/..
+    assert_success
+    assert_output --partial "dispatch"
+    assert_output --partial "bu get-command"
+    [[ "$output" != *$'\x1B'* ]]
+
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=coretopic
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        bu get-command --help
+    ' _ "$DIR"/..
+    assert_success
+    assert_output --partial "SEE ALSO"
+    assert_output --partial "get-help commands"
+}
+
+function test_core_locations_topic { #@test
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=coretopic
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        bu get-help locations
+    ' _ "$DIR"/..
+    assert_success
+    assert_output --partial "named locations"
+    assert_output --partial "bu new-location"
+    assert_output --partial "bu get-repo"
+    [[ "$output" != *$'\x1B'* ]]
+
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=coretopic
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        bu new-location --help
+    ' _ "$DIR"/..
+    assert_success
+    assert_output --partial "SEE ALSO"
+    assert_output --partial "get-help locations"
+}
+
+function test_core_environment_topic { #@test
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=coretopic
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        bu get-help environment
+    ' _ "$DIR"/..
+    assert_success
+    assert_output --partial "activation lifecycle"
+    assert_output --partial "bu import-environment"
+    [[ "$output" != *$'\x1B'* ]]
+
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=coretopic
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        bu import-environment --help
+    ' _ "$DIR"/..
+    assert_success
+    assert_output --partial "SEE ALSO"
+    assert_output --partial "get-help environment"
+}
+
+function test_core_aliases_topic { #@test
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=coretopic
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        bu get-help aliases
+    ' _ "$DIR"/..
+    assert_success
+    assert_output --partial "CLI aliases"
+    assert_output --partial "bu get-alias"
+    assert_output --partial "bu set-alias"
+    [[ "$output" != *$'\x1B'* ]]
+
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=coretopic
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        bu get-alias --help
+    ' _ "$DIR"/..
+    assert_success
+    assert_output --partial "SEE ALSO"
+    assert_output --partial "get-help aliases"
+}
+
+# ===========================================================================
+# Module provenance
+# ===========================================================================
+
+function test_topic_module_provenance { #@test
+    local topic_dir="$BATS_TEST_TMPDIR/topics"
+    mkdir -p "$topic_dir"
+    _write_topic "$topic_dir/widgets.help.sh" "Widget subsystem" "cat <<'INNER'
+Widgets help.
+INNER"
+
+    local preinit="$BATS_TEST_TMPDIR/widgets-preinit.sh"
+    cat > "$preinit" <<EOF
+source "\$BU_NULL"
+bu_help_topic_register_dir "$topic_dir"
+EOF
+
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=widgetsuite
+        export BU_MODULE_LIST="widgetsuite:0.1.0:$1;"
+        source "$2"/bu_entrypoint.sh >/dev/null 2>&1
+        bu get-help --format jsonl
+    ' _ "$preinit" "$DIR"/..
+    assert_success
+
+    # A topic registered from a module preinit is stamped with its module.
+    assert_equal "$(printf '%s\n' "$output" | jq -r 'select(.topic == "widgets") | .module')" "widgetsuite"
+
+    # Core topics (registered from bu_entrypoint.sh, no module context) have no module.
+    assert_equal "$(printf '%s\n' "$output" | jq -r 'select(.topic == "pipeline") | .module')" ""
+
+    # Rendering a module-owned topic prints a "Module:" note; a core topic does not.
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=widgetsuite
+        export BU_MODULE_LIST="widgetsuite:0.1.0:$1;"
+        source "$2"/bu_entrypoint.sh >/dev/null 2>&1
+        bu get-help widgets
+    ' _ "$preinit" "$DIR"/..
+    assert_success
+    assert_output --partial "Module: widgetsuite"
+
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=widgetsuite
+        export BU_MODULE_LIST="widgetsuite:0.1.0:$1;"
+        source "$2"/bu_entrypoint.sh >/dev/null 2>&1
+        bu get-help pipeline
+    ' _ "$preinit" "$DIR"/..
+    assert_success
+    refute_output --partial "Module:"
 }

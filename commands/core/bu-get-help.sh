@@ -2,7 +2,23 @@
 # Dispatch: source
 # Tab-Execute: true
 # Synopsis: Show subsystem-level help topics
-# Fields: topic synopsis file source
+# Fields: topic synopsis file module source
+
+# Render one topic, prefixing a "Module:" line when the topic is owned by a
+# module (core/user-local topics have no module).
+__bu_bu_get_help_render_one()
+{
+    local file=$1
+    local module=$2
+    local bold=$3
+    local reset=$4
+    if [[ -n "$module" ]]
+    then
+        printf '%s\n\n' "${bold}Module:${reset} $module"
+    fi
+    __bu_help_topic_render "$file" "$bold" "$reset"
+}
+
 function __bu_bu_get_help_main()
 {
 local -r invocation_dir=$PWD
@@ -32,7 +48,7 @@ do
         ;;
     --columns)# COLUMNS
         # Fields to display, in order (comma-separated)
-        bu_parse_positional $# --delimited topic synopsis file source delimited-- --hint "Comma-separated fields"
+        bu_parse_positional $# --delimited topic synopsis file module source delimited-- --hint "Comma-separated fields"
         columns=${!shift_by}
         ;;
     -h|--help)# _FLAG
@@ -94,18 +110,19 @@ if ((${#topics[@]} == 0))
 then
     bu_help_topic_names
     local -a topic_names=("${BU_RET[@]}")
-    local name file synopsis src
+    local name file synopsis module src
     {
         for name in "${topic_names[@]}"
         do
             [[ -z "$name" ]] && continue
             file=${BU_HELP_TOPIC_REGISTRY[$name]:-}
+            module=${BU_HELP_TOPIC_PROPERTIES[$name,module]:-}
             src=${BU_HELP_TOPIC_PROPERTIES[$name,source]:-}
             __bu_help_topic_synopsis "$file"
             synopsis=$BU_RET
-            printf '%s\t%s\t%s\t%s\n' "$name" "$synopsis" "$file" "$src"
+            printf '%s\t%s\t%s\t%s\t%s\n' "$name" "$synopsis" "$file" "$module" "$src"
         done
-    } | bu_out_from_tsv --columns topic,synopsis,file,source \
+    } | bu_out_from_tsv --columns topic,synopsis,file,module,source \
         | bu_out --format "$format" ${columns:+--columns "$columns"}
 
     bu_scope_pop_function
@@ -117,6 +134,7 @@ fi
 # in a subshell, so an error detected there could not set our return code.
 local topic
 local -a render_files=()
+local -a render_modules=()
 local -a unknown=()
 for topic in "${topics[@]}"
 do
@@ -124,6 +142,7 @@ do
     if [[ -n "$resolved" ]]
     then
         render_files+=("$resolved")
+        render_modules+=("${BU_HELP_TOPIC_PROPERTIES[$topic,module]:-}")
     else
         unknown+=("$topic")
     fi
@@ -145,16 +164,18 @@ then
         local bold=$BU_TPUT_BOLD
         local reset=$BU_TPUT_RESET
         {
-            for file in "${render_files[@]}"
+            local i
+            for i in "${!render_files[@]}"
             do
-                __bu_help_topic_render "$file" "$bold" "$reset"
+                __bu_bu_get_help_render_one "${render_files[$i]}" "${render_modules[$i]}" "$bold" "$reset"
             done
         } | less -FRX
     else
         {
-            for file in "${render_files[@]}"
+            local i
+            for i in "${!render_files[@]}"
             do
-                __bu_help_topic_render "$file" "" ""
+                __bu_bu_get_help_render_one "${render_files[$i]}" "${render_modules[$i]}" "" ""
             done
         } | cat
     fi

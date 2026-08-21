@@ -141,6 +141,11 @@ bu_help_topic_register()
     __bu_help_topic_provenance
     BU_HELP_TOPIC_REGISTRY[$name]=$file
     BU_HELP_TOPIC_PROPERTIES[$name,source]=$BU_RET
+    # Stamp the owning module (BU_CURRENT_MODULE is set while a module's
+    # preinit callback is sourced; empty for core/user-local registrations).
+    # Mirrors __bu_stamp_command_module so `bu get-help` can show provenance
+    # the same way `bu get-command` does.
+    BU_HELP_TOPIC_PROPERTIES[$name,module]=${BU_CURRENT_MODULE:-}
     return 0
 }
 
