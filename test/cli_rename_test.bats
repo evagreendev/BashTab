@@ -63,6 +63,21 @@ function test_cli_rename_alias_completion { #@test
     assert [ "${#COMPREPLY[@]}" -gt 0 ]
 }
 
+function test_cli_alias_pipeline_field_canonicalization { #@test
+    # A pipeline stage typed with a CLI completion alias must canonicalize
+    # to "bu <cmd>" so the stage-effect registry matches and field
+    # propagation works through transforms (query-object select, etc.).
+    BU_CLI_COMMAND_ALIASES+=(j)
+
+    __bu_out_canonicalize_stage "j query-object select name"
+    assert_equal "$BU_CANONICAL_STAGE" "bu query-object select name"
+
+    local -a _cal_in=(aa bb cc)
+    local -a _cal_out=()
+    __bu_out_analyze_stage "j query-object select name" _cal_in _cal_out
+    assert_equal "${_cal_out[*]}" "name"
+}
+
 function test_cli_rename_parse_command_context_uses_cli_name { #@test
     # bu_parse_command_context must use \$BU_CLI_COMMAND_NAME in its
     # --as-if token, not the hardcoded literal 'bu'.  Otherwise a

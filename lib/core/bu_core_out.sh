@@ -2636,9 +2636,10 @@ __bu_out_pipeline_help()
 # ```
 # *Description*:
 # Canonicalize a pipeline stage text for registry key matching.
-# When BU_CLI_COMMAND_NAME is renamed (e.g. "xx"), rewrites a leading
-# "<cli> " prefix to "bu " so that BU_OUT_PRODUCER_FIELDS and
-# BU_OUT_STAGE_EFFECT lookups (which are keyed on "bu <cmd>") still match.
+# Rewrites a leading "<cli> " prefix to "bu " — where <cli> is either
+# BU_CLI_COMMAND_NAME (renamed CLIs) or a member of BU_CLI_COMMAND_ALIASES
+# (additional completion names) — so that BU_OUT_PRODUCER_FIELDS and
+# BU_OUT_STAGE_EFFECT lookups (keyed on "bu <cmd>") still match.
 #
 # *Params*:
 # - `$1`: Stage text (e.g. "xx get-command --format json")
@@ -2650,15 +2651,38 @@ __bu_out_canonicalize_stage()
 {
     local stage=$1
     BU_CANONICAL_STAGE=$stage
-    if [[ "$BU_CLI_COMMAND_NAME" != bu ]]
+
+    # Fast path: default CLI name and no completion aliases → nothing to rewrite.
+    if [[ "$BU_CLI_COMMAND_NAME" == bu ]] && ((${#BU_CLI_COMMAND_ALIASES[@]} == 0))
     then
-        local -a _canon_words=()
-        read -ra _canon_words <<< "$stage"
-        if [[ "${_canon_words[0]}" == "$BU_CLI_COMMAND_NAME" ]]
-        then
-            _canon_words[0]=bu
-            BU_CANONICAL_STAGE="${_canon_words[*]}"
-        fi
+        return 0
+    fi
+
+    local -a _canon_words=()
+    read -ra _canon_words <<< "$stage"
+    ((${#_canon_words[@]} == 0)) && return 0
+
+    local _first=${_canon_words[0]}
+    local _is_cli_name=false
+    if [[ "$_first" == "$BU_CLI_COMMAND_NAME" ]]
+    then
+        _is_cli_name=true
+    else
+        local _alias
+        for _alias in "${BU_CLI_COMMAND_ALIASES[@]}"
+        do
+            if [[ "$_first" == "$_alias" ]]
+            then
+                _is_cli_name=true
+                break
+            fi
+        done
+    fi
+
+    if "$_is_cli_name"
+    then
+        _canon_words[0]=bu
+        BU_CANONICAL_STAGE="${_canon_words[*]}"
     fi
 }
 
