@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Dispatch: source
 # Synopsis: List registered named locations
+# Help-Topic: locations
 # Fields: name kind path_expr resolved description tags aliases on_enter source
 function __bu_bu_get_location_registry_main()
 {

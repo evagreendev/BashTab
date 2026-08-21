@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Dispatch: source
 # Synopsis: Dashboard of registered git repositories
+# Help-Topic: locations
 # Fields: name path exists is_repo branch dirty ahead behind remote_url gh_slug gh_host default_branch
 function __bu_bu_get_repo_main()
 {

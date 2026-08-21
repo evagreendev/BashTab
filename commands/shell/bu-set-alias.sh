@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Dispatch: source
 # Synopsis: Register a new command alias
+# Help-Topic: aliases
 # Completion helper: defined alias names.
 __bu_bu_set_alias_complete_names()
 {

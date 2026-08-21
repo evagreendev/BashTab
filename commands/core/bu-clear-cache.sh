@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Dispatch: source
 # Synopsis: Clear the BashTab command and compatibility cache
+# Help-Topic: modules
 function __bu_bu_clear_cache_main()
 {
 # --is-compatible: no external dependencies

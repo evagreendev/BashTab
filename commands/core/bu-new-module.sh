@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Dispatch: source
 # Synopsis: Scaffold a new BashTab module
+# Help-Topic: modules
 function __bu_bu_new_module_main()
 {
 set -e

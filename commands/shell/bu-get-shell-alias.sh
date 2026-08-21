@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Dispatch: source
 # Synopsis: Show bash shell aliases (alias builtin)
+# Help-Topic: aliases
 # Fields: name definition
 function __bu_bu_get_shell_alias_main()
 {

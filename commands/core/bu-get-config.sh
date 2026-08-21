@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Dispatch: source
 # Synopsis: List BashTab configuration settings
+# Help-Topic: config
 # Fields: name value default allowed description
 function __bu_bu_get_config_main()
 {

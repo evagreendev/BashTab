@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Dispatch: source
 # Synopsis: Create a new BashTab command from a template
+# Help-Topic: commands
 function __bu_bu_new_command_main()
 {
 set -e

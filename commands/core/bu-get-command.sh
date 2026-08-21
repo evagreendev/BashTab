@@ -2,6 +2,7 @@
 # Dispatch: source
 # Tab-Execute: true
 # Synopsis: List registered commands and their properties
+# Help-Topic: commands
 # Fields: name verb noun namespace type definition synopsis fields stage module
 function __bu_bu_get_command_main()
 {

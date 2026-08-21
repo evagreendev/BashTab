@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Dispatch: source
 # Synopsis: Pop the top directory off the pushd stack
+# Help-Topic: locations
 function __bu_bu_pop_location_main()
 {
 local -r invocation_dir=$PWD

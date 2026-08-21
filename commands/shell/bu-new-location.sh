@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Dispatch: source
 # Synopsis: Add or remove a persistent named location
+# Help-Topic: locations
 function __bu_bu_new_location_main()
 {
 local -r invocation_dir=$PWD

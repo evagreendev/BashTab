@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Dispatch: source
 # Synopsis: Push the current directory onto the pushd stack
+# Help-Topic: locations
 function __bu_bu_push_location_main()
 {
 local -r invocation_dir=$PWD
