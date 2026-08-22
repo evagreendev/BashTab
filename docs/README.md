@@ -2,7 +2,7 @@
 
 **BashTab** is a Bash scripting framework that makes shell development feel like a modern CLI platform. Command scripts, argument parsing, autocompletion, module loading, and interactive fzf previews — all in pure Bash.
 
-![BashTab demo: command listing, fzf completion, structured-output pipeline, and option hints](./demo.gif)
+![BashTab demo: command listing, fzf completion, SQL-style pipeline query, docker option previews, and help topics](./demo.gif)
 
 ## 🌐 Try it in your browser
 
@@ -38,6 +38,12 @@ source /path/to/BashTab/activate
 - **Pipeline-aware completion**: `bu get-command | bu select <TAB>` suggests the producer's fields
 - See [Structured Output](./structured_output.md)
 
+![Structured output: tables on a terminal, JSONL when piped, field completion after a pipe, group-by/agg/having](./demo-pipeline.gif)
+
+**`bu query-object` is a fully interactive DSL** — it completes clause keywords, field names (from pipeline analysis), binary operators, distinct field values (via tab-execute), and `and`/`or` connectors as you type:
+
+![query-object interactive DSL: fields, operators, values, and/or completion](./demo-query.gif)
+
 ### 📦 Module system
 - `BU_MODULE_LIST` — semicolon-separated list of `name:version:preinit_path` entries
 - `bu new-module --name myapp` — scaffold a module with activate / module script / preinit callback / commands directory
@@ -67,6 +73,15 @@ cd fig_specs && pnpm install --ignore-workspace && pnpm build && node ../fig_con
 - `bu get-fig-status` — see which commands on your PATH are covered
 - `bu get-fig-status --useful` — commands on PATH that lack bash completions
 - Automatic fallback: pressing `<TAB>` on an unknown command checks the Fig specs
+
+![External command completion: docker/git subcommands and options with descriptions and previews](./demo-external.gif)
+
+### 📖 Help topics
+- `bu get-help` — list help topics with module provenance
+- `bu get-help <topic>` — rendered topic pages with SEE ALSO back-references
+- `--help` on any command is generated from its parser definition (options, enums, examples)
+
+![Help topics: topic listing, topic detail, and generated --help with examples](./demo-help.gif)
 
 ### 🚀 Datetime releases
 - Calendar-based tags (`v2026.08.15`, `v2026.08.15.1` for same-day) — never a hand-picked semver

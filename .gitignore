@@ -3,6 +3,8 @@ tmp
 node_modules/
 .pnpm-store
 images
+# Demo render intermediates (GIFs are committed; MP4s regenerate via docs/render_demos.sh)
+docs/*.mp4
 # Machine-local settings managed by `bu set-config` (uncommitted by design)
 config/bu_config_local.sh
 shims

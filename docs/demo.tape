@@ -1,56 +1,71 @@
-# BashTab demo — regenerates docs/demo.gif
-# Run from the repo root:  vhs docs/demo.tape
+# BashTab hero demo — regenerates docs/demo.gif
+# Render via docs/render_demos.sh (tapes Output .mp4; ffmpeg converts to .gif
+# because vhs's built-in GIF encoder produces 0-byte files in some containers).
 # Requires: vhs, ttyd, ffmpeg (https://github.com/charmbracelet/vhs)
 # Container note: if chromium fails with a namespace/sandbox error, run as
 #   PATH=/tmp/vhs-bin:$PATH vhs docs/demo.tape   (wrapper that adds --no-sandbox)
+# Note: fzf selections insert NOSPACE — after selecting a command, Enter runs it.
 
-Output docs/demo.gif
+Output docs/demo.mp4
 
 Set Shell "bash"
-Set FontSize 18
-Set Width 1200
-Set Height 675
+Set FontSize 16
+Set Width 1600
+Set Height 900
 Set Padding 16
 Set Theme "Catppuccin Mocha"
-Set TypingSpeed 60ms
+Set TypingSpeed 50ms
 
-# ── Setup: clean prompt, clean module path, deterministic fixtures ──
+# ── Setup: clean prompt, clean module path ─────────────────
 Type "export BU_MODULE_PATH=; cd /home/user/AgentProjects/BashTab && source ./activate 2>/dev/null"
 Enter
 Sleep 2s
-Type "PROMPT_COMMAND=; PS1='$ '; mkdir -p /tmp/bu-demo && cd /tmp/bu-demo; touch report.md notes.txt app.py data.json; clear"
+Type "PROMPT_COMMAND=; PS1='$ '; clear"
 Enter
 Sleep 500ms
 
-# ── Beat 1: `bu` command listing ────────────────────────────
+# ── Beat 1: `bu` command listing ───────────────────────────
 Type "bu"
 Enter
-Sleep 3s
+Sleep 3.5s
 Type "clear"
 Enter
 
-# ── Beat 2: fzf autocomplete with namespace discovery ──────
+# ── Beat 2: fzf autocomplete — verb-noun discovery ─────────
 Type "bu get-"
 Tab
-Sleep 2s
+Sleep 3s
 Type "proc"
 Sleep 1s
 Enter
-Sleep 500ms
+Sleep 800ms
 Enter
-Sleep 2s
+Sleep 2.5s
 Type "clear"
 Enter
 
-# ── Beat 3: structured output pipeline ─────────────────────
-Type "bu get-process | bu where '.mem_percent > 1' | bu sort mem_percent --desc | bu select pid,command,mem_percent"
+# ── Beat 3: structured output — SQL-style query ───────────
+Type "bu get-process | bu query-object where mem_percent -gt 1 select pid,command,mem_percent order-by mem_percent desc first 5"
+Enter
+Sleep 4s
+
+# ── Beat 4: external commands — docker options with preview ─
+Type "docker run --"
+Tab
+Sleep 3s
+Escape
+Sleep 300ms
+Ctrl+U
+Sleep 300ms
+
+# ── Beat 5: help topics ────────────────────────────────────
+Type "bu get-help"
 Enter
 Sleep 3.5s
 
-# ── Beat 4: option completion with hints + preview ─────────
-Type "bu new-command --"
-Tab
-Sleep 4s
-
-# ── Outro: hold the final frame ────────────────────────────
+# ── Outro ──────────────────────────────────────────────────
+Type "clear"
+Enter
+Type "bu get-version"
+Enter
 Sleep 3s
