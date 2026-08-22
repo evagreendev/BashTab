@@ -69,8 +69,12 @@ source ./lib/core/bu_core_help_topic.sh
 # BashTab's own subsystem topics live in <repo>/help and are registered from
 # core (not a module preinit) so the builtin CLI always ships them. They
 # re-register on every activation because bu_core_help_topic.sh resets the
-# registry above, before module preinits add theirs.
+# registry above, before module preinits add theirs. Core topics are stamped
+# as module "bu" (the framework itself).
+_bu_cur_module_prev=${BU_CURRENT_MODULE:-}
+BU_CURRENT_MODULE=bu
 bu_help_topic_register_dir "$BU_DIR/help"
+BU_CURRENT_MODULE=$_bu_cur_module_prev
 source ./lib/core/bu_core_out.sh --__bu-once
 source ./lib/core/bu_core_compat.sh --__bu-once
 source ./lib/core/bu_core_cap.sh --__bu-once

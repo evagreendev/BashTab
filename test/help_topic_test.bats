@@ -556,10 +556,10 @@ EOF
     # A topic registered from a module preinit is stamped with its module.
     assert_equal "$(printf '%s\n' "$output" | jq -r 'select(.topic == "widgets") | .module')" "widgetsuite"
 
-    # Core topics (registered from bu_entrypoint.sh, no module context) have no module.
-    assert_equal "$(printf '%s\n' "$output" | jq -r 'select(.topic == "pipeline") | .module')" ""
+    # Core topics (registered from bu_entrypoint.sh) are stamped as module "bu".
+    assert_equal "$(printf '%s\n' "$output" | jq -r 'select(.topic == "pipeline") | .module')" "bu"
 
-    # Rendering a module-owned topic prints a "Module:" note; a core topic does not.
+    # Rendering a module-owned topic prints a "Module:" note; a core topic prints bu.
     run bash -c '
         export BU_TOP_LEVEL_MODULE=widgetsuite
         export BU_MODULE_LIST="widgetsuite:0.1.0:$1;"
@@ -576,5 +576,5 @@ EOF
         bu get-help pipeline
     ' _ "$preinit" "$DIR"/..
     assert_success
-    refute_output --partial "Module:"
+    assert_output --partial "Module: bu"
 }
