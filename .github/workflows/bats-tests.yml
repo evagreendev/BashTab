@@ -61,6 +61,9 @@ jobs:
         shell: 'script -q -e -c "bash {0}" /dev/null'
         env:
           TERM: xterm-256color
+          # Signal-kill diagnostics for ts_test.bats (only that file reads these).
+          # Debug for the missing test_e2e_cmdsub_command TAP result in CI.
+          TS_TEST_DIAG: 1
         run: |
           source ./activate -t
           bats --jobs "$(nproc)" "${{ matrix.test-file }}"
