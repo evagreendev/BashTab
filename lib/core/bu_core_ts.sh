@@ -33,9 +33,27 @@ __bu_ts_daemon_start()
     coproc BU_TS_COPROC { trap '' INT; node "$BU_TS_DAEMON"; }
     BU_TS_COPROC_PID=$!
 
-    # Set exit trap once to clean up daemon on shell exit
-    if [[ -z "$BU_TS_TRAP_SET" ]]; then
-        trap 'bu_ts_daemon_stop' EXIT
+    # Set exit trap once to clean up daemon on shell exit.
+    # Main shell only (BASH_SUBSHELL): bash runs EXIT traps inside command
+    # substitution subshells too — a subshell that starts the daemon (e.g.
+    # result=$(simulate_selection ...)) would otherwise execute a chained
+    # foreign trap (bats' result printer) at subshell exit. The subshell's
+    # daemon needs no trap: its fds close at subshell exit and the node
+    # process exits on stdin EOF.
+    # Chain onto any existing EXIT trap instead of clobbering it: under bats,
+    # the result line ("ok"/"not ok") is printed by bats' own EXIT trap —
+    # clobbering it makes any failing test vanish from TAP output entirely
+    # ("Executed N instead of M tests").
+    if [[ -z "$BU_TS_TRAP_SET" && $BASH_SUBSHELL -eq 0 ]]; then
+        local existing_trap
+        existing_trap=$(trap -p EXIT)
+        if [[ "$existing_trap" == "trap -- '"* ]]; then
+            existing_trap=${existing_trap#trap -- \'}
+            existing_trap=${existing_trap%\' EXIT}
+            trap "bu_ts_daemon_stop; $existing_trap" EXIT
+        else
+            trap 'bu_ts_daemon_stop' EXIT
+        fi
         BU_TS_TRAP_SET=1
     fi
 
