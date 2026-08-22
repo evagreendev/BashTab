@@ -63,7 +63,15 @@ jobs:
           TERM: xterm-256color
           # Signal-kill diagnostics for ts_test.bats (only that file reads these).
           # Debug for the missing test_e2e_cmdsub_command TAP result in CI.
+          # TRACE=1 xtraces only the vanishing test to fd 3 (=all traces all).
           TS_TEST_DIAG: 1
+          TS_TEST_TRACE: 1
         run: |
           source ./activate -t
-          bats --jobs "$(nproc)" "${{ matrix.test-file }}"
+          rc=0
+          bats --jobs "$(nproc)" "${{ matrix.test-file }}" || rc=$?
+          # Dump per-test TS_TEST_DIAG files: fd-3 writes at process-exit time
+          # are swallowed by the bats runner, so the EXIT record only survives
+          # in these files. Absence of an EXIT line for a vanished test = SIGKILL.
+          cat /tmp/ts_diag.*.log 2>/dev/null || true
+          exit "$rc"

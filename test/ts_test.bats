@@ -8,6 +8,14 @@
 # ---------------------------------------------------------------------------
 # Diagnostic logging (enable with TS_TEST_DIAG=1, optionally TS_TEST_TRACE=1).
 # Proves a missing TAP result is a signal kill and identifies the signal.
+# If no SIGNAL line appears, the EXIT trap (re-chained inside
+# assert_completions after the daemon clobbers it) distinguishes an explicit
+# `exit` (EXIT line with rc) from SIGKILL/OOM (no line at all; check the RSS
+# breadcrumbs for a memory blowup). AC-* breadcrumbs bracket each step of
+# assert_completions so the last printed one localizes the killing call.
+# Note: bats re-installs its own EXIT trap after the test body returns, so
+# EXIT-trap logging is best-effort; TS_TEST_TRACE (xtrace to fd 3, written
+# during execution) is the reliable way to see the exact dying command.
 #
 # IMPORTANT: log to fd 3 (the TAP stream), NOT stderr. Bats redirects the
 # test's stderr into BATS_OUT and only displays it on a normal (non-killed)
@@ -29,7 +37,12 @@ __ts_diag_chain_trap() {
 }
 
 __ts_diag_log() {
-    printf '# TS_DIAG: %s\n' "$*" >&3
+    [[ -n "${TS_TEST_DIAG:-}" ]] || return 0
+    printf '# TS_DIAG: %s\n' "$*" >&3 2>/dev/null || true
+    # Mirror to a per-process file: fd 3 writes made at process-exit time (EXIT
+    # trap) are swallowed by bats' runner, so the file is the authoritative
+    # record. CI dumps /tmp/ts_diag.*.log after the bats run.
+    printf '# TS_DIAG: %s\n' "$*" >> "${TS_TEST_DIAG_FILE:-/tmp/ts_diag.$$.log}" 2>/dev/null || true
 }
 
 __ts_diag_on_signal() {
@@ -37,6 +50,22 @@ __ts_diag_on_signal() {
     __ts_diag_log "SIGNAL pid=$$ sig=$sig test=${BATS_TEST_NAME:-<none>} last=${BASH_COMMAND:-}"
     trap - "$sig"
     kill -"$sig" "$$"
+}
+
+# EXIT trap handler: distinguishes an explicit `exit` (trap fires, rc logged)
+# from SIGKILL (no trap fires, no SIGNAL line either). Must be re-chained
+# AFTER the first bu_ts_parse, because __bu_ts_daemon_start blindly overwrites
+# the EXIT trap with 'bu_ts_daemon_stop'.
+__ts_diag_on_exit() {
+    local rc=$?
+    __ts_diag_log "EXIT pid=$$ rc=$rc test=${BATS_TEST_NAME:-<none>} last=${BASH_COMMAND:-}"
+}
+
+# Memory breadcrumb: if VmRSS explodes before a vanish, suspect OOM (SIGKILL).
+__ts_diag_rss() {
+    local rss
+    rss=$(awk '/VmRSS/{print $2 $3}' /proc/self/status 2>/dev/null)
+    __ts_diag_log "RSS=${rss:-?} $*"
 }
 
 __ts_diag_install() {
@@ -47,10 +76,15 @@ __ts_diag_install() {
         __ts_diag_chain_trap "$sig" "__ts_diag_on_signal $sig"
     done
 
+    # Trace scope: TS_TEST_TRACE=all traces every test; any other truthy
+    # value traces only the vanishing test (keeps CI logs greppable).
+    # pid in PS4 disambiguates interleaved fd-3 streams from parallel jobs.
     if [[ -n "${TS_TEST_TRACE:-}" ]]; then
-        export PS4='+ [${BASH_SOURCE##*/}:${LINENO}] ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
-        BASH_XTRACEFD=3
-        set -x
+        if [[ "$TS_TEST_TRACE" == all || "${BATS_TEST_NAME:-}" == *cmdsub*command* ]]; then
+            export PS4='+ [pid=$$ ${BASH_SOURCE##*/}:${LINENO}] ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
+            BASH_XTRACEFD=3
+            set -x
+        fi
     fi
 }
 
@@ -97,10 +131,19 @@ assert_ts() {
 # ---------------------------------------------------------------------------
 assert_completions() {
     local expected_count=$1 expected_first=$2 input=$3 offset=$4
+    if [[ -n "${TS_TEST_DIAG:-}" ]]; then
+        __ts_diag_log "AC begin input=[$input] offset=$offset"
+        __ts_diag_rss "before bu_ts_parse"
+    fi
     bu_ts_parse "$offset" "$input" 2>/dev/null || {
         echo "TS_PARSE_FAILED" >&2
         return 1
     }
+    if [[ -n "${TS_TEST_DIAG:-}" ]]; then
+        __ts_diag_log "AC parsed kind=${BU_TS_RESULT[cursor,completeKind]:-} cmdWords=[${BU_TS_RESULT[cmdWords]:-}]"
+        # Daemon start clobbered the EXIT trap installed in setup; re-chain now.
+        __ts_diag_chain_trap EXIT "__ts_diag_on_exit"
+    fi
 
     local -a cmd_words=()
     local _saved_ifs=$IFS
@@ -128,11 +171,19 @@ assert_completions() {
         COMPREPLY=($(compgen -A variable -P '${' -S '}' -- "${rt#\$\{}"))
         ;;
     *)
+        if [[ -n "${TS_TEST_DIAG:-}" ]]; then
+            __ts_diag_log "AC dispatch kind=$kind nwords=${#cmd_words[@]}"
+            __ts_diag_rss "before bu_autocomplete_get_autocompletions"
+        fi
         bu_autocomplete_get_autocompletions --accept-ansi-colors "${cmd_words[@]}" 2>/dev/null
+        if [[ -n "${TS_TEST_DIAG:-}" ]]; then
+            __ts_diag_log "AC after autocomplete nCOMPREPLY=${#COMPREPLY[@]}"
+        fi
         ;;
     esac
 
     local count=${#COMPREPLY[@]}
+    __ts_diag_log "AC end input=[$input] count=$count"
     if (( count != expected_count && expected_count >= 0 )); then
         echo "FAIL: completion count expected $expected_count got $count  input=[$input]" >&2
         return 1
