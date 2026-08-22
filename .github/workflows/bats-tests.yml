@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      ts_test_diag:
+        description: 'Enable TS_TEST_DIAG + TS_TEST_TRACE for ts_test.bats debugging'
+        type: boolean
+        default: false
 
 jobs:
   test:
@@ -61,11 +66,10 @@ jobs:
         shell: 'script -q -e -c "bash {0}" /dev/null'
         env:
           TERM: xterm-256color
-          # Signal-kill diagnostics for ts_test.bats (only that file reads these).
-          # Debug for the missing test_e2e_cmdsub_command TAP result in CI.
-          # TRACE=1 xtraces only the vanishing test to fd 3 (=all traces all).
-          TS_TEST_DIAG: 1
-          TS_TEST_TRACE: 1
+          # Signal-kill diagnostics for ts_test.bats (only that file reads
+          # these). Off by default; enable via the workflow_dispatch input.
+          TS_TEST_DIAG: ${{ inputs.ts_test_diag && '1' || '' }}
+          TS_TEST_TRACE: ${{ inputs.ts_test_diag && '1' || '' }}
         run: |
           source ./activate -t
           rc=0
