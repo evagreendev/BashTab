@@ -937,6 +937,11 @@ function test_command_scan_lazy_defers_to_first_dispatch { #@test
         export BU_COMMAND_CACHE_ENABLED=false
         source '$DIR/../bu_entrypoint.sh' || true
         echo \"after-init count=\${#BU_COMMANDS[@]} pending=\${__BU_COMMAND_SCAN_PENDING:-false}\"
+        _all_aliases=true
+        for _c in \"\${!BU_COMMANDS[@]}\"; do
+            [[ \"\${BU_COMMAND_PROPERTIES[\$_c,type]:-}\" == alias ]] || _all_aliases=false
+        done
+        echo \"after-init all-aliases=\$_all_aliases\"
         bu get-verb --format jsonl >/dev/null 2>&1 || true
         echo \"after-dispatch count=\${#BU_COMMANDS[@]} pending=\${__BU_COMMAND_SCAN_PENDING:-false}\"
         bu get-verb --format jsonl >/dev/null 2>&1 || true
@@ -944,19 +949,26 @@ function test_command_scan_lazy_defers_to_first_dispatch { #@test
     "
     assert_success
 
-    # The fully-populated registry size depends on which optional tools are
-    # installed (--is-compatible probes), so assert the scan's behavior
-    # (near-empty -> populated -> stable) rather than a hardcoded count.
+    # Built-in aliases (e.g. gc, where, select, grep, sort) are registered
+    # eagerly in bu_core_preinit.sh — outside the directory scan that lazy mode
+    # defers — so the registry is near-empty but not empty. That count, and the
+    # fully-populated count, both vary across commits/environments, so assert
+    # the scan's *behavior* via relationships instead of hardcoded numbers:
+    #   near-empty at init -> strictly larger after first dispatch -> stable.
     local init_count= dispatch_count= second_count=
     [[ "$output" =~ after-init\ count=([0-9]+) ]] && init_count=${BASH_REMATCH[1]}
     [[ "$output" =~ after-dispatch\ count=([0-9]+) ]] && dispatch_count=${BASH_REMATCH[1]}
     [[ "$output" =~ after-second\ count=([0-9]+) ]] && second_count=${BASH_REMATCH[1]}
 
-    assert_equal "$init_count" 3
-    assert [ "$dispatch_count" -gt 3 ]
+    assert [ "$init_count" -gt 0 ]
+    assert [ "$dispatch_count" -gt "$init_count" ]
     assert_equal "$dispatch_count" "$second_count"
 
-    assert_output --partial 'after-init count=3 pending=true'
+    # Every command present at init is an eagerly-registered alias.
+    assert_output --partial 'after-init all-aliases=true'
+
+    # pending must be set until the first dispatch clears it.
+    assert_output --partial 'pending=true'
     assert_output --partial 'pending=false'
 }
 
