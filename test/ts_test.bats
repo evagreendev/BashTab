@@ -31,7 +31,10 @@ __ts_diag_chain_trap() {
     if [[ "$existing" == "trap -- '"* ]]
     then
         existing=${existing#trap -- \'}
-        existing=${existing%\' "$sig"}
+        # trap -p echoes the signal name AS SET, possibly SIG-prefixed (under
+        # a pty bats installs e.g. SIGINT/SIGALRM handlers) — so strip the
+        # trailing "' SIGNAME" token generically instead of matching "$sig".
+        existing=${existing%\' *}
         eval "trap '$handler; $existing' $sig"
     else
         trap "$handler" "$sig"
