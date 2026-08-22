@@ -26,7 +26,9 @@ __ts_diag_chain_trap() {
     local sig=$1 handler=$2
     local existing
     existing=$(trap -p "$sig" 2>/dev/null)
-    if [[ "$existing" == "trap -- '*"* ]]
+    # Note: the glob must be "trap -- '"* — writing "trap -- '*"* quotes the
+    # asterisk and demands a literal '*', which never matches.
+    if [[ "$existing" == "trap -- '"* ]]
     then
         existing=${existing#trap -- \'}
         existing=${existing%\' "$sig"}
@@ -128,6 +130,9 @@ assert_ts() {
 # ---------------------------------------------------------------------------
 # Helper: get completions via tree-sitter dispatch and check count + content.
 # Usage: assert_completions EXPECTED_COUNT FIRST_EXPECTED INPUT OFFSET
+# FIRST_EXPECTED: "str" = first completion must start with str;
+#                 "*str" = SOME completion must start with str (contains-mode,
+#                 robust against environment-dependent candidate ordering).
 # ---------------------------------------------------------------------------
 assert_completions() {
     local expected_count=$1 expected_first=$2 input=$3 offset=$4
@@ -189,7 +194,22 @@ assert_completions() {
         return 1
     fi
 
-    if [[ -n "$expected_first" ]]; then
+    if [[ "$expected_first" == \** ]]; then
+        # Contains-mode: candidate set/order depends on what is installed on
+        # the machine (e.g. CI runners ship gresource, which sorts before
+        # grep), so assert membership rather than position.
+        local want=${expected_first#\*}
+        local c found=false
+        for c in "${COMPREPLY[@]}"; do
+            c=$(sed -r $'s/\x1B\\[[0-9;]*[mGK]//g' <<<"$c")
+            c=$(sed -r $'s/\x1B\\(B//g' <<<"$c")
+            if [[ "$c" == "$want"* ]]; then found=true; break; fi
+        done
+        if ! "$found"; then
+            echo "FAIL: no completion starts with [$want]  input=[$input]  COMPREPLY=[${COMPREPLY[*]}]" >&2
+            return 1
+        fi
+    elif [[ -n "$expected_first" ]]; then
         # Strip ANSI from first completion for comparison
         local first=$(sed -r $'s/\x1B\\[[0-9;]*[mGK]//g' <<<"${COMPREPLY[0]}")
         first=$(sed -r $'s/\x1B\\(B//g' <<<"$first")
@@ -466,7 +486,8 @@ function test_e2e_prefix_in_quotes { #@test
 
 function test_e2e_cmdsub_command { #@test
     # ls $(gre<TAB> — complete command name inside $()
-    assert_completions -1 "grep" 'ls $(gre' 8
+    # Contains-mode: CI runner images ship gresource, which can sort first.
+    assert_completions -1 "*grep" 'ls $(gre' 8
 }
 
 function test_e2e_cmdsub_arg { #@test
