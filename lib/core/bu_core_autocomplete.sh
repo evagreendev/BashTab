@@ -2122,7 +2122,10 @@ __bu_autocomplete_completion_func_master_impl()
     if [[ -n "$bu_autocomplete_hint" ]]
     then
         compopt -o nosort # Bash 4.4+
-        if ! "$BU_AUTOCOMPLETE_ACCEPT_ANSI_COLORS"
+        # May be unset in the plain bash completion path (the variable is
+        # only set, as a local, by the fzf binding entry point), so default
+        # it: a bare "$VAR" here executes an empty command name.
+        if ! "${BU_AUTOCOMPLETE_ACCEPT_ANSI_COLORS:-false}"
         then
             if ((!${#COMPREPLY[@]}))
             then

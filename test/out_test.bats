@@ -585,6 +585,86 @@ function test_pipeline_fields_no_pipe_empty { #@test
     assert_failure
 }
 
+function test_pipeline_fields_comp_line_fallback { #@test
+    # Completion drivers that expose the full line in COMP_LINE but truncate
+    # COMP_WORDS to the post-pipe segment still resolve the producer
+    local command_line_front_before_pipe= pipe_before=
+    COMP_WORDS=(bu select "")
+    COMP_CWORD=2
+    COMP_LINE='bu get-command | bu select '
+    COMP_POINT=${#COMP_LINE}
+    __bu_out_complete_pipeline_fields ""
+    assert_equal "${BU_RET[*]}" "name verb noun namespace type definition synopsis fields stage module"
+    unset COMP_LINE COMP_POINT
+}
+
+function test_pipeline_fields_comp_line_multi_stage { #@test
+    # The last unquoted pipe delimits the producer; earlier stages stay intact
+    local command_line_front_before_pipe= pipe_before=
+    COMP_LINE='bu get-command | bu where name | bu select '
+    COMP_POINT=${#COMP_LINE}
+    __bu_out_resolve_producer
+    assert_equal "$BU_RET" "bu get-command | bu where name"
+    unset COMP_LINE COMP_POINT
+}
+
+function test_pipeline_fields_comp_line_segment_separators { #@test
+    # The producer starts after any earlier ;, && or || segment separator
+    local command_line_front_before_pipe= pipe_before=
+    local line
+    for line in \
+        'false || bu get-command | bu select ' \
+        'true && bu get-command | bu select ' \
+        'true; bu get-command | bu select '
+    do
+        COMP_LINE=$line
+        COMP_POINT=${#COMP_LINE}
+        __bu_out_resolve_producer
+        assert_equal "$BU_RET" "bu get-command"
+    done
+    unset COMP_LINE COMP_POINT
+}
+
+function test_pipeline_fields_comp_line_quoted_pipe_ignored { #@test
+    # Pipes inside quotes are not segment boundaries
+    local command_line_front_before_pipe= pipe_before=
+    COMP_LINE='echo "a | b" | bu select '
+    COMP_POINT=${#COMP_LINE}
+    __bu_out_resolve_producer
+    assert_equal "$BU_RET" 'echo "a | b"'
+    unset COMP_LINE COMP_POINT
+}
+
+function test_pipeline_fields_comp_line_no_pipe { #@test
+    local command_line_front_before_pipe= pipe_before=
+    COMP_WORDS=(bu select "")
+    COMP_CWORD=2
+    COMP_LINE='bu select '
+    COMP_POINT=${#COMP_LINE}
+    run __bu_out_complete_pipeline_fields ""
+    assert_failure
+    unset COMP_LINE COMP_POINT
+}
+
+function test_master_impl_hint_without_ansi_local { #@test
+    # Regression: with the fzf binding disabled (plain bash completion),
+    # BU_AUTOCOMPLETE_ACCEPT_ANSI_COLORS is unset; the hint path must not
+    # execute an empty command name ("bash: : command not found")
+    local command_line_front_before_pipe= pipe_before=
+    COMP_WORDS=(bu select "")
+    COMP_CWORD=2
+    COMP_LINE='bu select '
+    COMP_POINT=${#COMP_LINE}
+    local errfile=$BATS_TEST_TMPDIR/master-impl-stderr
+    __bu_autocomplete_completion_func_master_impl \
+        "${BU_COMMANDS[query-object]}" "" --select 2 "" \
+        "${BU_COMMANDS[query-object]}" --select "" 2>"$errfile"
+    run grep -c "command not found" "$errfile"
+    assert_failure # grep finds no match
+    assert_equal "${COMPREPLY[0]}" "Hint: Fields, new=old renames"
+    unset COMP_LINE COMP_POINT
+}
+
 function test_pipeline_fields_comma_excludes_used { #@test
     local command_line_front_before_pipe="bu get-command | "
     __bu_out_complete_pipeline_fields "name,ve"

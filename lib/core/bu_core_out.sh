@@ -1627,9 +1627,12 @@ bu_register_output_fields()
 #
 # *Notes*:
 # - Producer resolution order: `command_line_front_before_pipe` (fzf binding),
-#   then `pipe_before` (tree-sitter binding), then a `COMP_WORDS` walk.
-#   All are read via dynamic scope from the completion machinery.
+#   then `pipe_before` (tree-sitter binding), then a `COMP_WORDS` walk, then
+#   a `COMP_LINE`/`COMP_POINT` scan. All are read via dynamic scope from the
+#   completion machinery.
 # - The COMP_WORDS fallback requires the pipe as a standalone word (`a | b`).
+# - The COMP_LINE fallback covers the plain bash completion path (fzf binding
+#   disabled), where COMP_WORDS only contains the post-pipe segment.
 # ```
 bu_complete_delimited()
 {
@@ -1979,10 +1982,104 @@ __bu_autocomplete_fig_completion_func()
 #
 # *Notes*:
 # - Producer resolution order: `command_line_front_before_pipe` (fzf binding),
-#   then `pipe_before` (tree-sitter binding), then a `COMP_WORDS` walk.
-#   All are read via dynamic scope from the completion machinery.
+#   then `pipe_before` (tree-sitter binding), then a `COMP_WORDS` walk, then
+#   a `COMP_LINE`/`COMP_POINT` scan. All are read via dynamic scope from the
+#   completion machinery.
 # - The COMP_WORDS fallback requires the pipe as a standalone word (`a | b`).
+# - The COMP_LINE fallback covers the plain bash completion path (fzf binding
+#   disabled), where COMP_WORDS only contains the post-pipe segment.
 # ```
+# ```
+# *Description*:
+# Recover the producer pipeline from the raw command line. Used as a last
+# resort by `__bu_out_resolve_producer` in the plain bash completion path
+# (fzf binding disabled), where bash hands the completion function only the
+# command segment after the last pipe, so neither the binding locals nor
+# COMP_WORDS can see the producer.
+#
+# Scans `${COMP_LINE:0:COMP_POINT}` for the last unquoted, single `|` and
+# returns everything before it (cut at any earlier unquoted `;`, `&&`, `||`,
+# `&` segment separator). Quote- and backslash-aware, but not
+# command-substitution-aware: a pipe inside `$( )` may misresolve, in which
+# case downstream registry matching simply finds no fields.
+#
+# *Returns*:
+# - `$BU_RET`: Producer pipeline text (trimmed)
+# - `$BU_RET_EVAL`: Same text, eval-able as typed
+# - exit 0 on success, 1 if no usable pipe was found
+# ```
+__bu_out_resolve_producer_from_comp_line()
+{
+    BU_RET=
+    BU_RET_EVAL=
+    [[ -n "${COMP_LINE:-}" ]] || return 1
+    local -r line_prefix=${COMP_LINE:0:${COMP_POINT:-${#COMP_LINE}}}
+
+    local -i last_pipe=-1
+    local -i seg_op=-1
+    local -i seg_op_at_pipe=-1
+    local in_squote=false
+    local in_dquote=false
+    local -i ci
+    local ch
+    for (( ci = 0; ci < ${#line_prefix}; ci++ ))
+    do
+        ch=${line_prefix:ci:1}
+        if "$in_squote"
+        then
+            [[ "$ch" == "'" ]] && in_squote=false
+            continue
+        fi
+        if "$in_dquote"
+        then
+            case "$ch" in
+            '"') in_dquote=false ;;
+            '\\') ((ci++)) ;;
+            esac
+            continue
+        fi
+        case "$ch" in
+        "'") in_squote=true ;;
+        '"') in_dquote=true ;;
+        '\\') ((ci++)) ;;
+        '|')
+            if [[ "${line_prefix:ci+1:1}" == '|' ]]
+            then
+                # '||' is a segment separator, not a pipe. Point at the
+                # second char so the producer starts after both.
+                seg_op=$((ci + 1))
+                ((ci++))
+            else
+                last_pipe=$ci
+                seg_op_at_pipe=$seg_op
+            fi
+            ;;
+        ';')
+            seg_op=$ci
+            ;;
+        '&')
+            # Both '&' (background) and '&&' separate segments
+            seg_op=$ci
+            if [[ "${line_prefix:ci+1:1}" == '&' ]]
+            then
+                seg_op=$((ci + 1))
+                ((ci++))
+            fi
+            ;;
+        esac
+    done
+    (( last_pipe >= 0 )) || return 1
+
+    local producer_str=${line_prefix:seg_op_at_pipe+1:last_pipe-seg_op_at_pipe-1}
+    # Trim leading/trailing whitespace
+    producer_str=${producer_str#"${producer_str%%[![:space:]]*}"}
+    producer_str=${producer_str%"${producer_str##*[![:space:]]}"}
+    [[ -n "$producer_str" ]] || return 1
+
+    BU_RET=$producer_str
+    BU_RET_EVAL=$producer_str
+}
+
 __bu_out_resolve_producer()
 {
     BU_RET=
@@ -2000,9 +2097,18 @@ __bu_out_resolve_producer()
         producer_str=${producer_str%|}
         producer_str=${producer_str%"${producer_str##*[![:space:]]}"}
         BU_RET_EVAL=$producer_str
+    elif __bu_out_resolve_producer_from_comp_line
+    then
+        # The completion driver exposes the raw command line: recover the
+        # producer from the last unquoted pipe before the cursor. This path
+        # needs neither COMP_WORDS nor COMP_CWORD.
+        producer_str=$BU_RET
     else
         # Fallback: walk COMP_WORDS (dynamically scoped from the completion
-        # driver) for the pipe that starts the current command segment
+        # driver) for the pipe that starts the current command segment.
+        # Note plain bash completion (fzf binding disabled) hands the
+        # completion function only the segment after the last pipe, so this
+        # walk can only succeed for drivers that pass full-line COMP_WORDS.
         [[ -z "$COMP_CWORD" ]] && return 1
         local i pipe_idx=
         for (( i = COMP_CWORD - 1; i >= 0; i-- ))
