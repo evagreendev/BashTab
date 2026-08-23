@@ -78,7 +78,10 @@ __bu_prompt_command_hook()
 # ```
 __bu_prompt_show_module()
 {
-    [[ $- == *i* ]] || return
+    # `return 0`, not `return`: a bare return propagates the failed [[ ]] status
+    # (1), which aborts the caller under `set -e` when the shell is
+    # non-interactive and BU_PROMPT_SHOW_MODULE=true (see AGENTS.md set -e rules).
+    [[ $- == *i* ]] || return 0
 
     local module=${BU_TOP_LEVEL_MODULE:-}
     if [[ -z "$module" || "$module" == "$__BU_PROMPT_MODULE_DISPLAYED" ]]; then
