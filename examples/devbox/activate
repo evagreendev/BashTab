@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# ── Top-level entrypoint (host project) ───────────────────────────
+# devbox is a tiny host that consumes gitshelf as a LIBRARY dependency, to
+# demonstrate the library/binary duality of the BashTab module system.
+#
+# Two rules make this composition safe:
+#   1. The host sources the library's *_bu_module.sh (never its `activate`,
+#      which would fight for the top-level role and clobber our cache key).
+#   2. Only the top-level calls bu_mark_load_complete — the library's commands
+#      are cached under OUR key ("devbox"), one registry, one help system.
+function __devbox_activate()
+{
+    local -r devbox_invocation_dir=$PWD
+    local devbox_dir
+    case "${BASH_SOURCE[0]}" in
+        */*) devbox_dir=${BASH_SOURCE[0]%/*} ;;
+        *)   devbox_dir=. ;;
+    esac
+    devbox_dir=$(cd -- "$devbox_dir" && pwd -P)
+
+    # Locate BashTab (the demo lives under examples/).
+    if [[ -z "${DEVBOX_BASHTAB_DIR:-}" ]]
+    then
+        DEVBOX_BASHTAB_DIR=$(cd -- "$devbox_dir/../.." && pwd -P)
+    fi
+
+    # ── BEFORE bu_entrypoint.sh: bu is NOT available yet ───────────
+
+    # Set the top-level module key BEFORE sourcing the entrypoint so the
+    # command registry can be cached under it.
+    export BU_TOP_LEVEL_MODULE=devbox
+
+    # Register the host module first, then its library dependencies.
+    export BU_MODULE_LIST="devbox:0.1.0:${devbox_dir}/devbox_bu_preinit.sh;"
+
+    # Dependency modules, opt-in by presence. Sourcing gitshelf's LIBRARY
+    # entrypoint (not its activate) appends its preinit to BU_MODULE_LIST.
+    if [[ -r "$devbox_dir/../gitshelf/gitshelf_bu_module.sh" ]]
+    then
+        source "$devbox_dir/../gitshelf/gitshelf_bu_module.sh"
+    fi
+
+    export BU_USER_DEFINED_CLI_COMMAND_NAME=devbox
+    export BU_OUT_DIR=${BU_OUT_DIR:-"$devbox_dir/.bu"}
+    export BU_CONFIG_LOCAL_FILE="$devbox_dir/.bu/bu_config_local.sh"
+
+    # ── Main init: bu becomes available here ───────────────────────
+    # shellcheck source=./bu_entrypoint.sh
+    source "$DEVBOX_BASHTAB_DIR"/bu_entrypoint.sh
+
+    # Cache the command registry (devbox's AND gitshelf's commands) under
+    # the single key "devbox". No-op if the cache was already loaded.
+    bu_mark_load_complete
+
+    bu_log_info "devbox ready — try: devbox get-repo, devbox get-env, devbox get-module"
+}
+
+__devbox_activate "$@"
+unset -f __devbox_activate

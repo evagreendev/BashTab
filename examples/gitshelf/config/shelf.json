@@ -1,0 +1,6 @@
+{
+    "repos": {
+        "bashtab":  { "path": "~/src/BashTab", "tags": ["shell"], "comment": "the framework itself" },
+        "dotfiles": { "path": "~/dotfiles",    "tags": ["home"],  "comment": "" }
+    }
+}

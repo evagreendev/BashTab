@@ -4,14 +4,64 @@ case "${BASH_SOURCE}" in
 *) pushd . &>/dev/null ;; # This seems like duplicate work but we need to match the popd later
 esac
 
-function bu_activate_impl() 
+function bu_activate_impl()
 {
 local force=${BU_SOURCE_IS_FORCE:-false}
+local example_module=
+local arg
+local example_activate
+
+# Legacy single-letter flags are matched as substrings of the whole arg list:
+#   -f  force re-source of --__bu-once files
+#   -e  examples environment
+#   -t  test environment
 case "$*" in
 *f*)
     force=true
     ;;
 esac
+
+# `--example <name>` (or `--example=<name>`) activates one of the demo modules
+# under examples/ INSTEAD of plain BashTab:
+#   source ./activate --example gitshelf   → the `shelf` CLI
+#   source ./activate --example devbox     → the `devbox` CLI
+# The module's own activate becomes the top-level entrypoint: it sets its own
+# BU_TOP_LEVEL_MODULE / CLI name and calls bu_mark_load_complete, so we must
+# not pre-set the top-level module key here (that would defeat its
+# ${VAR:-default}).
+for arg in "$@"
+do
+    case "$arg" in
+    --example)
+        example_module=__next__
+        ;;
+    --example=*)
+        example_module=${arg#--example=}
+        ;;
+    *)
+        if [[ "$example_module" == __next__ ]]
+        then
+            example_module=$arg
+        fi
+        ;;
+    esac
+done
+[[ "$example_module" == __next__ ]] && example_module=
+
+if [[ -n "$example_module" ]]
+then
+    example_activate="./examples/$example_module/activate"
+    if [[ -r "$example_activate" ]]
+    then
+        BU_SOURCE_IS_FORCE="$force" source "$example_activate"
+    else
+        echo "bu: unknown example module '$example_module' (expected one of: gitshelf, devbox)" >&2
+        popd &>/dev/null
+        return 1
+    fi
+    popd &>/dev/null
+    return 0
+fi
 
 # Default top-level module key for standalone BashTab use.
 # Downstream projects should set their own BU_TOP_LEVEL_MODULE
@@ -35,5 +85,3 @@ popd &>/dev/null
 }
 
 bu_activate_impl "$@"
-
-

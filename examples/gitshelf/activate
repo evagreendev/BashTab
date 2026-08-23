@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# ── Binary entrypoint ──────────────────────────────────────────────
+# Source this file to activate a standalone gitshelf shell:
+#
+#     source examples/gitshelf/activate
+#     shelf get-repo
+#
+# The same checkout is also consumable as a library: a host project sources
+# gitshelf_bu_module.sh (never this file) and its commands appear alongside the
+# host's own. This file is the BINARY entrypoint — it becomes the top-level
+# module and owns command caching.
+function __gitshelf_activate()
+{
+    local -r gitshelf_invocation_dir=$PWD
+    local gitshelf_dir
+    case "${BASH_SOURCE[0]}" in
+        */*) gitshelf_dir=${BASH_SOURCE[0]%/*} ;;
+        *)   gitshelf_dir=. ;;
+    esac
+    gitshelf_dir=$(cd -- "$gitshelf_dir" && pwd -P)
+
+    # ── Already-initialized-shell guard ────────────────────────────
+    # If a BashTab shell is already live (bu is loaded), we must never hijack
+    # it: the user already has a top-level module and a command registry.
+    if type -t bu_mark_load_complete &>/dev/null
+    then
+        if [[ "$BU_MODULE_LIST" == "gitshelf:"* || "$BU_MODULE_LIST" == *";gitshelf:"* ]]
+        then
+            bu_log_info "gitshelf already active under ${BU_TOP_LEVEL_MODULE} — commands available via '${BU_USER_DEFINED_CLI_COMMAND_NAME:-bu}'"
+            return 0
+        fi
+        bu_log_warn "A BashTab shell is already initialized (top-level module: ${BU_TOP_LEVEL_MODULE:-unknown})."
+        bu_log_warn "gitshelf was NOT activated. Either start a fresh shell, or add gitshelf as a"
+        bu_log_warn "library dependency by sourcing gitshelf_bu_module.sh in this project's activate script."
+        return 0
+    fi
+
+    # ── BEFORE bu_entrypoint.sh: bu is NOT available yet ───────────
+    # Nothing in this block may call any bu_* function.
+
+    # Locate BashTab. The demo lives in examples/, so the default is a
+    # relative path into the repo; override via GITSHELF_BASHTAB_DIR.
+    if [[ -z "${GITSHELF_BASHTAB_DIR:-}" ]]
+    then
+        GITSHELF_BASHTAB_DIR=$(cd -- "$gitshelf_dir/../.." && pwd -P)
+    fi
+
+    # Register this module. The top-level sets BU_MODULE_LIST directly.
+    export BU_MODULE_LIST="gitshelf:0.1.0:${gitshelf_dir}/gitshelf_bu_preinit.sh;"
+
+    # Set the top-level module key so the command registry can be cached.
+    # Must be set BEFORE sourcing bu_entrypoint.sh so the cache is checked.
+    export BU_TOP_LEVEL_MODULE="${BU_TOP_LEVEL_MODULE:-gitshelf}"
+
+    # The CLI the user types: `shelf ...` (override via GITSHELF_CLI_NAME).
+    export BU_USER_DEFINED_CLI_COMMAND_NAME=${GITSHELF_CLI_NAME:-shelf}
+
+    # Keep runtime artifacts (cache/log/tmp/history) inside the module tree
+    # so the demo doesn't scribble on the user's home directory.
+    export BU_OUT_DIR=${BU_OUT_DIR:-"$gitshelf_dir/.bu"}
+
+    # Machine-local settings live in the module tree too.
+    export BU_CONFIG_LOCAL_FILE="$gitshelf_dir/.bu/bu_config_local.sh"
+
+    # ── Main init: bu becomes available here ───────────────────────
+    # shellcheck source=./bu_entrypoint.sh
+    source "$GITSHELF_BASHTAB_DIR"/bu_entrypoint.sh
+
+    # Cache the command registry so subsequent activations skip the scan.
+    # No-op if the cache was already loaded from disk.
+    bu_mark_load_complete
+
+    # ── AFTER init: bu is fully available ──────────────────────────
+    bu_log_info "gitshelf ready — try: shelf get-repo --format table"
+}
+
+__gitshelf_activate "$@"
+unset -f __gitshelf_activate

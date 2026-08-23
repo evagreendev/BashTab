@@ -8,3 +8,7 @@ docs/*.mp4
 # Machine-local settings managed by `bu set-config` (uncommitted by design)
 config/bu_config_local.sh
 shims
+
+# Demo module runtime artifacts (BU_OUT_DIR under each example module tree)
+examples/gitshelf/.bu/
+examples/devbox/.bu/
