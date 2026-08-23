@@ -448,7 +448,9 @@ bu_out_record()
         esac
         prog+="$sep\"$key\":\$v$i"
         sep=,
-        ((i++))
+        # `: $((i++))`, not bare `((i++))`: the bare form returns 1 when the
+        # post-increment evaluates to 0, which aborts callers under `set -e`.
+        : $((i++))
     done
     "$BU_OUT_JQ" -cn "${jq_args[@]}" "{$prog}"
 }
