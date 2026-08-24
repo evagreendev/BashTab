@@ -173,6 +173,31 @@ __bu_location_resolve_key()
 
 # ```
 # *Description*:
+# Map a name or alias to its canonical storage key.  Identity for
+# non-aliases and for names that are not registered at all.
+#
+# Unlike `__bu_location_resolve_key`, this NEVER errors: embedders use it to
+# probe properties of a name that may legitimately be unregistered (e.g.
+# `BU_LOCATION_PROPERTIES[$canonical,tags]` before deciding whether to
+# resolve). An unknown name maps to itself so the subsequent property lookup
+# simply yields empty rather than emitting an "Unknown location" error.
+#
+# *Params*:
+# - `$1`: name or alias
+#
+# *Returns*:
+# - BU_RET: canonical storage key (identity for non-aliases/unknown names)
+# - Always 0
+# ```
+bu_location_canonical_name()
+{
+    local name=$1
+    BU_RET=${BU_LOCATION_ALIASES[$name]:-$name}
+    return 0
+}
+
+# ```
+# *Description*:
 # Clear an entry's registry slot, all its properties, and every alias that
 # points at it.  Used by overwrite and unregister so stale resolver/path/alias
 # data never lingers.
@@ -401,7 +426,12 @@ bu_location_names()
         --kind)          kind=$2; shift 2 ;;
         --tag)           tag=$2; shift 2 ;;
         --with-aliases)  with_aliases=true; shift ;;
-        *) bu_log_err "bu_location_names: unknown option[$1]"; return 1 ;;
+        # Completion-feed contract: `--stdout bu_location_names ...` appends
+        # the user's in-progress word (`opt_cur_word`), which may be `''`,
+        # `--`, or any partial token. Erroring here would spray
+        # `bu_location_names: unknown option[...]` onto the prompt on every
+        # Tab press, so unrecognized words are silently ignored.
+        *) shift ;;
         esac
     done
 

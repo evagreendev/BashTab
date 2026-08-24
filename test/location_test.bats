@@ -102,6 +102,50 @@ function test_location_names_filters { #@test
     assert_equal "$out" tg
 }
 
+function test_location_names_tolerates_stray_words { #@test
+    # The completion-feed contract: `--stdout bu_location_names ...` appends
+    # the in-progress word ('' / '--' / a partial token). These must be
+    # ignored without erroring and without breaking the listing.
+    local out
+    bu_location_register tagged --path /tmp --tags work,important --alias tg
+    bu_location_register fl --kind file --path /etc/hosts
+
+    run bu_location_names --kind dir --
+    assert_success
+    assert_output --partial tagged
+
+    run bu_location_names --kind dir ''
+    assert_success
+    assert_output --partial tagged
+
+    run bu_location_names --kind dir ta
+    assert_success
+    assert_output --partial tagged
+}
+
+function test_location_canonical_name_contract { #@test
+    bu_location_register canon --path /tmp --alias al
+
+    local rc
+    # Alias maps to canonical
+    bu_location_canonical_name al
+    rc=$?
+    assert_equal "$rc" 0
+    assert_equal "$BU_RET" canon
+
+    # Canonical maps to itself
+    bu_location_canonical_name canon
+    rc=$?
+    assert_equal "$rc" 0
+    assert_equal "$BU_RET" canon
+
+    # Unregistered name maps to itself, rc=0 (no unknown-location error)
+    bu_location_canonical_name nosuch
+    rc=$?
+    assert_equal "$rc" 0
+    assert_equal "$BU_RET" nosuch
+}
+
 function test_location_register_on_enter_non_dir_rejected { #@test
     run bu_location_register fl --kind file --path /etc/hosts --on-enter myhook
     assert_failure
