@@ -981,8 +981,30 @@ bu_parse_inject()
     "$inject_impl" "${inject_args[@]}"
     local inject_rc=$?
 
+    # Restore the outer loop's shift state. This DIFFERS from
+    # `bu_parse_nested` on purpose: nested shifts PAST the current token
+    # (`shift "$shift_by"`), so the impl counts only the tokens after it and
+    # `shift_by = saved_shift_by + __bu_g_shift_by` is correct. Inject
+    # instead RE-PRESENTS the current token (`shift "$((saved_shift_by - 1))"`
+    # above), so the impl's own `bu_parse_multiselect`/`bu_parse_positional`
+    # calls re-count it in `__bu_g_shift_by`. Adding both counts would
+    # double-count the token, which is exactly what the symmetric
+    # `shift_by=$saved_shift_by; shift_by += __bu_g_shift_by` restoration
+    # here would do — so do NOT "clean up" this asymmetry back to nested's
+    # form.
     shift_by=$saved_shift_by
-    : $((shift_by += __bu_g_shift_by))
+    if (( __bu_g_shift_by > 0 ))
+    then
+        # The impl consumed at least one token: the re-presented token is
+        # already included in __bu_g_shift_by, so drop it from the outer
+        # count (guarded for saved_shift_by == 0, where no token was
+        # re-presented).
+        : $((shift_by += __bu_g_shift_by))
+        (( saved_shift_by > 0 )) && : $((shift_by -= 1))
+    fi
+    # Impl consumed nothing (rejected the token): leave shift_by at the
+    # outer value so the outer loop still advances past the token after the
+    # whole `||` chain rejects.
 
     return "$inject_rc"
 }
