@@ -1,9 +1,9 @@
 #!/usr/bin/env -S bats --jobs 16
 
 # Module provenance: commands registered from a BU_MODULE_LIST preinit
-# callback carry their owning module, core builtins are untagged, and the
-# first-word dropdown metadata surfaces the module tag (only when more than
-# one module is loaded).
+# callback carry their owning module, core builtins are stamped as module
+# "bu", and the first-word dropdown metadata surfaces the module tag (only
+# when more than one module is loaded).
 
 setup() {
     load "test_helper/bats-assert/load.bash"
@@ -44,14 +44,16 @@ function test_module_provenance_property_and_dir_map { #@test
         source "$2"/bu_entrypoint.sh >/dev/null 2>&1
         echo "FIXTURE_MODULE=$(bu get-command --format jsonl 2>/dev/null | jq -r "select(.name == \"get-alpha-thing\") | .module")"
         echo "CORE_MODULE=$(bu get-command --format jsonl 2>/dev/null | jq -r "select(.name == \"get-command\") | .module")"
+        echo "CORE_ALIAS_MODULE=$(bu get-command --format jsonl 2>/dev/null | jq -r "select(.name == \"gc\") | .module")"
         echo "DIR_MAP_COUNT=$(printf "%s\n" "${!BU_COMMAND_SEARCH_DIR_MODULE[@]}" | grep -c .)"
-        echo "DIR_MAP_VALUE=$(printf "%s\n" "${BU_COMMAND_SEARCH_DIR_MODULE[@]}" | sort -u)"
+        echo "DIR_MAP_VALUE=$(printf "%s\n" "${BU_COMMAND_SEARCH_DIR_MODULE[@]}" | sort -u | paste -sd, -)"
     ' _ "$preinit" "$DIR"/..
     assert_success
     assert_line "FIXTURE_MODULE=moda"
-    assert_line "CORE_MODULE="
-    assert_line "DIR_MAP_COUNT=1"
-    assert_line "DIR_MAP_VALUE=moda"
+    assert_line "CORE_MODULE=bu"
+    assert_line "CORE_ALIAS_MODULE=bu"
+    assert_line "DIR_MAP_COUNT=2"
+    assert_line "DIR_MAP_VALUE=bu,moda"
 }
 
 function test_completion_module_tags_two_modules { #@test

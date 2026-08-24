@@ -456,7 +456,15 @@ bu_convert_file_to_command_namespace()
     esac
 }
 
+# BashTab's builtin commands directory is registered from core (not a module
+# preinit callback), so BU_CURRENT_MODULE is empty here.  Stamp its provenance
+# as module "bu" (the framework itself) — matching how bu_entrypoint.sh stamps
+# core config settings and help topics — so `bu get-command` reports module=bu
+# for the builtin commands instead of leaving the module column empty.
+_bu_cur_module_prev=${BU_CURRENT_MODULE:-}
+BU_CURRENT_MODULE=bu
 bu_preinit_register_user_defined_subcommand_dir "$BU_BUILTIN_COMMANDS_DIR" bu_convert_file_to_command_namespace prefix
+BU_CURRENT_MODULE=$_bu_cur_module_prev
 
 # Alias spec
 # '{}' represents 1 input
@@ -534,6 +542,11 @@ bu_preinit_register_new_alias()
     return 0
 }
 
+# The builtin aliases are registered from core too — stamp them as module
+# "bu" so `bu get-command` reports their provenance instead of leaving the
+# module column empty.
+_bu_cur_module_prev=${BU_CURRENT_MODULE:-}
+BU_CURRENT_MODULE=bu
 bu_preinit_register_new_alias gc get-command --namespace {} {?} --verb {} {?} --noun {} {...}
 
 # Short aliases that expand to query-object --where / --select / --grep /
@@ -546,3 +559,4 @@ bu_preinit_register_new_alias where query-object --where {...}
 bu_preinit_register_new_alias select query-object --select {...}
 bu_preinit_register_new_alias grep query-object --grep {...}
 bu_preinit_register_new_alias sort query-object --order-by {...}
+BU_CURRENT_MODULE=$_bu_cur_module_prev

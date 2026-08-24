@@ -382,7 +382,7 @@ function test_bu_get_command_metadata { #@test
     def=$(printf '%s' "$out" | jq -r .definition)
     [[ -f "$def" ]]
     [[ "$def" == */bu-get-module.sh ]]
-    assert_equal "$(printf '%s' "$out" | jq -c 'del(.definition)')" '{"name":"get-module","verb":"get","noun":"module","namespace":"bu","type":"source","synopsis":"List loaded BashTab modules","fields":"","stage":"producer","module":""}'
+    assert_equal "$(printf '%s' "$out" | jq -c 'del(.definition)')" '{"name":"get-module","verb":"get","noun":"module","namespace":"bu","type":"source","synopsis":"List loaded BashTab modules","fields":"","stage":"producer","module":"bu"}'
 }
 
 function test_bu_get_command_multi_word_verb { #@test
@@ -392,7 +392,7 @@ function test_bu_get_command_multi_word_verb { #@test
     def=$(printf '%s' "$out" | jq -r .definition)
     [[ -f "$def" ]]
     [[ "$def" == */bu-convert-to-jsonl.sh ]]
-    assert_equal "$(printf '%s' "$out" | jq -c 'del(.definition)')" '{"name":"convert-to-jsonl","verb":"convert-to","noun":"jsonl","namespace":"bu","type":"source","synopsis":"Normalize and emit JSONL records","fields":"","stage":"passthrough","module":""}'
+    assert_equal "$(printf '%s' "$out" | jq -c 'del(.definition)')" '{"name":"convert-to-jsonl","verb":"convert-to","noun":"jsonl","namespace":"bu","type":"source","synopsis":"Normalize and emit JSONL records","fields":"","stage":"passthrough","module":"bu"}'
 }
 
 function test_bu_get_command_verb_filter_multi_word { #@test
@@ -523,7 +523,7 @@ function test_bu_get_command_convert_from_multi_word_verb { #@test
     def=$(printf '%s' "$out" | jq -r .definition)
     [[ -f "$def" ]]
     [[ "$def" == */bu-convert-from-tsv.sh ]]
-    assert_equal "$(printf '%s' "$out" | jq -c 'del(.definition)')" '{"name":"convert-from-tsv","verb":"convert-from","noun":"tsv","namespace":"bu","type":"source","synopsis":"Convert TSV text to JSONL records","fields":"","stage":"recordify_tsv","module":""}'
+    assert_equal "$(printf '%s' "$out" | jq -c 'del(.definition)')" '{"name":"convert-from-tsv","verb":"convert-from","noun":"tsv","namespace":"bu","type":"source","synopsis":"Convert TSV text to JSONL records","fields":"","stage":"recordify_tsv","module":"bu"}'
 }
 
 function test_bu_full_powershell_pipeline { #@test
@@ -892,7 +892,7 @@ function test_bu_query_object_metadata { #@test
     def=$(printf '%s' "$out" | jq -r .definition)
     [[ -f "$def" ]]
     [[ "$def" == */bu-query-object.sh ]]
-    assert_equal "$(printf '%s' "$out" | jq -c 'del(.definition)')" '{"name":"query-object","verb":"query","noun":"object","namespace":"bu","type":"source","synopsis":"Apply SQL-style clauses (where, group-by, select, order-by) to a JSONL stream","fields":"","stage":"query","module":""}'
+    assert_equal "$(printf '%s' "$out" | jq -c 'del(.definition)')" '{"name":"query-object","verb":"query","noun":"object","namespace":"bu","type":"source","synopsis":"Apply SQL-style clauses (where, group-by, select, order-by) to a JSONL stream","fields":"","stage":"query","module":"bu"}'
 }
 
 function test_e2e_query_object_clause_completion { #@test
@@ -1642,7 +1642,7 @@ function test_bu_distinct_object_metadata { #@test
     def=$(printf '%s' "$out" | jq -r .definition)
     [[ -f "$def" ]]
     [[ "$def" == */bu-distinct-object.sh ]]
-    assert_equal "$(printf '%s' "$out" | jq -c 'del(.definition)')" '{"name":"distinct-object","verb":"distinct","noun":"object","namespace":"bu","type":"source","synopsis":"Remove duplicate records from a JSONL stream","fields":"","stage":"passthrough","module":""}'
+    assert_equal "$(printf '%s' "$out" | jq -c 'del(.definition)')" '{"name":"distinct-object","verb":"distinct","noun":"object","namespace":"bu","type":"source","synopsis":"Remove duplicate records from a JSONL stream","fields":"","stage":"passthrough","module":"bu"}'
 }
 
 # ===========================================================================
