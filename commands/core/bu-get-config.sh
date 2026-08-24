@@ -2,7 +2,7 @@
 # Dispatch: source
 # Synopsis: List BashTab configuration settings
 # Help-Topic: config
-# Fields: name value default allowed description
+# Fields: name value default allowed module description
 function __bu_bu_get_config_main()
 {
 # --is-compatible: no external dependencies
@@ -48,7 +48,7 @@ do
         ;;
     --columns)# COLUMNS
         # Fields to display, in order (comma-separated)
-        bu_parse_positional $# --hint "Comma-separated fields: name value default allowed description"
+        bu_parse_positional $# --hint "Comma-separated fields: name value default allowed module description"
         columns=${!shift_by}
         ;;
     -h|--help)# _FLAG
@@ -93,14 +93,15 @@ fi
         [[ "$key" == *,registered ]] || continue
         name=${key%,registered}
         current=${!name:-}
-        printf '%s\t%s\t%s\t%s\t%s\n' \
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
             "$name" \
             "${current:-(unset)}" \
             "${BU_CONFIG_PROPERTIES[$name,default]:-}" \
             "${BU_CONFIG_PROPERTIES[$name,enum]:-${BU_CONFIG_PROPERTIES[$name,bool]:+true|false}}" \
+            "${BU_CONFIG_PROPERTIES[$name,module]:-}" \
             "${BU_CONFIG_PROPERTIES[$name,hint]:-}"
     done
-} | bu_out_from_tsv --columns name,value,default,allowed,description | bu_out --format "$format" ${columns:+--columns "$columns"}
+} | bu_out_from_tsv --columns name,value,default,allowed,module,description | bu_out --format "$format" ${columns:+--columns "$columns"}
 
 bu_scope_pop_function
 }

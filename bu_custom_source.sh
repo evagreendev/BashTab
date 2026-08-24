@@ -324,6 +324,18 @@ bu_config_register()
     "$is_bool" && BU_CONFIG_PROPERTIES[$name,bool]=true
     [[ -n "$layer" ]] && BU_CONFIG_PROPERTIES[$name,layer]=$layer
     [[ -n "$complete_values_fn" ]] && BU_CONFIG_PROPERTIES[$name,complete_values_fn]=$complete_values_fn
+    # Stamp the owning module (mirrors __bu_stamp_command_module and the
+    # help-topic stamp in bu_core_help_topic.sh) so `bu get-config` can tell
+    # a core BU_* setting from one a module registered. STICKY: only
+    # overwrite when BU_CURRENT_MODULE is non-empty. Rationale:
+    # `bu set-config --unset` for a setting without a registered default
+    # re-sources config/bu_config_dynamic.sh outside the entrypoint, where
+    # BU_CURRENT_MODULE is empty — an unconditional stamp would blank every
+    # core setting's provenance on that path.
+    if [[ -n "${BU_CURRENT_MODULE:-}" ]]
+    then
+        BU_CONFIG_PROPERTIES[$name,module]=$BU_CURRENT_MODULE
+    fi
     return 0
 }
 

@@ -54,7 +54,14 @@ fi
 
 
 source ./config/bu_config_static.sh --__bu-once
+# Core settings are registered from the framework itself, so scope
+# BU_CURRENT_MODULE=bu around the dynamic config source (same save/restore
+# pattern as the core help-topic registration further down) to stamp each
+# core setting's provenance as module "bu".
+_bu_cur_module_prev=${BU_CURRENT_MODULE:-}
+BU_CURRENT_MODULE=bu
 source ./config/bu_config_dynamic.sh
+BU_CURRENT_MODULE=$_bu_cur_module_prev
 
 bu_source_user_defined_configs
 

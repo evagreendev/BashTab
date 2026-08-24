@@ -261,3 +261,47 @@ function test_config_complete_values_missing_fn_silent { #@test
     # Should be silently empty, no error
     assert_equal "${BU_RET[*]}" ""
 }
+
+# ===========================================================================
+# Module provenance
+# ===========================================================================
+
+function test_config_module_provenance { #@test
+    local preinit="$BATS_TEST_TMPDIR/widgets-preinit.sh"
+    cat > "$preinit" <<EOF
+source "\$BU_NULL"
+case " \${BU_CONFIG_NAME_PREFIXES[*]-} " in
+*" WIDGET_ "*) ;;
+*) BU_CONFIG_NAME_PREFIXES+=(WIDGET_) ;;
+esac
+bu_config_register WIDGET_COLOR --default blue --hint "widget color"
+EOF
+
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=widgetsuite
+        export BU_MODULE_LIST="widgetsuite:0.1.0:$1;"
+        source "$2"/bu_entrypoint.sh >/dev/null 2>&1
+        bu get-config --format jsonl
+    ' _ "$preinit" "$DIR"/..
+    assert_success
+
+    # A setting registered from a module preinit is stamped with its module.
+    assert_equal "$(printf '%s\n' "$output" | jq -r 'select(.name == "WIDGET_COLOR") | .module')" "widgetsuite"
+
+    # Core settings (registered from bu_entrypoint.sh) are stamped as module "bu".
+    assert_equal "$(printf '%s\n' "$output" | jq -r 'select(.name == "BU_LOG_LVL") | .module')" "bu"
+}
+
+function test_config_module_stamp_sticky { #@test
+    # Core settings are stamped "bu" after activation.
+    assert_equal "${BU_CONFIG_PROPERTIES[BU_LOG_LVL,module]}" "bu"
+
+    # Unsetting a default-less setting re-sources config/bu_config_dynamic.sh
+    # outside the entrypoint (BU_CURRENT_MODULE empty). The sticky stamp must
+    # not blank core provenance on that path.
+    bu_config_register BU_TEST_NODEFAULT --hint "no default"
+    bu set-config BU_TEST_NODEFAULT hello >/dev/null
+    bu set-config --unset BU_TEST_NODEFAULT >/dev/null
+
+    assert_equal "${BU_CONFIG_PROPERTIES[BU_LOG_LVL,module]}" "bu"
+}
