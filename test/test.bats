@@ -729,6 +729,52 @@ function test_bash44_alias_chain_completion { #@test
     assert_success
 }
 
+function test_alias_first_arg_completion_offers_help { #@test
+    # Aliases have no case block, so --help/-h were absent from the alias's
+    # first-argument completion (the delegated slot-value completions don't
+    # offer them).  The dispatcher intercepts a sole --help/-h at this
+    # position (alias expansion + root help), so surface both additively.
+    local _c _found_help _found_h
+
+    COMPREPLY=()
+    bu_autocomplete_get_autocompletions bu where "" 2>/dev/null
+    _found_help=false; _found_h=false
+    for _c in "${COMPREPLY[@]}"; do
+        [[ "$_c" == "--help" ]] && _found_help=true
+        [[ "$_c" == "-h" ]] && _found_h=true
+    done
+    assert_equal "$_found_help" true
+    assert_equal "$_found_h" true
+
+    # gc's first arg is a required --namespace value; --help must be offered
+    # additively alongside the delegated namespace completions.
+    COMPREPLY=()
+    bu_autocomplete_get_autocompletions bu gc "" 2>/dev/null
+    _found_help=false; _found_h=false
+    for _c in "${COMPREPLY[@]}"; do
+        [[ "$_c" == "--help" ]] && _found_help=true
+        [[ "$_c" == "-h" ]] && _found_h=true
+    done
+    assert_equal "$_found_help" true
+    assert_equal "$_found_h" true
+}
+
+function test_alias_help_completion_respects_prefix { #@test
+    # Injected --help/-h must honor the typed prefix like any completion.
+    COMPREPLY=()
+    bu_autocomplete_get_autocompletions bu where "--h" 2>/dev/null
+    assert_equal "${COMPREPLY[*]}" "--help"
+
+    # A non-matching prefix must not inject help entries.
+    local _c _has_help=false
+    COMPREPLY=()
+    bu_autocomplete_get_autocompletions bu where "name" 2>/dev/null
+    for _c in "${COMPREPLY[@]}"; do
+        [[ "$_c" == "--help" || "$_c" == "-h" ]] && _has_help=true
+    done
+    assert_equal "$_has_help" false
+}
+
 # ===========================================================================
 # --options-of / --options-at completion path bugs
 # ===========================================================================

@@ -2425,6 +2425,71 @@ __bu_autocomplete_completion_func_cli()
         local comp_words=("${BU_RET[@]}")
         # bu_log_tty alias comp words: "${comp_words[@]}"
         __bu_autocomplete_completion_func_master_impl "${comp_words[0]}" "${comp_words[comp_cword]}" "${comp_words[comp_cword-1]}" "$comp_cword" "" "${comp_words[@]}"
+
+        # Alias --help discoverability: at the alias's FIRST argument a sole
+        # --help/-h is intercepted by the dispatcher (prints the expansion and
+        # the root command's help).  Offer both here, additively, alongside
+        # the delegated slot-value completions — aliases otherwise have no
+        # case block, so --help is otherwise absent from the dropdown.
+        if (( COMP_CWORD == 2 ))
+        then
+            local -a _alias_help_entries=()
+            local _ah_entry
+            for _ah_entry in --help -h
+            do
+                [[ -z "$cur_word" || "$_ah_entry" == "$cur_word"* ]] && _alias_help_entries+=("$_ah_entry")
+            done
+
+            if ((${#_alias_help_entries[@]} > 0))
+            then
+                # Strip the "Hint: …" + NBSP pseudo-entries the master impl
+                # emits when the delegated completion produced nothing — we
+                # are about to supply real completions.
+                if ((${#COMPREPLY[@]} == 2)) && [[ "${COMPREPLY[0]}" == "Hint: "* ]]
+                then
+                    COMPREPLY=()
+                    BU_COMPREPLY_METADATA=()
+                fi
+
+                # Align metadata with COMPREPLY: delegated entries may have
+                # produced completions without a parallel metadata row.
+                while ((${#BU_COMPREPLY_METADATA[@]} < ${#COMPREPLY[@]}))
+                do
+                    BU_COMPREPLY_METADATA+=("")
+                done
+
+                # Resolve the root command's display name from its script path
+                # (comp_words[0] is the terminal command's path, e.g. for an
+                # alias chain the help is rendered by the last hop's command).
+                local _alias_root_cmd=
+                local _ah_cmd
+                for _ah_cmd in "${!BU_COMMANDS[@]}"
+                do
+                    if [[ "${BU_COMMANDS[$_ah_cmd]}" == "${comp_words[0]}" ]]
+                    then
+                        _alias_root_cmd=$_ah_cmd
+                        break
+                    fi
+                done
+                [[ -n "$_alias_root_cmd" ]] || _alias_root_cmd=${function_or_script_path%% *}
+
+                local _ah_existing _ah_dup
+                for _ah_entry in "${_alias_help_entries[@]}"
+                do
+                    # Skip when the delegated completion already offers this
+                    # token (e.g. a slotless alias delegating to an option list).
+                    _ah_dup=false
+                    for _ah_existing in "${COMPREPLY[@]}"
+                    do
+                        [[ "$_ah_existing" == "$_ah_entry" ]] && _ah_dup=true && break
+                    done
+                    "$_ah_dup" && continue
+
+                    COMPREPLY+=("$_ah_entry")
+                    BU_COMPREPLY_METADATA+=("${BU_TPUT_GREEN}flag${BU_TPUT_RESET} ${BU_TPUT_GREY}show alias expansion and ${_alias_root_cmd} help${BU_TPUT_RESET}")
+                done
+            fi
+        fi
     else
         local -r comp_cword=$((COMP_CWORD - 1))
         # Note: NOT readonly — bash 4.4 aborts on re-declaring a readonly
