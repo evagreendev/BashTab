@@ -26,7 +26,7 @@ function __gitshelf_activate()
     then
         if [[ "$BU_MODULE_LIST" == "gitshelf:"* || "$BU_MODULE_LIST" == *";gitshelf:"* ]]
         then
-            bu_log_info "gitshelf already active under ${BU_TOP_LEVEL_MODULE} — commands available via '${BU_USER_DEFINED_CLI_COMMAND_NAME:-bu}'"
+            bu_log_warn "gitshelf already active under ${BU_TOP_LEVEL_MODULE} — commands available via '${BU_USER_DEFINED_CLI_COMMAND_NAME:-bu}'"
             return 0
         fi
         bu_log_warn "A BashTab shell is already initialized (top-level module: ${BU_TOP_LEVEL_MODULE:-unknown})."
