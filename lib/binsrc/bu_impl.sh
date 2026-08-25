@@ -166,6 +166,22 @@ __bu_impl()
         exit_code=$?
         ;;
     alias)
+        # A sole --help/-h addressed to the alias itself is a help request,
+        # not slot data. Short-circuit before slot splicing: print the
+        # expansion, then dispatch --help to the root command (first word of
+        # the expansion) so the user lands on the real flag documentation.
+        # Alias-of-alias chains re-enter this arm naturally via that dispatch.
+        if (( $# == 1 )) && { [[ "$1" == "--help" || "$1" == "-h" ]]; }
+        then
+            local _alias_root_cmd=${function_or_script_path%% *}
+            printf '%s\n' "${BU_TPUT_BOLD}ALIAS${BU_TPUT_RESET}"
+            printf '%s %s => %s %s\n\n' \
+                "$BU_CLI_COMMAND_NAME" "$bu_command" \
+                "$BU_CLI_COMMAND_NAME" "$function_or_script_path"
+            __bu_impl "$_alias_root_cmd" --help
+            exit_code=$?
+            return "$exit_code"
+        fi
         if ! __bu_impl_process_alias "$function_or_script_path" "$@"
         then
             bu_log_err "Processing of alias[$bu_command] failed"

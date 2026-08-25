@@ -56,7 +56,7 @@ do
         #     Operators: -eq -ne -gt -lt -ge -le -like -notlike -match
         #                -notmatch -contains -notcontains -in -notin
         #                -isnull -isnotnull
-        #     Connect conditions with `and` or `or` inside one where:
+        #     Connect conditions with 'and' or 'or' inside one where:
         #       where type -eq source and name -like get-*
         # Repeatable; multiple where clauses are ANDed together.
         # Save shift_by BEFORE bu_parse_positional to detect early return.
@@ -518,7 +518,7 @@ order: WHERE -> GROUP BY -> HAVING -> SELECT -> ORDER BY -> FIRST.
               -contains -notcontains    array contains value
               -in -notin                value in comma-separated list
               -isnull -isnotnull        null checks
-            Chain conditions with `and`/`or` inside a single where:
+            Chain conditions with 'and'/'or' inside a single where:
               where type -eq source and name -like get-*
               where name -like command   # substring: matches get-command, set-module, ...
             Repeatable; multiple where clauses are ANDed.

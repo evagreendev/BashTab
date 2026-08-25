@@ -715,6 +715,72 @@ function test_bash44_alias_chain_dispatch { #@test
     assert_success
 }
 
+# ===========================================================================
+# Alias --help dispatch
+# ===========================================================================
+
+function test_alias_sole_help_shows_expansion_and_root_help { #@test
+    # A sole --help addressed to the alias is a help request, not slot data.
+    run bu where --help </dev/null
+    assert_success
+    assert_output --partial 'ALIAS'
+    assert_output --partial 'where => '
+    assert_output --partial 'query-object --where {...}'
+    assert_output --partial 'SYNOPSIS'
+    refute_output --partial 'Invalid record key'
+    refute_output --partial 'command not found'
+}
+
+function test_alias_short_help_flag { #@test
+    run bu select -h </dev/null
+    assert_success
+    assert_output --partial 'ALIAS'
+    assert_output --partial 'select => '
+    assert_output --partial 'query-object --select {...}'
+    assert_output --partial 'SYNOPSIS'
+}
+
+function test_alias_gc_help_shows_slots_verbatim { #@test
+    # gc's {}/{?}/{...} slots must appear verbatim in the expansion and
+    # get-command's help must render (previously empty output).
+    run bu gc --help </dev/null
+    assert_success
+    assert_output --partial 'gc => '
+    assert_output --partial 'get-command --namespace {} {?} --verb {} {?} --noun {} {...}'
+    assert_output --partial 'SYNOPSIS'
+}
+
+function test_alias_chain_help_one_line_per_hop { #@test
+    local a1=__test_help_chain_a
+    local a2=__test_help_chain_b
+    bu_preinit_register_new_alias "$a2" get-module
+    bu_preinit_register_new_alias "$a1" "$a2"
+
+    run bu "$a1" --help </dev/null
+    assert_success
+    assert_output --partial "$a1 => "
+    assert_output --partial "$a2 => "
+    assert_output --partial 'get-module'
+    assert_output --partial 'SYNOPSIS'
+}
+
+function test_alias_trailing_help_passes_through { #@test
+    # --help after other args is NOT intercepted; it flows through the alias
+    # spec and the root command renders its own help (no ALIAS header).
+    run bu where type -eq source --help </dev/null
+    assert_success
+    assert_output --partial 'SYNOPSIS'
+    refute_output --partial 'ALIAS'
+}
+
+function test_alias_normal_dispatch_unchanged { #@test
+    local infile=$BATS_TEST_TMPDIR/rows.jsonl
+    printf '{"name":"x","type":"source"}\n{"name":"y","type":"alias"}\n' > "$infile"
+    run bu where type -eq source --format jsonl < "$infile"
+    assert_success
+    assert_output '{"name":"x","type":"source"}'
+}
+
 function test_bash44_alias_chain_completion { #@test
     # Completion must resolve alias-of-alias chains without
     # "readonly variable" abort.
