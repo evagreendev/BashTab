@@ -22,8 +22,14 @@ jobs:
           - test/api_contract_test.bats
           - test/cli_rename_test.bats
           - test/config_test.bats
+          - test/escaping_test.bats
+          - test/expose_test.bats
           - test/first_test.bats
           - test/fzf_dims_test.bats
+          - test/fzf_format_test.bats
+          - test/gitshelf_demo_test.bats
+          - test/help_preview_test.bats
+          - test/help_topic_test.bats
           - test/integration_test.bats
           - test/location_test.bats
           - test/module_provenance_test.bats
@@ -32,6 +38,7 @@ jobs:
           - test/out_test.bats
           - test/parse_bash_test.bats
           - test/smoke_test.bats
+          - test/synopsis_test.bats
           - test/test.bats
           - test/ts_test.bats
 
