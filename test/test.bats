@@ -879,6 +879,53 @@ function test_converter_errexit_safe { #@test
     rm -rf "$tmpdir"
 }
 
+function test_is_compatible_probe_does_not_recurse { #@test
+    # Regression: the old script_template.sh honored --is-compatible AFTER
+    # sourcing bu_entrypoint.  The framework probes gated commands with
+    # `bash <script> --is-compatible`; that probe re-sourced bu_entrypoint,
+    # which re-ran the command scan, which re-probed every gated command —
+    # infinite recursion that froze the probe until Ctrl-C.  The probe now
+    # sets BU_IS_COMPAT_PROBE=1 and the scan no-ops under it, so probing a
+    # script with the old layout still terminates and registers the command.
+    local tmpdir
+    tmpdir=$(mktemp -d)
+
+    # Old (broken) template: --is-compatible check placed AFTER entrypoint source.
+    cat > "$tmpdir/old-style.sh" <<'EOF'
+#!/usr/bin/env bash
+function __test_old_style_main()
+{
+if [[ -z "$COMP_CWORD" ]]; then
+    source "$BU_DIR"/bu_entrypoint.sh
+fi
+if [[ "$1" == "--is-compatible" ]]; then
+    exit 0
+fi
+echo hi
+}
+__test_old_style_main "$@"
+EOF
+
+    # Probe via a guarded subprocess; must terminate (no recursion) and
+    # register the command.  Lazy mode skips the real command dirs so the
+    # temp dir is the only thing scanned.
+    run timeout 60 bash -c '
+        export BU_COMMAND_CACHE_ENABLED=false
+        export BU_COMMAND_SCAN_LAZY=true
+        source "$1"/bu_entrypoint.sh || true
+        unset BU_COMMAND_SEARCH_DIRS
+        declare -A BU_COMMAND_SEARCH_DIRS=(["$2"]=)
+        BU_COMMAND_SCAN_LAZY=false
+        __bu_init_env_commands
+        [[ -n "${BU_COMMANDS[old-style]:-}" ]] && echo REGISTERED || echo NOT_REGISTERED
+    ' _ "$DIR/.." "$tmpdir"
+
+    assert_success
+    assert_output --partial 'REGISTERED'
+
+    rm -rf "$tmpdir"
+}
+
 function test_function_registration_dispatches { #@test
     # Bug fix: bu_preinit_register_user_defined_subcommand_function was
     # using \$file (unset) instead of \$fn, silently breaking function

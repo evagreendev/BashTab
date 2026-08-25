@@ -461,7 +461,7 @@ bu_cap_reprobe_unavailable()
             # Script is gone — keep it unavailable
             continue
         fi
-        if reason=$(bash "$script_path" --is-compatible 2>&1)
+        if reason=$(BU_IS_COMPAT_PROBE=1 bash "$script_path" --is-compatible 2>&1)
         then
             # Probe passed — register the command
             BU_COMMANDS[$cmd]=$script_path

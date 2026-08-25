@@ -138,7 +138,7 @@ done
                 done
             fi
             if [[ -n "$script_path" && -f "$script_path" ]]; then
-                if ! reason=$(bash "$script_path" --is-compatible 2>&1); then
+                if ! reason=$(BU_IS_COMPAT_PROBE=1 bash "$script_path" --is-compatible 2>&1); then
                     compatible=false
                 fi
             else

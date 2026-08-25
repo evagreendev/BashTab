@@ -40,6 +40,19 @@ __bu_command_dispatch_decl()
 
 __bu_init_env_commands()
 {
+    # ── Recursion guard for --is-compatible probes ──
+    # The framework probes gated commands with `BU_IS_COMPAT_PROBE=1 bash
+    # <script> --is-compatible`.  An executable command generated from the
+    # older script_template.sh sources bu_entrypoint before honoring
+    # --is-compatible; that entrypoint load would re-run this scan and
+    # re-probe every gated command, each spawning another bash → infinite
+    # recursion that hangs until Ctrl-C.  Skip the scan entirely here: the
+    # probe only needs the bu_* functions (loaded earlier), not the command
+    # registry, and its own scan results are discarded anyway.
+    if [[ "${BU_IS_COMPAT_PROBE:-}" == 1 ]]; then
+        return 0
+    fi
+
     # ── Determine whether --is-compatible probes can be skipped ──
     local compat_cache_valid=false
     local fingerprint
@@ -162,7 +175,7 @@ __bu_init_env_commands()
                 else
                     # Cache miss — probe
                     local reason
-                    if ! reason=$(bash "$script_path" --is-compatible 2>&1); then
+                    if ! reason=$(BU_IS_COMPAT_PROBE=1 bash "$script_path" --is-compatible 2>&1); then
                         BU_COMMAND_UNAVAILABLE[$command]=$reason
                         BU_COMMAND_PROPERTIES[$command,unavailable_path]=$script_path
                         continue
