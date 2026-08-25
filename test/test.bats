@@ -980,6 +980,10 @@ function test_command_scan_lazy_defers_to_first_dispatch { #@test
     # must trigger the scan, populate the registry, and clear the flag.
     run bash -c "
         set -euo pipefail
+        # Isolate from any machine-local module list leaked into the env
+        # (e.g. a prior activation of another project) — the lazy-scan
+        # invariant below is about the builtin framework only.
+        unset BU_MODULE_LIST
         export BU_COMMAND_SCAN_LAZY=true
         export BU_COMMAND_CACHE_ENABLED=false
         source '$DIR/../bu_entrypoint.sh' || true

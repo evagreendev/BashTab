@@ -241,8 +241,15 @@ bu_ensure_command_scan()
     else
         unset BU_COMMAND_SCAN_LAZY
     fi
-    # Register script-level completions from the freshly-scanned registry
-    __bu_init_autocomplete
+    # Register script-level completions from the freshly-scanned registry.
+    # Guarded: __bu_init_autocomplete is defined in bu_core_init.sh, which is
+    # sourced AFTER the pre-init callbacks.  A module pre-init that dispatches
+    # `bu` (e.g. `bu import-environment`) reaches this scan via the lazy path
+    # before the function exists; in that case the later bu_init registers
+    # completions anyway.
+    if declare -F __bu_init_autocomplete &>/dev/null; then
+        __bu_init_autocomplete
+    fi
 }
 
 __bu_init_env_commands
