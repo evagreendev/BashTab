@@ -59,8 +59,8 @@ function __gitshelf_activate()
     # so the demo doesn't scribble on the user's home directory.
     export BU_OUT_DIR=${BU_OUT_DIR:-"$gitshelf_dir/.bu"}
 
-    # Machine-local settings live in the module tree too.
-    export BU_CONFIG_LOCAL_FILE="$gitshelf_dir/.bu/bu_config_local.sh"
+    # Machine-local settings live alongside the (possibly relocated) output tree.
+    export BU_CONFIG_LOCAL_FILE="$BU_OUT_DIR/bu_config_local.sh"
 
     # ── Main init: bu becomes available here ───────────────────────
     # shellcheck source=./bu_entrypoint.sh

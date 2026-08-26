@@ -8,7 +8,6 @@ setup() {
     load "test_helper/bats-support/load.bash"
     DIR="$( cd "$( dirname "$BATS_TEST_FILENAME" )" >/dev/null 2>&1 && pwd )"
     ROOT="$DIR/.."
-    rm -rf "$ROOT/examples/gitshelf/.bu" "$ROOT/examples/devbox/.bu"
 }
 
 # Run shell code in a fresh `bash --norc` with a clean BashTab environment, so
@@ -17,6 +16,7 @@ setup() {
 _fresh() {
     local code=$1
     env -i HOME="$HOME" PATH="/usr/local/bin:/usr/bin:/bin" TERM=dumb \
+        BU_OUT_DIR="$BATS_TEST_TMPDIR/.bu" \
         bash --norc -c "$code" _ "$ROOT"
 }
 

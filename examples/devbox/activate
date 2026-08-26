@@ -42,7 +42,7 @@ function __devbox_activate()
 
     export BU_USER_DEFINED_CLI_COMMAND_NAME=devbox
     export BU_OUT_DIR=${BU_OUT_DIR:-"$devbox_dir/.bu"}
-    export BU_CONFIG_LOCAL_FILE="$devbox_dir/.bu/bu_config_local.sh"
+    export BU_CONFIG_LOCAL_FILE="$BU_OUT_DIR/bu_config_local.sh"
 
     # ── Main init: bu becomes available here ───────────────────────
     # shellcheck source=./bu_entrypoint.sh
