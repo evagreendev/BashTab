@@ -142,17 +142,7 @@ declare -g BU_COMPOPT_IS_CUSTOM=false
 # ```
 declare -A -g BU_KEY_BINDINGS=(
     ['\ee']="__bu_bind_edit"
-    ['\eg']="__bu_bind_toggle_gdb"
     ['\ea']="__bu_bind_fzf_history"
-    ['\ex']="__bu_bind_fzf_autocomplete"
-    ['\C-x']="__bu_bind_fzf_autocomplete"
-    # This binding works on Bash 5.2,
-    # it may fail on 5.1 and older
-    # due to some readline limitations.
-    # Something about key binding sequences of length greater than 2.
-    ['\C-@']="__bu_bind_fzf_autocomplete_dynamic"
-    # Alternative binding
-    ['\ec']="__bu_bind_fzf_autocomplete_dynamic"
     ['\ez']="bu_autocomplete_toggle_tab"
 )
 
@@ -160,12 +150,7 @@ declare -A -g BU_KEY_BINDINGS=(
 # escape sequence.  Displayed in `bu` help.
 declare -A -g BU_KEY_BINDING_DOCS=(
     ['\ee']='Edit the current command line in $EDITOR'
-    ['\eg']='Toggle gdb prefix on the current command line'
     ['\ea']='Fuzzy-search command history'
-    ['\ex']='Trigger fzf autocomplete'
-    ['\C-x']='Trigger fzf autocomplete'
-    ['\C-@']='Trigger dynamic fzf autocomplete'
-    ['\ec']='Trigger dynamic fzf autocomplete'
     ['\ez']='Toggle Tab between default and fzf completion'
 )
 
@@ -176,12 +161,7 @@ declare -A -g BU_KEY_BINDING_DOCS=(
 # takes over the stamp, so this always attributes the LIVE binding.
 declare -A -g BU_KEY_BINDING_MODULES=(
     ['\ee']='bu'
-    ['\eg']='bu'
     ['\ea']='bu'
-    ['\ex']='bu'
-    ['\C-x']='bu'
-    ['\C-@']='bu'
-    ['\ec']='bu'
     ['\ez']='bu'
 )
 

@@ -76,7 +76,9 @@ echo $HO<TAB>                # variable name completion
 
 | Keys | Action |
 |---|---|
-| `Ctrl-Space` / `Ctrl-X` | Trigger fzf autocomplete |
+| `Alt-E` | Edit the current command line in `$EDITOR` |
+| `Alt-A` | Fuzzy-search command history |
+| `Alt-Z` | Toggle Tab between default and fzf completion |
 | `Tab` | Confirm fzf selection |
 | `Ctrl-T` / `Ctrl-R` | fzf file / history search (if available) |
 
