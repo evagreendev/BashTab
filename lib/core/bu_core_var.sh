@@ -169,6 +169,22 @@ declare -A -g BU_KEY_BINDING_DOCS=(
     ['\ez']='Toggle Tab between default and fzf completion'
 )
 
+# Owning module for each key binding, keyed by the same escape sequence.
+# Core defaults are declared outside any module scope, so they are stamped
+# as module "bu" (the framework itself) here in the literal declaration.
+# A module re-registering a chord via bu_preinit_register_user_defined_key_binding
+# takes over the stamp, so this always attributes the LIVE binding.
+declare -A -g BU_KEY_BINDING_MODULES=(
+    ['\ee']='bu'
+    ['\eg']='bu'
+    ['\ea']='bu'
+    ['\ex']='bu'
+    ['\C-x']='bu'
+    ['\C-@']='bu'
+    ['\ec']='bu'
+    ['\ez']='bu'
+)
+
 # 1 metadata entry corresponds to 1 compreply entry
 # Meant for display in fzf completion mode
 # (=() required: "${#arr[@]}" on a declared-but-unset array errors under `set -u`)

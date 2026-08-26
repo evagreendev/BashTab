@@ -275,12 +275,20 @@ __bu_cli_help()
     echo "    ${dim}${cli} get-command | ${cli} where '.type == \"source\"' | ${cli} format-table${rst}"
     echo "  Or use classic Unix pipes — jq, awk, etc. work on the JSONL stream."
     echo
-    local ctrl_label alt_label
-    ctrl_label=$(__bu_cli_format_keybinding '\C-x')
-    alt_label=$(__bu_cli_format_keybinding '\ee')
-    echo "${em}Key bindings${rst} (see bottom of this page for the full list)"
-    printf '  %b  Trigger fzf autocomplete\n' "$ctrl_label"
-    printf '  %b        Edit the current command line in $EDITOR\n' "$alt_label"
+    # Teaser: list the LIVE key-binding registry (sorted, same order as the
+    # full table below), so it never goes stale when defaults change or an
+    # embedder overrides a chord.  Guarded on a non-empty registry.
+    if ((${#BU_KEY_BINDINGS[@]}))
+    then
+        echo "${em}Key bindings${rst} (see bottom of this page for the full list)"
+        local _kb_key _kb_label _kb_doc
+        for _kb_key in $(__bu_cli_sort_keys <<<"${!BU_KEY_BINDINGS[*]}")
+        do
+            _kb_label=$(__bu_cli_format_keybinding "$_kb_key")
+            _kb_doc=${BU_KEY_BINDING_DOCS[$_kb_key]:-${BU_KEY_BINDINGS[$_kb_key]}}
+            printf '  %b  %s\n' "$_kb_label" "$_kb_doc"
+        done
+    fi
 
     # ── Environment diagnostics ──────────────────────────────────
     __bu_cli_environment_section
@@ -367,13 +375,14 @@ __bu_cli_help()
             local _kb_key
             for _kb_key in $(__bu_cli_sort_keys <<<"${!BU_KEY_BINDINGS[*]}")
             do
-                printf '%s	%s	%s\n' \
+                printf '%s	%s	%s	%s\n' \
                     "$(__bu_cli_format_keybinding "$_kb_key")" \
                     "${BU_KEY_BINDINGS[$_kb_key]}" \
+                    "${BU_KEY_BINDING_MODULES[$_kb_key]:-}" \
                     "${BU_KEY_BINDING_DOCS[$_kb_key]:-}"
             done
-        } | bu_out_from_tsv --columns chord,function,description \
-          | bu_format_table --columns chord:Chord,function:Function,description:Description
+        } | bu_out_from_tsv --columns chord,function,module,description \
+          | bu_format_table --columns chord:Chord,function:Function,module:Module,description:Description
     fi
 } >&2
 

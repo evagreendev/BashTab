@@ -10,6 +10,7 @@
 # *Params*:
 # - `$1`: Key binding (e.g. `\ee`, `\eg`)
 # - `$2`: Command or function name to bind to the key
+# - `$3` (optional): Human-readable description shown in `bu` help
 #
 # *Returns*: None
 #
@@ -22,12 +23,19 @@
 # *Notes*:
 # - This adds the binding to the `${BU_KEY_BINDINGS[@]}` associative array, which is later passed to `bind -x`
 # - An optional third argument sets a human-readable description shown in `bu` help
+# - When BU_CURRENT_MODULE is non-empty (i.e. registered from a module preinit
+#   callback), the owning module is stamped in BU_KEY_BINDING_MODULES so the
+#   help table can attribute the binding.
 # ```
 bu_preinit_register_user_defined_key_binding()
 {
     local -r key=$1
     local -r binding=$2
     BU_KEY_BINDINGS[$key]=$binding
+    if [[ -n "${BU_CURRENT_MODULE:-}" ]]
+    then
+        BU_KEY_BINDING_MODULES[$key]=$BU_CURRENT_MODULE
+    fi
     if (($# >= 3))
     then
         BU_KEY_BINDING_DOCS[$key]=$3

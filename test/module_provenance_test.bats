@@ -35,6 +35,41 @@ __make_module_fixture() {
     echo "$dir/$name-preinit.sh"
 }
 
+# Create a module fixture whose preinit registers key bindings: a new chord
+# plus an override of a core default chord. Echoes the preinit path.
+# $1 = module name
+__make_binding_module_fixture() {
+    local name=$1
+    local dir="$BATS_TEST_TMPDIR/$name"
+    mkdir -p "$dir"
+    {
+        echo '#!/usr/bin/env bash'
+        echo 'source "$BU_NULL"'
+        echo "bu_preinit_register_user_defined_key_binding '\\em' my_custom_cmd 'My custom binding'"
+        echo "bu_preinit_register_user_defined_key_binding '\\ee' __bu_bind_edit 'Overridden edit binding'"
+    } > "$dir/$name-preinit.sh"
+    echo "$dir/$name-preinit.sh"
+}
+
+function test_key_binding_module_provenance { #@test
+    local preinit
+    preinit=$(__make_binding_module_fixture moda)
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=moda
+        export BU_MODULE_LIST="moda:0.1.0:$1;"
+        source "$2"/bu_entrypoint.sh >/dev/null 2>&1
+        echo "NEW_MODULE=${BU_KEY_BINDING_MODULES[\\em]:-EMPTY}"
+        echo "NEW_DOC=${BU_KEY_BINDING_DOCS[\\em]:-EMPTY}"
+        echo "OVERRIDE_MODULE=${BU_KEY_BINDING_MODULES[\\ee]:-EMPTY}"
+        echo "DEFAULT_MODULE=${BU_KEY_BINDING_MODULES[\\ea]:-EMPTY}"
+    ' _ "$preinit" "$DIR"/..
+    assert_success
+    assert_line "NEW_MODULE=moda"
+    assert_line "NEW_DOC=My custom binding"
+    assert_line "OVERRIDE_MODULE=moda"
+    assert_line "DEFAULT_MODULE=bu"
+}
+
 function test_module_provenance_property_and_dir_map { #@test
     local preinit
     preinit=$(__make_module_fixture moda get-alpha-thing)

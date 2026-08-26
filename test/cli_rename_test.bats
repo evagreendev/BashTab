@@ -38,6 +38,33 @@ function test_cli_rename_help_uses_cli_name { #@test
     [[ "$plain" == *'xx get-command | xx where'* ]]
 }
 
+function test_cli_help_key_bindings_module_provenance { #@test
+    # The key-bindings table gains a Module column, and every core default
+    # binding is stamped with module "bu".
+    run __bu_cli_help
+    assert_success
+
+    local plain
+    plain=$(printf '%s' "$output" | sed 's/'$'\e''\[[0-9;]*[a-zA-Z]//g' | sed 's/'$'\e''[()].//g')
+
+    # Module column header appears in the rendered table (command names use
+    # lowercase "module", so the capitalized header is unambiguous).
+    [[ "$plain" == *'Module'* ]]
+
+    # Sanity: there are live bindings to assert over.
+    assert [ "${#BU_KEY_BINDINGS[@]}" -gt 0 ]
+
+    # Every default binding carries a module stamp, all "bu" in the core set.
+    local kb_key
+    for kb_key in "${!BU_KEY_BINDINGS[@]}"; do
+        if [[ "${BU_KEY_BINDING_MODULES[$kb_key]:-}" != bu ]]; then
+            printf 'binding %s has module %s, expected bu\n' \
+                "$kb_key" "${BU_KEY_BINDING_MODULES[$kb_key]:-}" >&2
+            return 1
+        fi
+    done
+}
+
 function test_cli_rename_pipeline_field_completion { #@test
     # Bug 2: pipeline field completion should resolve producer fields
     # when the CLI is renamed. The registries are keyed on "bu <cmd>",

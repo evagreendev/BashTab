@@ -90,9 +90,9 @@ This populates:
 Another point of customization are the pre-init functions. They are found in [bu_core_preinit.sh][bu_core_preinit]. They all have the `bu_preinit_` prefix.
 
 - `bu_preinit_register_user_defined_key_binding`:
-  - Description: Register a key binding for interactive shells. Values are stored in `BU_KEY_BINDINGS` and later applied via `bind -x`.
-  - Params: `$1` = key sequence (e.g. `\ee`), `$2` = command/function to invoke.
-  - Example: `bu_preinit_register_user_defined_key_binding '\em' my_custom_edit`
+  - Description: Register a key binding for interactive shells. Values are stored in `BU_KEY_BINDINGS` and later applied via `bind -x`. When called from a module preinit callback (where `BU_CURRENT_MODULE` is set), the owning module is stamped into `BU_KEY_BINDING_MODULES` so `bu` help can attribute the binding; core defaults are stamped `bu`.
+  - Params: `$1` = key sequence (e.g. `\ee`), `$2` = command/function to invoke, `$3` (optional) = human-readable description shown in `bu` help.
+  - Example: `bu_preinit_register_user_defined_key_binding '\em' my_custom_edit "Edit in my custom editor"`
 
 - `bu_preinit_register_user_defined_completion_func`:
   - Description: Register a completion function for a specific command. Mappings are stored in `BU_AUTOCOMPLETE_COMPLETION_FUNCS` and used to call `complete -F`.
