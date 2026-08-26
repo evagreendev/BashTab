@@ -28,18 +28,21 @@ teardown() {
 # ===========================================================================
 
 function test_expose_default_off_no_bare_functions { #@test
-    # When BU_EXPOSE_COMMANDS is false (default), no bare-name functions
-    # should be registered.
-    local count=0
-    local command
-    for command in "${!BU_COMMANDS[@]}"
-    do
-        if [[ "$(type -t "$command" 2>/dev/null)" == function ]]
-        then
-            count=$((count + 1))
-        fi
-    done
-    assert_equal "$count" 0
+    # With BU_EXPOSE_COMMANDS false (the default), the exposer must never
+    # populate its bookkeeping. Assert on the feature's own contract rather
+    # than `type -t`, which false-positives on bats' setup()/teardown()
+    # fixtures whenever a registered command is named setup/teardown.
+    assert_equal "${#__BU_EXPOSED_NAMES[@]}" 0
+
+    # Still catch a real leak: force-expose, then flip the flag off and
+    # assert the teardown path returns the bookkeeping to zero.
+    BU_EXPOSE_COMMANDS=true
+    __bu_expose
+    assert [ "${#__BU_EXPOSED_NAMES[@]}" -gt 0 ]
+
+    BU_EXPOSE_COMMANDS=false
+    __bu_expose
+    assert_equal "${#__BU_EXPOSED_NAMES[@]}" 0
 }
 
 # ===========================================================================
