@@ -44,6 +44,88 @@ bu_preinit_register_user_defined_key_binding()
 
 # ```
 # *Description*:
+# Register a command-line transform (a `match -> replace` rewrite rule over
+# READLINE_LINE).  See docs/line_transforms.md.
+#
+# *Params*:
+# - `$1`: transform name
+# - `--match <template>`: match template (required)
+# - `--replace <template>`: replace template (required)
+# - `--description <text>`: human-readable description
+#
+# *Returns*:
+# - 0 on success, 1 on invalid rule or missing arguments
+#
+# *Notes*:
+# - The rule is validated against the grammar; a matching auto-inverse is
+#   derived and registered as `unwrap-<name>` (or `<name>-inverse`) when the
+#   swapped rule is itself valid.
+# - The owning module is stamped in BU_LINE_TRANSFORM_PROPERTIES so `bu
+#   get-transform` can attribute the entry.
+# ```
+bu_preinit_register_line_transform()
+{
+    local -r name=$1
+    shift
+    local match= replace= description=
+    while (($#))
+    do
+        case "$1" in
+        --match)
+            match=$2
+            shift 2
+            ;;
+        --replace)
+            replace=$2
+            shift 2
+            ;;
+        --description)
+            description=$2
+            shift 2
+            ;;
+        *)
+            bu_log_err "bu_preinit_register_line_transform: unrecognized option $1"
+            shift
+            ;;
+        esac
+    done
+    if [[ -z "$name" || -z "$match" || -z "$replace" ]]
+    then
+        bu_log_err "bu_preinit_register_line_transform: name, --match and --replace are required"
+        return 1
+    fi
+
+    __bu_transform_validate "$name" "$match" "$replace" || return 1
+
+    local module=${BU_CURRENT_MODULE:-bu}
+    BU_LINE_TRANSFORM_PROPERTIES[$name,match]=$match
+    BU_LINE_TRANSFORM_PROPERTIES[$name,replace]=$replace
+    BU_LINE_TRANSFORM_PROPERTIES[$name,description]=$description
+    BU_LINE_TRANSFORM_PROPERTIES[$name,derived]=false
+    BU_LINE_TRANSFORM_PROPERTIES[$name,module]=$module
+
+    # Auto-derive the inverse as its own transform when the swapped rule is
+    # also valid (per the spec: inverses are just transforms).
+    local inv_name
+    if [[ "$name" == wrap-* ]]
+    then
+        inv_name="unwrap-${name#wrap-}"
+    else
+        inv_name="${name}-inverse"
+    fi
+    if __bu_transform_validate "$inv_name" "$replace" "$match" quiet
+    then
+        BU_LINE_TRANSFORM_PROPERTIES[$inv_name,match]=$replace
+        BU_LINE_TRANSFORM_PROPERTIES[$inv_name,replace]=$match
+        BU_LINE_TRANSFORM_PROPERTIES[$inv_name,description]="Inverse of $name"
+        BU_LINE_TRANSFORM_PROPERTIES[$inv_name,derived]=true
+        BU_LINE_TRANSFORM_PROPERTIES[$inv_name,module]=$module
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
 # Register a user-defined completion function for a command
 #
 # *Params*:

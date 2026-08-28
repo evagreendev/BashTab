@@ -165,6 +165,10 @@ declare -A -g BU_KEY_BINDING_MODULES=(
     ['\ez']='bu'
 )
 
+# Command-line transform registry: name → match/replace/description/module/derived.
+# Populated by bu_preinit_register_line_transform (see bu_core_transform.sh).
+declare -A -g BU_LINE_TRANSFORM_PROPERTIES=()
+
 # 1 metadata entry corresponds to 1 compreply entry
 # Meant for display in fzf completion mode
 # (=() required: "${#arr[@]}" on a declared-but-unset array errors under `set -u`)
