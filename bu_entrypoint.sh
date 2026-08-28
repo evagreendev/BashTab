@@ -40,6 +40,28 @@ if [[ -f ./config/bu_config_local.sh ]]; then
     source ./config/bu_config_local.sh
 fi
 
+# Fleet-shared site glue (profile.d-style, sourced in glob order). Runs after
+# machine-local config and before capability probing so a site can install a
+# BU_CAP_MISS_RESOLVER hook that makes lazily-loaded binaries (module systems,
+# etc.) visible to bu_cap_probe.
+#
+# site/*.sh is committed and deployed with the checkout: a "site" is a fleet
+# of hosts sharing one module system/package tool. That is a different layer
+# from config/bu_config_local.sh — genuinely per-machine, gitignored.
+#
+# Sourced without --__bu-once (like the local config) so edits take effect on
+# re-activation; site files should be idempotent (function definitions,
+# exported variables). Missing/empty dir is a no-op.
+if [[ -d ./site ]]; then
+    _bu_site_file=
+    for _bu_site_file in ./site/*.sh
+    do
+        [[ -f "$_bu_site_file" ]] || continue
+        source "$_bu_site_file"
+    done
+    unset _bu_site_file
+fi
+
 source ./lib/core/bu_core_user_defined.sh --__bu-once
 
 # BU_MODULE_LIST is the sole module registry — an exported scalar of the form

@@ -11,6 +11,7 @@
 #   BU_PLATFORM_FAMILY     e.g. "debian", "rhel fedora" — space-separated, from ID_LIKE
 #   BU_PLATFORM_NAME       e.g. "Ubuntu 24.04.1 LTS" from VERSION / PRETTY_NAME
 #   BU_CAP                 associative array: capability name → binary path (or "")
+#   BU_CAP_MISS_RESOLVER   optional function name invoked on a probe miss (site glue)
 #   BU_PKG_MAP             associative array: binary → "distro:pkg distro:pkg … pip:pkg"
 #   BU_COMMAND_UNAVAILABLE associative array: command → reason (populated by registration)
 # ```
@@ -75,7 +76,25 @@ bu_cap_probe()
     elif [[ -n "$fallback" ]] && command -v "$fallback" &>/dev/null; then
         BU_CAP[$cap]=$(command -v "$fallback")
     else
-        BU_CAP[$cap]=
+        # Miss: give a site-installed resolver one chance to make the binary
+        # available on demand (module systems, etc.) before giving up.
+        # The resolver is called as `resolver <cap> <binary>` with output
+        # discarded, then we re-probe. It must never abort activation, so a
+        # non-zero return is swallowed (this runs while the entrypoint is
+        # sourced, possibly under `set -e`).
+        local resolver=${BU_CAP_MISS_RESOLVER:-}
+        if [[ -n "$resolver" ]] && declare -F "$resolver" &>/dev/null; then
+            "$resolver" "$cap" "$binary" &>/dev/null || true
+            if command -v "$binary" &>/dev/null; then
+                BU_CAP[$cap]=$(command -v "$binary")
+            elif [[ -n "$fallback" ]] && command -v "$fallback" &>/dev/null; then
+                BU_CAP[$cap]=$(command -v "$fallback")
+            else
+                BU_CAP[$cap]=
+            fi
+        else
+            BU_CAP[$cap]=
+        fi
     fi
     return 0
 }
