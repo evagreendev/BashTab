@@ -97,3 +97,12 @@ BU_PROMPT_SHOW_MODULE=${BU_PROMPT_SHOW_MODULE:-${BU_CONFIG_PROPERTIES[BU_PROMPT_
 bu_config_register BU_EXPOSE_COMMANDS --bool --default false \
     --hint "Expose commands as bare shell functions with Tab completion"
 BU_EXPOSE_COMMANDS=${BU_EXPOSE_COMMANDS:-false}
+
+# ```
+# Directory for remote-session ControlMaster sockets (see bu_core_remote.sh).
+# Socket paths must stay under the ~100-byte unix sun_path limit, so a long
+# BU_OUT_DIR should be paired with a short override here.
+# ```
+bu_config_register BU_REMOTE_SSH_DIR --default "$BU_OUT_DIR/ssh" \
+    --hint "Directory for remote-session ControlMaster sockets"
+BU_REMOTE_SSH_DIR=${BU_REMOTE_SSH_DIR:-${BU_CONFIG_PROPERTIES[BU_REMOTE_SSH_DIR,default]}}

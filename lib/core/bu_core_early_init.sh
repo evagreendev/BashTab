@@ -250,8 +250,20 @@ bu_ensure_command_scan()
     if declare -F __bu_init_autocomplete &>/dev/null; then
         __bu_init_autocomplete
     fi
+
+    # Late-bound aliases are registered only after the scan finishes (see
+    # bu_core_remote.sh).  Guarded: on the eager path this already ran, and
+    # when bu_core_remote.sh is not present the function is simply absent.
+    if declare -F __bu_remote_register_alias &>/dev/null; then
+        __bu_remote_register_alias
+    fi
 }
 
 __bu_init_env_commands
+# Late-bound alias (eager scan path): register only after the scan above
+# populated the command registry.  See __bu_remote_register_alias.
+if declare -F __bu_remote_register_alias &>/dev/null; then
+    __bu_remote_register_alias
+fi
 # Get bu_impl.sh on PATH so that bu can be called
 bu_env_append_path "$BU_LIB_BINSRC_DIR"
