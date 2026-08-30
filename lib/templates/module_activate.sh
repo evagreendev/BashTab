@@ -31,6 +31,13 @@ function @MODULE_NAME@_activate()
     # entry.  Library dependencies append to BU_MODULE_LIST in their scripts.
     export BU_MODULE_LIST="@MODULE_NAME@:0.1.0:$@MODULE_NAME@_dir/@MODULE_NAME@_bu_preinit.sh;"
 
+    # Optional library dependencies.  Source the loader (BEFORE the entrypoint,
+    # so it stays dependency-free) and require each one — opt-in by presence,
+    # idempotent, and diamond-safe for nested requires:
+    #   source "$BU_DIR/lib/bu_module_require.sh"
+    #   bu_module_require somelib --dir "$@MODULE_NAME@_dir/../somelib" --git-url https://github.com/you/somelib --branch main
+    #   bu_module_require otherlib --dir "$@MODULE_NAME@_dir/deps/otherlib" --required
+
     # Set the top-level module key so the command registry can be cached.
     # Must be set before sourcing bu_entrypoint.sh so the cache is checked.
     export BU_TOP_LEVEL_MODULE="${BU_TOP_LEVEL_MODULE:-@MODULE_NAME@}"

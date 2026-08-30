@@ -77,6 +77,21 @@ BU_MODULE_LIST+="modname:0.1.0:/path/to/modname_bu_preinit.sh;"
 export BU_MODULE_LIST="myproject:0.1.0:/path/to/preinit.sh;"
 ```
 
+Host projects register library dependencies via `bu_module_require` (sourced
+BEFORE `bu_entrypoint.sh`; dependency-free — builtins + git only, safe under
+`set -e`/`set -u`):
+
+```sh
+source "$BU_DIR/lib/bu_module_require.sh"
+bu_module_require somelib --dir "/path/to/somelib"          # opt-in by presence
+bu_module_require otherlib --dir "/path" --required          # abort if missing
+bu_module_require remotelib --dir "/path" --git-url "https://..." --branch main
+```
+
+It is idempotent (anchored match — `lib` vs `mylib` never collides), resolves
+`<dir>/*_bu_module.sh` or an explicit `--module-file`, and verifies the script
+actually registered the requested name.
+
 This populates:
 
 | Variable | Type | Description |

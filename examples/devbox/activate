@@ -33,12 +33,13 @@ function __devbox_activate()
     # Register the host module first, then its library dependencies.
     export BU_MODULE_LIST="devbox:0.1.0:${devbox_dir}/devbox_bu_preinit.sh;"
 
-    # Dependency modules, opt-in by presence. Sourcing gitshelf's LIBRARY
-    # entrypoint (not its activate) appends its preinit to BU_MODULE_LIST.
-    if [[ -r "$devbox_dir/../gitshelf/gitshelf_bu_module.sh" ]]
-    then
-        source "$devbox_dir/../gitshelf/gitshelf_bu_module.sh"
-    fi
+    # Dependency modules, opt-in by presence.  bu_module_require sources
+    # gitshelf's LIBRARY entrypoint (not its activate — that would fight for
+    # the top-level role) and appends its preinit to BU_MODULE_LIST.  Sourced
+    # before bu_entrypoint.sh, so it is dependency-free (builtins + git only),
+    # idempotent, and diamond-safe for nested requires.
+    source "$DEVBOX_BASHTAB_DIR/lib/bu_module_require.sh"
+    bu_module_require gitshelf --dir "$devbox_dir/../gitshelf"
 
     export BU_USER_DEFINED_CLI_COMMAND_NAME=devbox
     export BU_OUT_DIR=${BU_OUT_DIR:-"$devbox_dir/.bu"}

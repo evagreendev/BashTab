@@ -85,8 +85,9 @@ function myproject_activate()
 
     # Register this module and its library dependencies in BU_MODULE_LIST.
     export BU_MODULE_LIST="myproject:0.1.0:$myproject_dir/myproject_bu_preinit.sh;"
-    # Library dependencies append:
-    #   BU_MODULE_LIST+="somelib:1.0.0:/path/to/somelib_preinit.sh;"
+    # Library dependencies (opt-in by presence, idempotent, diamond-safe):
+    #   source "$BU_DIR/lib/bu_module_require.sh"
+    #   bu_module_require somelib --dir "$myproject_dir/../somelib" --git-url https://github.com/you/somelib --branch main
 
     # Set the top-level module key so the command registry can be cached.
     # Must be set BEFORE sourcing bu_entrypoint.sh.
@@ -146,10 +147,20 @@ bu clear-cache --all        # invalidate all caches
 ## 7. Use your module as a library
 
 If another project wants to use your module as a dependency (library mode),
-they append to `BU_MODULE_LIST`.  Your preinit
-callbacks run during their init, and your commands appear alongside theirs.
-They do NOT source your `activate` — that would make your module the
-top-level "binary" and override their cache key.
+they source your `*_bu_module.sh` (never your `activate`) so your preinit
+callbacks run during their init and your commands appear alongside theirs.
+The recommended way is `bu_module_require`, sourced before `bu_entrypoint.sh`:
+
+```sh
+# In the host's activate script, BEFORE source bu_entrypoint.sh:
+source "$BU_DIR/lib/bu_module_require.sh"
+bu_module_require myproject --dir "/path/to/myproject"
+```
+
+`bu_module_require` is opt-in by presence (missing = one INFO line, rc 0),
+idempotent, and diamond-safe for nested requires.  Add `--required` to abort
+the activate when the dependency is missing, and `--git-url URL [--branch B]`
+to autoclone it when absent (interactive ttys are prompted first).
 
 ## Module registration (updated pattern)
 
