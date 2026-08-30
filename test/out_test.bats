@@ -359,13 +359,13 @@ function test_bu_format_table_colors_use_key_not_label { #@test
 
 function test_bu_get_module_piped_defaults_to_jsonl { #@test
     local out
-    out=$(BU_MODULE_LIST="alpha:1.0.0:/a" bu get-module)
+    out=$(BU_MODULE_LIST="alpha:1.0.0:/a" bu get-module | jq -c '{name,version,path}')
     assert_equal "$out" '{"name":"alpha","version":"1.0.0","path":"/a"}'
 }
 
 function test_bu_get_module_json_array { #@test
     local out
-    out=$(BU_MODULE_LIST="alpha:1.0.0:/tmp/alpha;beta:-:/opt/beta" bu get-module --format json | jq -c .)
+    out=$(BU_MODULE_LIST="alpha:1.0.0:/tmp/alpha;beta:-:/opt/beta" bu get-module --format json | jq -c 'map({name,version,path})')
     assert_equal "$out" '[{"name":"alpha","version":"1.0.0","path":"/tmp/alpha"},{"name":"beta","version":"-","path":"/opt/beta"}]'
 }
 
@@ -373,6 +373,77 @@ function test_bu_get_module_columns { #@test
     local out
     out=$(BU_MODULE_LIST="alpha:1.0.0:/a" bu get-module --format tsv --columns name,version)
     assert_equal "$out" $'alpha\t1.0.0'
+}
+
+function test_bu_get_module_non_git_path_exact_shape { #@test
+    # A registered path outside any git repo yields empty describe/branch and
+    # a typed null dirty — no probe of the caller's CWD.
+    local out
+    out=$(BU_MODULE_LIST="alpha:1.0.0:/nonexistent/preinit.sh" bu get-module)
+    assert_equal "$out" '{"name":"alpha","version":"1.0.0","path":"/nonexistent/preinit.sh","describe":"","branch":"","dirty":null}'
+}
+
+function test_bu_get_module_git_identity { #@test
+    local repo="$BATS_TEST_TMPDIR/modgit"
+    mkdir -p "$repo"
+    git -C "$repo" init -q -b feature-x
+    git -C "$repo" config user.email test@example.com
+    git -C "$repo" config user.name Test
+    printf 'x\n' > "$repo/file"
+    git -C "$repo" add -A
+    git -C "$repo" commit -qm init
+
+    local out
+    out=$(BU_MODULE_LIST="alpha:1.0.0:$repo/preinit.sh" bu get-module)
+    assert_equal "$(printf '%s' "$out" | jq -r .branch)" "feature-x"
+    assert_equal "$(printf '%s' "$out" | jq -r '.dirty | type')" "boolean"
+    assert_equal "$(printf '%s' "$out" | jq -r .dirty)" "false"
+    # no tags → describe falls back to the short sha
+    local describe
+    describe=$(printf '%s' "$out" | jq -r .describe)
+    [[ -n "$describe" ]]
+    [[ "$describe" != *-dirty ]]
+    assert_equal "$(printf '%s' "$out" | jq -c keys_unsorted)" '["name","version","path","describe","branch","dirty"]'
+}
+
+function test_bu_get_module_git_dirty { #@test
+    local repo="$BATS_TEST_TMPDIR/modgit-dirty"
+    mkdir -p "$repo"
+    git -C "$repo" init -q -b main
+    git -C "$repo" config user.email test@example.com
+    git -C "$repo" config user.name Test
+    printf 'a\n' > "$repo/file"
+    git -C "$repo" add -A
+    git -C "$repo" commit -qm init
+    printf 'b\n' > "$repo/file"   # dirty a tracked file
+
+    local out
+    out=$(BU_MODULE_LIST="alpha:1.0.0:$repo/preinit.sh" bu get-module)
+    assert_equal "$(printf '%s' "$out" | jq -r .dirty)" "true"
+    assert_equal "$(printf '%s' "$out" | jq -r '.dirty | type')" "boolean"
+    assert_equal "$(printf '%s' "$out" | jq -r '.describe | endswith("-dirty")')" "true"
+
+    # typed booleans match the structured where DSL
+    local matched
+    matched=$(BU_MODULE_LIST="alpha:1.0.0:$repo/preinit.sh" bu get-module | bu query-object where dirty -eq true | jq -r .name)
+    assert_equal "$matched" "alpha"
+}
+
+function test_bu_get_module_no_status { #@test
+    local repo="$BATS_TEST_TMPDIR/modgit-nostatus"
+    mkdir -p "$repo"
+    git -C "$repo" init -q -b main
+    git -C "$repo" config user.email test@example.com
+    git -C "$repo" config user.name Test
+    printf 'x\n' > "$repo/file"
+    git -C "$repo" add -A
+    git -C "$repo" commit -qm init
+
+    local out
+    out=$(BU_MODULE_LIST="alpha:1.0.0:$repo/preinit.sh" bu get-module --no-status)
+    assert_equal "$(printf '%s' "$out" | jq -r .describe)" ""
+    assert_equal "$(printf '%s' "$out" | jq -r .branch)" ""
+    assert_equal "$(printf '%s' "$out" | jq -r .dirty)" "null"
 }
 
 function test_bu_get_command_metadata { #@test
@@ -565,7 +636,7 @@ function test_pipeline_fields_ts_pipe_before { #@test
     # The tree-sitter binding exposes the producer text as pipe_before
     local pipe_before="bu get-module | "
     __bu_out_complete_pipeline_fields ""
-    assert_equal "${BU_RET[*]}" "name version path"
+    assert_equal "${BU_RET[*]}" "name version path describe branch dirty"
 }
 
 function test_pipeline_fields_comp_words_fallback { #@test
@@ -732,7 +803,7 @@ function test_e2e_where_dot_fields { #@test
 function test_e2e_sort_pipeline_fields { #@test
     local pipe_before="bu get-module | "
     bu_autocomplete_get_autocompletions bu sort ""
-    assert_equal "${COMPREPLY[*]}" "name version path"
+    assert_equal "${COMPREPLY[*]}" "name version path describe branch dirty"
 }
 
 function test_e2e_format_table_columns_pipeline_fields { #@test
@@ -883,7 +954,7 @@ function test_bu_query_object_invalid_first { #@test
 function test_bu_query_object_no_clauses_passthrough { #@test
     local out
     out=$(BU_MODULE_LIST="a:1.0.0:/x" bu get-module | bu query-object)
-    assert_equal "$out" '{"name":"a","version":"1.0.0","path":"/x"}'
+    assert_equal "$out" '{"name":"a","version":"1.0.0","path":"/x","describe":"","branch":"","dirty":null}'
 }
 
 function test_bu_query_object_metadata { #@test

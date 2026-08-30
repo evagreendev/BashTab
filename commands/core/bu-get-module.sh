@@ -3,7 +3,7 @@
 # Tab-Execute: true
 # Synopsis: List loaded BashTab modules
 # Help-Topic: modules
-# Fields: name version path
+# Fields: name version path describe branch dirty
 function __bu_bu_get_module_main()
 {
 local -r invocation_dir=$PWD
@@ -16,6 +16,7 @@ bu_run_log_command "$@"
 
 local format=auto
 local columns=
+local no_status=false
 local is_help=false
 local error_msg=
 local options_finished=false
@@ -33,8 +34,12 @@ do
         ;;
     --columns)# COLUMNS
         # Fields to display, in order (comma-separated)
-        bu_parse_positional $# --enum name version path enum-- --hint "Comma-separated fields"
+        bu_parse_positional $# --enum name version path describe branch dirty enum-- --hint "Comma-separated fields"
         columns=${!shift_by}
+        ;;
+    --no-status)# _FLAG
+        # Skip live git probes (describe/branch/dirty)
+        no_status=true
         ;;
     -h|--help)# _FLAG
         # Print help
@@ -72,12 +77,20 @@ Each entry has the form \"name:version:preinit_path;\".
 Module scripts set this when sourced;
 top-level projects set it in their activate script.
 
+The version field is declarative: a hardcoded string the module script
+registers and nobody bumps. describe, branch, and dirty are live git
+identity, probed from the directory containing each module's registered
+preinit path — a module outside a git repo (or --no-status) reports empty
+describe/branch and dirty=null.
+
 Output is structured: piped output defaults to JSONL, terminal output
 defaults to a table. Use --format to override.
 " \
         --example "List modules" "" \
         --example "List modules as a JSON array" "--format json" \
-        --example "List modules as a list" "--format list"
+        --example "List modules as a list" "--format list" \
+        --example "Modules with uncommitted changes" "| bu query-object where dirty -eq true" \
+        --example "Skip live git probes" "--no-status"
     return 0
 fi
 
@@ -97,8 +110,9 @@ then
     bu_log_info "Modules register by appending to BU_MODULE_LIST in their module script."
     bu_log_info "Use 'bu new-module --name <name>' to scaffold a properly registered module."
 else
-    # Stream TSV records (zero forks in the loop), recordify once, then
-    # let bu_out decide presentation (table on a terminal, JSONL when piped)
+    # Stream one typed record per entry, then let bu_out decide presentation
+    # (table on a terminal, JSONL when piped).  bu_out_record forks one jq per
+    # record — fine here because module registries are small.
     local entry
     {
         for entry in "${entries[@]}"
@@ -108,9 +122,42 @@ else
             local rest=${entry#*:}
             local version=${rest%%:*}
             local path=${rest#*:}
-            printf '%s\t%s\t%s\n' "$name" "$version" "$path"
+
+            local describe=
+            local branch=
+            local dirty=null
+
+            if ! "$no_status"
+            then
+                # Probe only absolute paths whose directory exists.  A bogus
+                # or relative registered path must not fall through to
+                # probing the caller's CWD.
+                local dir=
+                if [[ "$path" == /* ]]
+                then
+                    bu_dirname "$path"
+                    dir=$BU_RET
+                fi
+                if [[ -n "$dir" && -d "$dir" ]]
+                then
+                    describe=$(git -C "$dir" describe --tags --always --dirty 2>/dev/null || true)
+                    branch=$(git -C "$dir" branch --show-current 2>/dev/null || true)
+                    if [[ -n "$describe" ]]
+                    then
+                        if [[ "$describe" == *-dirty ]]
+                        then
+                            dirty=true
+                        else
+                            dirty=false
+                        fi
+                    fi
+                fi
+            fi
+
+            bu_out_record name="$name" version="$version" path="$path" \
+                describe="$describe" branch="$branch" dirty:="$dirty"
         done
-    } | bu_out_from_tsv --columns name,version,path | bu_out --format "$format" ${columns:+--columns "$columns"}
+    } | bu_out --format "$format" ${columns:+--columns "$columns"}
 fi
 
 bu_scope_pop_function
