@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Dispatch: source
 # Synopsis: Close (or clean up) a remote ControlMaster session
+# Fields: host action socket
 function __bu_bu_remove_remote_session_main()
 {
 local -r invocation_dir=$PWD
@@ -13,6 +14,7 @@ bu_run_log_command "$@"
 
 local -a specs=()
 local all=false
+local format=auto
 local is_help=false
 local error_msg=
 local autocompletion=()
@@ -24,6 +26,12 @@ do
     --all)# _FLAG
         # Remove every session in the socket directory
         all=true
+        ;;
+    --format)# FORMAT
+        # Output format
+        bu_parse_positional $# --enum "${BU_OUT_FORMATS[@]}" enum-- --hint "Output format"
+        bu_validate_positional "${!shift_by}"
+        format=${!shift_by}
         ;;
     -h|--help)# _FLAG
         # Print help
@@ -63,40 +71,51 @@ Close a remote ControlMaster session (ssh -O exit), or clean up a stale
 socket when the master is already gone.  WARNING: a live master may be the
 only remaining route to a host if the credentials that opened it are gone —
 closing it can strand you.
-"
+
+Output is structured: piped output defaults to JSONL, terminal output
+defaults to a table. Use --format to override.
+" \
+        --example "Close a session" "host1" \
+        --example "Render as a table" "host1 --format table"
     return 0
 fi
 
-local rc=0
-if "$all"
+if ! "$all" && ((${#specs[@]} == 0))
 then
-    local dir
-    __bu_remote_ssh_dir
-    dir=$BU_RET
-    local sock spec
-    for sock in "$dir"/cm-*
-    do
-        [[ -e "$sock" ]] || continue
-        bu_basename "$sock"
-        spec=${BU_RET#cm-}
-        __bu_remote_remove_spec "$spec" || rc=1
-    done
-else
-    if ((${#specs[@]} == 0))
-    then
-        bu_log_err "Provide at least one spec or --all"
-        bu_scope_pop_function
-        return 1
-    fi
-    local spec
-    for spec in "${specs[@]}"
-    do
-        __bu_remote_remove_spec "$spec" || rc=1
-    done
+    bu_log_err "Provide at least one spec or --all"
+    bu_scope_pop_function
+    return 1
 fi
 
+local rc=0
+local pipe_rc
+{
+    if "$all"
+    then
+        local dir
+        __bu_remote_ssh_dir
+        dir=$BU_RET
+        local sock spec
+        for sock in "$dir"/cm-*
+        do
+            [[ -e "$sock" ]] || continue
+            bu_basename "$sock"
+            spec=${BU_RET#cm-}
+            __bu_remote_remove_spec "$spec" || rc=1
+        done
+    else
+        local spec
+        for spec in "${specs[@]}"
+        do
+            __bu_remote_remove_spec "$spec" || rc=1
+        done
+    fi
+    exit "$rc"
+} | bu_out --format "$format"
+pipe_rc=${PIPESTATUS[0]}
+
 bu_scope_pop_function
-return "$rc"
+return "$pipe_rc"
 }
 
 __bu_bu_remove_remote_session_main "$@"
