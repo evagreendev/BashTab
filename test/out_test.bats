@@ -1082,6 +1082,64 @@ function test_query_object_translate_op_like_substring { #@test
 }
 
 # ===========================================================================
+# -eq/-ne/-gt/-lt/-ge/-le (scalar comparisons with numeric coercion)
+# ===========================================================================
+
+function test_query_object_translate_op_scalar_coercion { #@test
+    local out
+    # Numeric RHS coerces the field through `tonumber? // .`
+    out=$(__bu_query_object_translate_op channel -eq 1108)
+    assert_equal "$out" '(.channel | tonumber? // .) == 1108'
+    out=$(__bu_query_object_translate_op count -gt 3)
+    assert_equal "$out" '(.count | tonumber? // .) > 3'
+    # String RHS is unchanged — coercion keys off the RHS literal's type
+    out=$(__bu_query_object_translate_op type -eq source)
+    assert_equal "$out" '.type == "source"'
+    out=$(__bu_query_object_translate_op type -ne source)
+    assert_equal "$out" '.type != "source"'
+}
+
+function test_where_eq_matches_numeric_string_field { #@test
+    local out
+    out=$(printf '%s\n' '{"channel":"1108"}' '{"channel":1108}' \
+        | bu query-object where channel -eq 1108)
+    assert_equal "$out" '{"channel":"1108"}
+{"channel":1108}'
+}
+
+function test_where_in_matches_numeric_string_field { #@test
+    local out
+    out=$(printf '%s\n' '{"channel":"1108"}' '{"channel":1108}' '{"channel":"9999"}' \
+        | bu query-object where channel -in 1108)
+    assert_equal "$out" '{"channel":"1108"}
+{"channel":1108}'
+}
+
+function test_where_notin_excludes_numeric_string_field { #@test
+    local out
+    out=$(printf '%s\n' '{"channel":"1108"}' '{"channel":1108}' '{"channel":"9999"}' \
+        | bu query-object where channel -notin 1108 select channel)
+    assert_equal "$out" '{"channel":"9999"}'
+}
+
+function test_where_string_equality_and_ne_still_work { #@test
+    local out
+    out=$(printf '%s\n' '{"type":"source"}' '{"type":"alias"}' \
+        | bu query-object where type -eq source select type)
+    assert_equal "$out" '{"type":"source"}'
+    out=$(printf '%s\n' '{"type":"source"}' '{"type":"alias"}' \
+        | bu query-object where type -ne source select type)
+    assert_equal "$out" '{"type":"alias"}'
+}
+
+function test_where_gt_matches_numeric_string_field { #@test
+    local out
+    out=$(printf '%s\n' '{"n":"5"}' '{"n":2}' \
+        | bu query-object where n -gt 3 select n)
+    assert_equal "$out" '{"n":"5"}'
+}
+
+# ===========================================================================
 # -in / -notin (set membership against a comma-separated list)
 # ===========================================================================
 
@@ -1094,7 +1152,7 @@ function test_query_object_translate_op_in_notin { #@test
     out=$(__bu_query_object_translate_op type -in source)
     assert_equal "$out" '.type | IN("source")'
     out=$(__bu_query_object_translate_op count -in 1,2,null)
-    assert_equal "$out" '.count | IN(1,2,null)'
+    assert_equal "$out" '(.count | tonumber? // .) | IN(1,2,null)'
     out=$(__bu_query_object_translate_op type -in 'source,,alias,')
     assert_equal "$out" '.type | IN("source","alias")'
     run __bu_query_object_translate_op type -in ''

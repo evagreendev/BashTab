@@ -659,6 +659,23 @@ __bu_jq_literal()
 
 # ```
 # *Description*:
+# Report whether a value produced by `__bu_jq_literal` is a jq *number*
+# literal (as opposed to a quoted string, `true`, `false`, or `null`).
+#
+# *Params*:
+# - `$1`: A jq literal string as emitted by `__bu_jq_literal`
+#
+# *Returns*:
+# - exit 0 when the literal is numeric, 1 otherwise
+# ```
+__bu_jq_literal_is_numeric()
+{
+    local lit=$1
+    [[ "$lit" =~ ^-?[0-9]+\.?[0-9]*$ || "$lit" =~ ^-?[0-9]*\.[0-9]+$ ]]
+}
+
+# ```
+# *Description*:
 # Convert a shell glob pattern to a jq-compatible regex for the `test`
 # function.  Handles `*` (any chars), `?` (one char), escapes everything
 # else that is a regex metacharacter.
@@ -712,6 +729,15 @@ __bu_glob_to_regex()
 #         contains a literal comma cannot be expressed this way — use the raw
 #         jq syntax instead.
 #
+#         Numeric coercion: when the literalized RHS of a scalar comparison
+#         (-eq -ne -gt -lt -ge -le) is a jq number, the FIELD is wrapped as
+#         `(.field | tonumber? // .)` before comparing, so string-typed
+#         numeric fields (e.g. `{"channel":"1108"}`) match numeric RHS values.
+#         Non-numeric fields fall back to themselves unchanged. For -in/-notin
+#         the same wrap is applied only when ANY list element is numeric; an
+#         all-string list keeps the plain `.field` form. String RHS values
+#         never trigger coercion.
+#
 # *Returns*:
 # - stdout: jq boolean expression, e.g. `.type == "source"`
 # - exit 0 on success, 1 if operator is unknown or the -in/-notin list is empty
@@ -719,6 +745,7 @@ __bu_glob_to_regex()
 # *Examples*:
 # ```bash
 # __bu_query_object_translate_op type -eq source       # .type == "source"
+# __bu_query_object_translate_op channel -eq 1108      # (.channel | tonumber? // .) == 1108
 # __bu_query_object_translate_op name -like "*.sh"     # .name | test("^.*\\.sh$")
 # __bu_query_object_translate_op name -like command    # .name | test("^.*command.*$") (no wildcard => substring)
 # __bu_query_object_translate_op name -match "^get-"   # .name | test("^get-")
@@ -735,12 +762,30 @@ __bu_query_object_translate_op()
     local jq_expr=
 
     case "$op" in
-    -eq)    jq_expr=".$field == $(__bu_jq_literal "$val")" ;;
-    -ne)    jq_expr=".$field != $(__bu_jq_literal "$val")" ;;
-    -gt)    jq_expr=".$field > $(__bu_jq_literal "$val")" ;;
-    -lt)    jq_expr=".$field < $(__bu_jq_literal "$val")" ;;
-    -ge)    jq_expr=".$field >= $(__bu_jq_literal "$val")" ;;
-    -le)    jq_expr=".$field <= $(__bu_jq_literal "$val")" ;;
+    -eq|-ne|-gt|-lt|-ge|-le)
+        # Scalar ordered/equality comparisons. When the literalized RHS is a
+        # jq *number*, coerce the field through `tonumber? // .` so a
+        # string-typed numeric field (e.g. `{"channel":"1108"}`) still
+        # compares correctly. A genuinely non-numeric field value falls back
+        # to itself, preserving jq's existing cross-type ordering semantics.
+        local cmp_lit
+        local field_ref
+        cmp_lit=$(__bu_jq_literal "$val")
+        if __bu_jq_literal_is_numeric "$cmp_lit"
+        then
+            field_ref="(.$field | tonumber? // .)"
+        else
+            field_ref=".$field"
+        fi
+        case "$op" in
+        -eq) jq_expr="$field_ref == $cmp_lit" ;;
+        -ne) jq_expr="$field_ref != $cmp_lit" ;;
+        -gt) jq_expr="$field_ref > $cmp_lit" ;;
+        -lt) jq_expr="$field_ref < $cmp_lit" ;;
+        -ge) jq_expr="$field_ref >= $cmp_lit" ;;
+        -le) jq_expr="$field_ref <= $cmp_lit" ;;
+        esac
+        ;;
     -like|-notlike)
         # PowerShell-flavored -like: a value with no glob wildcard
         # implies *value* (substring match), not exact match. Explicit
@@ -788,11 +833,17 @@ __bu_query_object_translate_op()
         local elem
         local item_lit
         local items=
+        local has_numeric=false
+        local field_ref
         IFS=',' read -r -a elems <<< "$val"
         for elem in "${elems[@]}"
         do
             [[ -z "$elem" ]] && continue
             item_lit=$(__bu_jq_literal "$elem")
+            if __bu_jq_literal_is_numeric "$item_lit"
+            then
+                has_numeric=true
+            fi
             if [[ -z "$items" ]]
             then
                 items=$item_lit
@@ -805,7 +856,15 @@ __bu_query_object_translate_op()
             bu_log_err "Empty -in/-notin value[$val] for __bu_query_object_translate_op"
             return 1
         fi
-        jq_expr=".$field | IN($items)"
+        # If ANY element is numeric, coerce the field so string-typed numeric
+        # fields match. All-string lists keep the plain `.field` form.
+        if [[ "$has_numeric" == true ]]
+        then
+            field_ref="(.$field | tonumber? // .)"
+        else
+            field_ref=".$field"
+        fi
+        jq_expr="$field_ref | IN($items)"
         if [[ "$op" == -notin ]]
         then
             jq_expr+=" | not"
