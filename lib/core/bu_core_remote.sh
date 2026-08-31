@@ -256,10 +256,13 @@ __bu_remote_default_bootstrap()
 # Preamble: `set -e`, then source /etc/profile and ~/.bashrc with stdout AND
 # stderr silenced (rc-file chatter would otherwise corrupt the JSONL stream).
 # Bootstrap: the BU_REMOTE_BOOTSTRAP_CALLBACK output (or the default) which
-# activates the project and defines `__bu_remote_dispatch`.  Body: command
-# mode prints a %q-quoted `__bu_remote_dispatch <argv>` line; script mode
-# wraps a block in `set +e; fn() { set -e; <block>; }; fn; exit $?` so one
-# activation serves N commands.
+# activates the project and defines `__bu_remote_dispatch`.  When the
+# optional array BU_REMOTE_BOOTSTRAP_OPTS is set, its elements are passed
+# verbatim to the callback after the remote dir (the default bootstrap
+# ignores them).  Body: command mode prints a %q-quoted
+# `__bu_remote_dispatch <argv>` line; script mode wraps a block in
+# `set +e; fn() { set -e; <block>; }; fn; exit $?` so one activation serves
+# N commands.
 #
 # *Params*:
 # - `$1`: remote dir (passed to the bootstrap callback; may be empty)
@@ -280,7 +283,7 @@ bu_remote_build_script()
 
     if [[ -n "${BU_REMOTE_BOOTSTRAP_CALLBACK:-}" ]]
     then
-        "$BU_REMOTE_BOOTSTRAP_CALLBACK" "$remote_dir"
+        "$BU_REMOTE_BOOTSTRAP_CALLBACK" "$remote_dir" ${BU_REMOTE_BOOTSTRAP_OPTS[@]+"${BU_REMOTE_BOOTSTRAP_OPTS[@]}"}
     else
         __bu_remote_default_bootstrap
     fi

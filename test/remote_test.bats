@@ -223,6 +223,29 @@ function test_remote_build_script_default_stanza_only_when_unset { #@test
     assert_equal "$(grep -Fc '__bu_remote_dispatch() { bu "$@"; }' <<<"$out")" 0
 }
 
+function test_remote_build_script_bootstrap_opts_forwarded { #@test
+    # BU_REMOTE_BOOTSTRAP_OPTS elements reach the callback verbatim after
+    # the remote dir; unset/empty arrays are safe (set -u embedders).
+    __test_remote_cb_opts() { shift; echo "MARKER_OPTS=$*"; echo "__bu_remote_dispatch() {
+:; }"; }
+    BU_REMOTE_BOOTSTRAP_CALLBACK=__test_remote_cb_opts
+
+    local -a BU_REMOTE_BOOTSTRAP_OPTS=(--context prod --set "a b")
+    run bu_remote_build_script /opt/app command get-module
+    assert_success
+    assert_output --partial 'MARKER_OPTS=--context prod --set a b'
+
+    BU_REMOTE_BOOTSTRAP_OPTS=()
+    run bu_remote_build_script /opt/app command get-module
+    assert_success
+    assert_output --partial 'MARKER_OPTS='
+
+    unset BU_REMOTE_BOOTSTRAP_OPTS
+    run bash -u -c "$(declare -f __test_remote_cb_opts bu_remote_build_script __bu_remote_default_bootstrap); BU_REMOTE_BOOTSTRAP_CALLBACK=__test_remote_cb_opts bu_remote_build_script /opt/app command get-module"
+    assert_success
+    assert_output --partial 'MARKER_OPTS='
+}
+
 # ===========================================================================
 # End-to-end WITHOUT network: local short-circuit
 # ===========================================================================
@@ -306,6 +329,76 @@ function test_remote_invoke_ssh_stderr_prefix { #@test
     run bu_remote_invoke "$script" false web01
     assert_failure
     assert_output --partial "[$(local_user)@web01] stub-connect-failed"
+}
+
+function test_invoke_host_field_fan_out { #@test
+    # Hosts come from piped JSONL records (deduped, order kept); the command
+    # follows --. Two records for localhost dedup to ONE invocation.
+    BU_REMOTE_BOOTSTRAP_CALLBACK=__test_remote_bootstrap
+    run bu invoke-remote-command --host-field host -- run \
+        < <(printf '%s\n' '{"host":"localhost"}' '{"host":"localhost"}')
+    assert_success
+    assert_equal "$(grep -c '"name":"test"' <<<"$output")" 1
+}
+
+function test_invoke_host_field_requires_command { #@test
+    BU_REMOTE_BOOTSTRAP_CALLBACK=__test_remote_bootstrap
+    run bu invoke-remote-command --host-field host \
+        < <(printf '%s\n' '{"host":"localhost"}')
+    assert_failure
+    assert_output --partial "script mode unavailable"
+}
+
+function test_invoke_context_parser_first_class_flags { #@test
+    # A registered BU_REMOTE_CONTEXT_PARSER turns embedder context flags
+    # into first-class options: parsed from the catch-all into
+    # bootstrap_opts/remote_dir, with unknown flags still erroring.
+    __test_ctx_parser() {
+        bu_parse_multiselect $# "$1"
+        case "$1" in
+        --context)# CTX
+            # Project activation context
+            bu_parse_positional $# --hint "Context"
+            bootstrap_opts+=(--context "${!shift_by}")
+            ;;
+        --project-dir)# DIR
+            # Project tree override
+            bu_parse_positional $# --hint "Dir"
+            remote_dir=${!shift_by}
+            ;;
+        *)
+            return 1
+            ;;
+        esac
+    }
+    export -f __test_ctx_parser 2>/dev/null || true
+    BU_REMOTE_CONTEXT_PARSER=__test_ctx_parser
+    # Bootstrap echoes what it received so the flags' round-trip is visible.
+    __test_ctx_bootstrap() {
+        shift  # remote dir
+        printf '__bu_remote_dispatch() { echo "CTX:%s"; }\n' "$*"
+    }
+    BU_REMOTE_BOOTSTRAP_CALLBACK=__test_ctx_bootstrap
+
+    run bu invoke-remote-command --host localhost --context prod -- run
+    assert_success
+    assert_output --partial "CTX:--context prod"
+
+    # remote_dir set by the parser reaches the bootstrap's $1
+    __test_ctx_bootstrap2() { printf '__bu_remote_dispatch() { echo "DIR:%s"; }\n' "$1"; }
+    BU_REMOTE_BOOTSTRAP_CALLBACK=__test_ctx_bootstrap2
+    run bu invoke-remote-command --host localhost --project-dir /opt/x -- run
+    assert_success
+    assert_output --partial "DIR:/opt/x"
+
+    # Unknown flags still error (parser returned 1)
+    run bu invoke-remote-command --host localhost --bogus -- run
+    assert_failure 2>/dev/null || [[ "$output" == *nrecognized* ]]
+
+    # Without a parser, embedder flags are unrecognized
+    unset BU_REMOTE_CONTEXT_PARSER
+    run bu invoke-remote-command --host localhost --context prod -- run
+    [[ "$output" == *nrecognized* ]]
 }
 
 function test_new_remote_session_created { #@test

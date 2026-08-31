@@ -13,6 +13,8 @@ bu_run_log_command "$@"
 
 local -a hosts=()
 local remote_dir=
+local host_field=
+local -a bootstrap_opts=()
 local no_host_field=false
 local format=jsonl
 local is_help=false
@@ -29,6 +31,11 @@ do
         bu_parse_positional $# --hint "Remote host spec ([user@]host)"
         hosts+=("${!shift_by}")
         ;;
+    --host-field)# HOST_FIELD
+        # Read host specs from piped JSONL records (extract this field)
+        bu_parse_positional $# --hint "JSONL record field holding the host spec"
+        host_field=${!shift_by}
+        ;;
     --remote-dir)# REMOTE_DIR
         # Directory to activate the project in on the remote host
         bu_parse_positional $# --hint "Remote directory for project activation"
@@ -37,6 +44,11 @@ do
     --no-host-field)# _FLAG
         # Do not inject a host field into JSONL records
         no_host_field=true
+        ;;
+    --bootstrap-opt)# BOOTSTRAP_OPT
+        # Extra option passed verbatim to the bootstrap callback; repeatable
+        bu_parse_positional $# --hint "Bootstrap callback option"
+        bootstrap_opts+=("${!shift_by}")
         ;;
     --format)# FORMAT
         # Output format (jsonl is passthrough; others go through the output layer)
@@ -54,8 +66,17 @@ do
         break
         ;;
     *)
-        bu_parse_error_enum "$1"
-        break
+        if [[ -n "${BU_REMOTE_CONTEXT_PARSER:-}" ]] && declare -F "$BU_REMOTE_CONTEXT_PARSER" >/dev/null 2>&1
+        then
+            if ! bu_parse_inject "$BU_REMOTE_CONTEXT_PARSER" "$@"
+            then
+                bu_parse_error_enum "$1"
+                break
+            fi
+        else
+            bu_parse_error_enum "$1"
+            break
+        fi
         ;;
     esac
     if "$is_help"
@@ -88,11 +109,56 @@ records produced remotely get a \"host\" field injected (disable with
 env -i bash -s, so marshal->run->tag->rc works with zero network.
 
 Provide a command after --, or pipe a script on stdin (script mode).  One of
-the two is required.
+the two is required.  Hosts may also come from piped JSONL records via
+--host-field FIELD: each record's FIELD is extracted, deduped order-preserving,
+and appended after any explicit --host flags.  With --host-field, stdin
+carries the records, so a command after -- is required and script mode is
+unavailable.  Extra options for the bootstrap callback are forwarded
+verbatim with repeatable --bootstrap-opt OPT.
+
+Embedders may register BU_REMOTE_CONTEXT_PARSER as the name of a
+bu_parse_inject-contract function; it runs in this command's dynamic scope
+and may append to bootstrap_opts or assign remote_dir directly, returning 1
+for tokens it does not own.  Its flags Tab-complete natively alongside the
+built-ins with no extra completion code.
 " \
         --example "Run get-module on two hosts" "--host web01 --host web02 -- get-module" \
-        --example "Pipe a script block" "echo 'get-module' | bu invoke-command --host web01"
+        --example "Pipe a script block" "echo 'get-module' | bu invoke-command --host web01" \
+        --example "Fan out to an inventory" "bu get-server --where env=prod | bu invoke-command --host-field host -- get-module"
     return 0
+fi
+
+if [[ -n "$host_field" ]]
+then
+    if [[ -t 0 ]]
+    then
+        bu_log_err "--host-field requires piped JSONL records on stdin (a terminal has no records)"
+        bu_scope_pop_function
+        return 1
+    fi
+    if ((${#cmd[@]} == 0))
+    then
+        bu_log_err "--host-field reads host records from stdin, so script mode unavailable; provide a command after --"
+        bu_scope_pop_function
+        return 1
+    fi
+    __bu_out_assert_jq || { bu_scope_pop_function; return 1; }
+
+    local _hf_host _hf_existing _hf_seen
+    while IFS= read -r _hf_host
+    do
+        [[ -n "$_hf_host" ]] || continue
+        _hf_seen=false
+        for _hf_existing in "${hosts[@]}"
+        do
+            if [[ "$_hf_existing" == "$_hf_host" ]]
+            then
+                _hf_seen=true
+                break
+            fi
+        done
+        "$_hf_seen" || hosts+=("$_hf_host")
+    done < <("$BU_OUT_JQ" -Rr --arg f "$host_field" 'try (fromjson | .[$f] | select(type == "string" and . != "")) catch empty')
 fi
 
 if ((${#hosts[@]} == 0))
@@ -122,6 +188,7 @@ local tmp_file
 tmp_file=$(mktemp "$BU_TMP_DIR/bu_remote_invoke.XXXXXXXXXX")
 bu_scope_add_cleanup rm -f "$tmp_file"
 
+local -a BU_REMOTE_BOOTSTRAP_OPTS=("${bootstrap_opts[@]}")
 bu_remote_build_script "$remote_dir" "${mode_args[@]}" > "$tmp_file"
 
 local inject=true
