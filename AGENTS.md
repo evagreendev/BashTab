@@ -381,6 +381,8 @@ esac
 - `bu_parse_positional` - Positional arguments
 - `bu_parse_multiselect` - Keyword arguments
 - `bu_parse_nested` - Subparsers
+- `bu_parse_nested_multiselect` - Repeatable subcommand options
+- `bu_parse_nested_multiselect_stay` - Repeatable subcommand options (stay in multiselect)
 - `bu_parse_command_context` - Recursive command calls
 
 These functions unify parsing, autocompletion, and variable binding.

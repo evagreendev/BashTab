@@ -189,6 +189,286 @@ function test_parse_without_inject_resets_normally { #@test
 }
 
 # ===========================================================================
+# bu_parse_nested_multiselect
+# ===========================================================================
+
+function test_parse_nested_multiselect_publishes_options_and_shift { #@test
+    # Like bu_parse_nested but for a repeatable subcommand: autocompletion
+    # is replaced with --options-of <impl>, the impl is dispatched with the
+    # first following word, and the cursor advances past the current word
+    # plus the impl's first word (saved_shift_by + 1).
+    local shift_by=1
+    local __bu_g_shift_by=0
+    local autocompletion=(--old)
+    local error_msg=
+    local is_help=false
+    local seen=
+    declare -A bu_parsed_multiselect_arguments=()
+
+    __test_nms_opts() {
+        seen=$1
+        case "$1" in
+        a|b|c) ;;
+        *) bu_parse_error_enum "$1" ;;
+        esac
+    }
+
+    bu_parse_nested_multiselect __test_nms_opts sub a b
+
+    assert_equal "${autocompletion[0]}" '--options-of'
+    assert_equal "${autocompletion[1]}" '__test_nms_opts'
+    assert_equal "$seen" 'a'
+    assert_equal "$shift_by" 2
+
+    unset -f __test_nms_opts
+}
+
+function test_parse_nested_multiselect_records_only_in_autocomplete { #@test
+    # The just-consumed word must be recorded in the multiselect dedup map
+    # only while completing, exactly like bu_parse_multiselect does.
+    local shift_by=1
+    local __bu_g_shift_by=0
+    local autocompletion=()
+    local error_msg=
+    local is_help=false
+    declare -A bu_parsed_multiselect_arguments=()
+
+    __test_nms_opts() {
+        case "$1" in
+        a|b|c) ;;
+        *) bu_parse_error_enum "$1" ;;
+        esac
+    }
+
+    # No autocomplete context → no dedup entry.
+    local COMP_CWORD=
+    local BU_COMP_FAKE=
+    shift_by=1
+    bu_parse_nested_multiselect __test_nms_opts sub a b
+    assert_equal "${bu_parsed_multiselect_arguments[sub]:-}" ''
+
+    # Autocomplete context → the consumed word is recorded.
+    COMP_CWORD=1
+    bu_parsed_multiselect_arguments=()
+    shift_by=1
+    bu_parse_nested_multiselect __test_nms_opts sub a b
+    assert_equal "${bu_parsed_multiselect_arguments[sub]:-}" '1'
+
+    unset -f __test_nms_opts
+}
+
+function test_parse_nested_multiselect_stay_shift_and_options { #@test
+    # The stay variant is like bu_parse_nested_multiselect but leaves
+    # shift_by=1 so the outer loop stays in multiselect position.
+    local shift_by=1
+    local __bu_g_shift_by=0
+    local autocompletion=(--old)
+    local error_msg=
+    local is_help=false
+    local seen=
+    declare -A bu_parsed_multiselect_arguments=()
+
+    __test_nms_stay_opts() {
+        seen=$1
+        case "$1" in
+        a|b|c) ;;
+        *) bu_parse_error_enum "$1" ;;
+        esac
+    }
+
+    bu_parse_nested_multiselect_stay __test_nms_stay_opts sub a b
+
+    assert_equal "${autocompletion[0]}" '--options-of'
+    assert_equal "${autocompletion[1]}" '__test_nms_stay_opts'
+    assert_equal "$seen" 'a'
+    assert_equal "$shift_by" 1
+
+    unset -f __test_nms_stay_opts
+}
+
+function test_parse_nested_multiselect_repeatable_subcommand_end_to_end { #@test
+    # A command with a repeatable subcommand offers the nested impl's options
+    # at the subcommand position and filters already-used ones out.
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    cat > "$tmpdir/test-nms-cmd.sh" <<'EOF'
+#!/usr/bin/env bash
+# Dispatch: source
+function __bu_test_nms_cmd_main()
+{
+source "$BU_NULL"
+bu_scope_push_function
+bu_run_log_command "$@"
+local shift_by=
+local __bu_g_shift_by=0
+local is_help=false
+local error_msg=
+local autocompletion=()
+local sub_active=false
+
+function __test_nms_opts()
+{
+    case "$1" in
+    a|b|c) ;;
+    *) bu_parse_error_enum "$1" ;;
+    esac
+}
+
+while (($#))
+do
+    bu_parse_multiselect $# "$1"
+    case "$1" in
+    sub)
+        sub_active=true
+        bu_parse_nested_multiselect __test_nms_opts "$@"
+        ;;
+    *)
+        if "$sub_active"
+        then
+            bu_parse_nested_multiselect __test_nms_opts "$@"
+        else
+            bu_parse_error_enum "$1"
+            break
+        fi
+        ;;
+    esac
+    if "$is_help"; then break; fi
+    if (( $# < shift_by )); then bu_parse_error_argn "$1" $#; break; fi
+    shift "$shift_by"
+done
+if bu_env_is_in_autocomplete
+then
+    bu_autocomplete
+    return 0
+fi
+if "$is_help"
+then
+    echo "error: $error_msg"
+else
+    echo consumed
+fi
+bu_scope_pop_function
+}
+__bu_test_nms_cmd_main "$@"
+EOF
+    chmod +x "$tmpdir/test-nms-cmd.sh"
+    bu_preinit_register_user_defined_subcommand_file "$tmpdir/test-nms-cmd.sh" test-nms-cmd source
+
+    # Subcommand position: all impl options offered.
+    COMPREPLY=()
+    BU_COMPREPLY_METADATA=()
+    bu_autocomplete_get_autocompletions bu test-nms-cmd sub ""
+    assert_equal "${COMPREPLY[*]}" 'a b c'
+
+    # Non-autocomplete execution dispatches to the impl and validates.
+    run bu test-nms-cmd sub a b
+    assert_success
+    assert_output 'consumed'
+
+    run bu test-nms-cmd sub x
+    assert_output --partial 'Unrecognized option[x]'
+
+    rm -rf "$tmpdir"
+}
+
+function test_parse_nested_multiselect_stay_repeatable_subcommand_end_to_end { #@test
+    # The stay variant keeps the outer loop in multiselect position, so each
+    # used option is filtered out of subsequent completions.
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    cat > "$tmpdir/test-nms-stay.sh" <<'EOF'
+#!/usr/bin/env bash
+# Dispatch: source
+function __bu_test_nms_stay_main()
+{
+source "$BU_NULL"
+bu_scope_push_function
+bu_run_log_command "$@"
+local shift_by=
+local __bu_g_shift_by=0
+local is_help=false
+local error_msg=
+local autocompletion=()
+local sub_active=false
+
+function __test_nms_stay_opts()
+{
+    case "$1" in
+    a|b|c) ;;
+    *) bu_parse_error_enum "$1" ;;
+    esac
+}
+
+while (($#))
+do
+    bu_parse_multiselect $# "$1"
+    case "$1" in
+    sub)
+        sub_active=true
+        bu_parse_nested_multiselect_stay __test_nms_stay_opts "$@"
+        ;;
+    *)
+        if "$sub_active"
+        then
+            bu_parse_nested_multiselect_stay __test_nms_stay_opts "$@"
+        else
+            bu_parse_error_enum "$1"
+            break
+        fi
+        ;;
+    esac
+    if "$is_help"; then break; fi
+    if (( $# < shift_by )); then bu_parse_error_argn "$1" $#; break; fi
+    shift "$shift_by"
+done
+if bu_env_is_in_autocomplete
+then
+    bu_autocomplete
+    return 0
+fi
+if "$is_help"
+then
+    echo "error: $error_msg"
+else
+    echo consumed
+fi
+bu_scope_pop_function
+}
+__bu_test_nms_stay_main "$@"
+EOF
+    chmod +x "$tmpdir/test-nms-stay.sh"
+    bu_preinit_register_user_defined_subcommand_file "$tmpdir/test-nms-stay.sh" test-nms-stay source
+
+    # Subcommand position: all impl options offered.
+    COMPREPLY=()
+    BU_COMPREPLY_METADATA=()
+    bu_autocomplete_get_autocompletions bu test-nms-stay sub ""
+    assert_equal "${COMPREPLY[*]}" 'a b c'
+
+    # After `sub a`, `a` is filtered out.
+    COMPREPLY=()
+    BU_COMPREPLY_METADATA=()
+    bu_autocomplete_get_autocompletions bu test-nms-stay sub a ""
+    assert_equal "${COMPREPLY[*]}" 'b c'
+
+    # After `sub a b`, both are filtered out.
+    COMPREPLY=()
+    BU_COMPREPLY_METADATA=()
+    bu_autocomplete_get_autocompletions bu test-nms-stay sub a b ""
+    assert_equal "${COMPREPLY[*]}" 'c'
+
+    # Non-autocomplete execution validates each option.
+    run bu test-nms-stay sub a b
+    assert_success
+    assert_output 'consumed'
+
+    run bu test-nms-stay sub a x
+    assert_output --partial 'Unrecognized option[x]'
+
+    rm -rf "$tmpdir"
+}
+
+# ===========================================================================
 # bu_autocomplete
 # ===========================================================================
 

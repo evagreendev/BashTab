@@ -934,6 +934,66 @@ bu_parse_nested()
     : $((shift_by += __bu_g_shift_by))
 }
 
+bu_parse_nested_multiselect()
+{
+    local -r nested_impl=$1
+    shift
+    if (( shift_by >= $# ))
+    then
+        return
+    fi
+
+    local -r last_word=${!shift_by}
+    shift "$shift_by"
+    local nested_args=("$@")
+    autocompletion=(--options-of "$nested_impl")
+    if bu_env_is_in_autocomplete
+    then
+        bu_parsed_multiselect_arguments[$last_word]=1
+    fi
+
+    local saved_shift_by=$shift_by
+    shift_by=1
+    "$nested_impl" "${nested_args[@]}"
+    : $((shift_by += saved_shift_by))
+}
+
+# ```
+# *Description*:
+# Repeatable-subcommand parse, stay-in-multiselect variant.  Identical to
+# `bu_parse_nested_multiselect` except it folds the nested shift counter back
+# like `bu_parse_nested` (`shift_by = saved_shift_by + __bu_g_shift_by`),
+# leaving `shift_by=1` so the outer loop stays at the multiselect position and
+# re-enters the same case arm for the next option.  Already-used words are
+# still recorded in `bu_parsed_multiselect_arguments` during autocomplete, so
+# the remaining options are offered with used ones filtered out.
+# ```
+bu_parse_nested_multiselect_stay()
+{
+    local -r nested_impl=$1
+    shift
+    if (( shift_by >= $# ))
+    then
+        return
+    fi
+
+    local -r last_word=${!shift_by}
+    shift "$shift_by"
+    local nested_args=("$@")
+    autocompletion=(--options-of "$nested_impl")
+    if bu_env_is_in_autocomplete
+    then
+        bu_parsed_multiselect_arguments[$last_word]=1
+    fi
+
+    local saved_shift_by=$shift_by
+    shift_by=1
+    local __bu_g_shift_by=0
+    "$nested_impl" "${nested_args[@]}"
+    shift_by=$saved_shift_by
+    : $((shift_by += __bu_g_shift_by))
+}
+
 # ```
 # *Description*:
 # Compose-mode parse: like `bu_parse_nested` but APPENDS `--options-of <impl>`
