@@ -401,6 +401,56 @@ function test_invoke_context_parser_first_class_flags { #@test
     [[ "$output" == *nrecognized* ]]
 }
 
+function test_enter_remote_session_local_markers_and_exit { #@test
+    # Local short-circuit: rc assembly, session markers, prompt tag, and the
+    # exit-remote-session pair — zero network. Commands arrive on stdin
+    # (bash -i reads it when not a tty), like an expect-lite session.
+    BU_REMOTE_BOOTSTRAP_CALLBACK=__test_remote_bootstrap
+    run bu enter-remote-session localhost \
+        < <(printf '%s\n' \
+            'echo "MARK_S=$BU_REMOTE_SESSION"' \
+            'echo "MARK_O=$BU_REMOTE_SESSION_ORIGIN"' \
+            'bu exit-remote-session')
+    assert_success
+    assert_output --partial "MARK_S=$(local_user)@localhost"
+    assert_output --partial "MARK_O=$(local_user)@"
+}
+
+function test_enter_remote_session_exit_code_propagates { #@test
+    BU_REMOTE_BOOTSTRAP_CALLBACK=__test_remote_bootstrap
+    run bu enter-remote-session localhost \
+        < <(printf 'bu exit-remote-session 7\n')
+    assert_equal "$status" 7
+}
+
+function test_exit_remote_session_refuses_outside { #@test
+    unset BU_REMOTE_SESSION
+    run bu exit-remote-session
+    assert_failure
+    assert_output --partial "Not inside a remote session"
+}
+
+function test_enter_remote_session_refuses_nesting { #@test
+    BU_REMOTE_SESSION=user@somewhere
+    run bu enter-remote-session localhost < /dev/null
+    unset BU_REMOTE_SESSION
+    assert_failure
+    assert_output --partial "Already inside a remote session"
+}
+
+function test_enter_remote_session_ssh_argv_tty { #@test
+    # Remote path: -t for the interactive tty, spec normalized, rc shipped
+    # inside the remote command. The stub ssh fails fast; argv is the assert.
+    BU_REMOTE_BOOTSTRAP_CALLBACK=__test_remote_bootstrap
+    run bu enter-remote-session deploy@web01 < /dev/null
+    # The shipped rc embeds newlines, so one stub invocation logs multiple
+    # lines — match the record's HEAD line and the log as a whole.
+    local argv
+    argv=$(grep -- '^-t ' "$BU_TEST_SSH_ARGV_LOG")
+    [[ "$argv" == *deploy@web01* ]]
+    grep -q -- '--rcfile' "$BU_TEST_SSH_ARGV_LOG"
+}
+
 function test_new_remote_session_created { #@test
     run bu new-remote-session web01
     assert_success
