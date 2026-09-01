@@ -22,6 +22,7 @@ jobs:
           - test/api_contract_test.bats
           - test/cli_rename_test.bats
           - test/config_test.bats
+          - test/context_test.bats
           - test/escaping_test.bats
           - test/expose_test.bats
           - test/first_test.bats
