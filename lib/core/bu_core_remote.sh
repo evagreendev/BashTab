@@ -441,25 +441,3 @@ __bu_remote_remove_spec()
     bu_out_record "host=$normalized" "action=$action" "socket=$sock"
     return 0
 }
-
-# ```
-# *Description*:
-# Late-bound alias registration.  The builtin remote invoke command has a
-# distinct canonical name (`invoke-remote-command`); the friendly name
-# `invoke-command` binds only AFTER the command scan completes (both the eager
-# and deferred/lazy paths call this), and only when no embedding project has
-# already claimed `invoke-command`.  It must never run from preinit: a
-# preinit-time alias would corrupt a project command the scan later writes
-# over the name.
-# ```
-__bu_remote_register_alias()
-{
-    if [[ -z "${BU_COMMANDS[invoke-command]:-}" ]]
-    then
-        local _bu_cur_module_prev=${BU_CURRENT_MODULE:-}
-        BU_CURRENT_MODULE=bu
-        bu_preinit_register_new_alias invoke-command invoke-remote-command '{...}'
-        BU_CURRENT_MODULE=$_bu_cur_module_prev
-    fi
-    return 0
-}

@@ -526,16 +526,39 @@ function test_remove_remote_session_absent { #@test
 # Alias binding
 # ===========================================================================
 
-function test_alias_bound_after_init { #@test
-    assert_equal "${BU_COMMANDS[invoke-command]}" "invoke-remote-command {...}"
-    assert_equal "${BU_COMMAND_PROPERTIES[invoke-command,type]}" alias
+function test_no_invoke_command_alias_in_core { #@test
+    # Core registers ONLY the canonical invoke-remote-command; the friendly
+    # `invoke-command` spelling belongs to embedders (a plain preinit alias
+    # in their module preinit). The removed late-bind ran before module
+    # pre-inits and corrupted same-named embedder commands.
+    [[ -z "${BU_COMMANDS[invoke-command]:-}" ]]
+    [[ -n "${BU_COMMANDS[invoke-remote-command]:-}" ]]
+    ! declare -F __bu_remote_register_alias
 }
 
-function test_alias_suppressed_when_preclaimed { #@test
-    unset 'BU_COMMANDS[invoke-command]'
-    BU_COMMANDS[invoke-command]="my-custom-invoke"
-    BU_COMMAND_PROPERTIES[invoke-command,type]=function
-    __bu_remote_register_alias
-    assert_equal "${BU_COMMANDS[invoke-command]}" "my-custom-invoke"
-    assert_equal "${BU_COMMAND_PROPERTIES[invoke-command,type]}" function
+function test_embedder_invoke_command_dispatches { #@test
+    # A module shipping its own `invoke-command` command must dispatch
+    # normally. The removed late-bound core alias ran before module pre-inits
+    # and left type=alias on the scanned script path, so dispatch resolved no
+    # target and executed an empty command (rc 2).
+    local dir="$BATS_TEST_TMPDIR/modinv"
+    mkdir -p "$dir/commands"
+    printf '#!/usr/bin/env bash\necho module-invoke-ok "$@"\n' > "$dir/commands/invoke-command.sh"
+    chmod +x "$dir/commands/invoke-command.sh"
+    {
+        echo '#!/usr/bin/env bash'
+        echo 'source "$BU_NULL"'
+        echo 'bu_pushd_current "$BASH_SOURCE"'
+        echo 'bu import-environment +i -c ./commands'
+        echo 'bu_popd_silent'
+    } > "$dir/modinv-preinit.sh"
+
+    run bash -c '
+        export BU_TOP_LEVEL_MODULE=modinv
+        export BU_MODULE_LIST="modinv:0.1.0:$1;"
+        source "$2"/bu_entrypoint.sh >/dev/null 2>&1
+        bu invoke-command hello
+    ' _ "$dir/modinv-preinit.sh" "$DIR"/..
+    assert_success
+    assert_output "module-invoke-ok hello"
 }

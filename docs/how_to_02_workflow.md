@@ -62,6 +62,21 @@ fi
 bu_popd_silent
 ```
 
+### Friendly spellings belong to the embedder
+
+Core registers only canonical command names (e.g. `invoke-remote-command`).
+If your project wants a shorter or friendlier spelling of a built-in, declare
+it as a plain alias in your preinit rather than shadowing the command name
+with a script:
+
+```sh
+bu_preinit_register_new_alias invoke-command invoke-remote-command '{...}'
+```
+
+Preinit aliases and the command scan are both complete before any dispatch,
+so there is no ordering hazard: a project can never collide with itself the
+way a core late-bound alias could.
+
 ## 4. Customize the activate script
 
 `myproject/activate` is the "binary" entrypoint — it sets `BU_TOP_LEVEL_MODULE`

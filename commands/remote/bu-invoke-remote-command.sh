@@ -123,8 +123,8 @@ for tokens it does not own.  Its flags Tab-complete natively alongside the
 built-ins with no extra completion code.
 " \
         --example "Run get-module on two hosts" "--host web01 --host web02 -- get-module" \
-        --example "Pipe a script block" "echo 'get-module' | bu invoke-command --host web01" \
-        --example "Fan out to an inventory" "bu get-server --where env=prod | bu invoke-command --host-field host -- get-module"
+        --example "Pipe a script block" "echo 'get-module' | bu invoke-remote-command --host web01" \
+        --example "Fan out to an inventory" "bu get-server --where env=prod | bu invoke-remote-command --host-field host -- get-module"
     return 0
 fi
 
