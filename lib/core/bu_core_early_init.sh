@@ -183,28 +183,13 @@ __bu_init_env_commands()
                 fi
             fi
 
-            # Record an explicit # Dispatch: <type> declaration so dispatch
-            # honors intent regardless of the file's exec bit.
-            local dispatch_decl
-            __bu_command_dispatch_decl "$script_path"
-            dispatch_decl=$BU_RET
-            if [[ -n "$dispatch_decl" ]]; then
-                BU_COMMAND_PROPERTIES[$command,type]=$dispatch_decl
-                # A shell-mutating script with the exec bit is an attractive
-                # nuisance: invoked as ./cmd.sh or via PATH it runs as a child
-                # process and silently no-ops its mutations.
-                if [[ "$dispatch_decl" == source && -x "$script_path" ]]; then
-                    bu_log_warn "Command[$command] declares '# Dispatch: source' but has the exec bit; invoking it as '$script_path' will silently no-op its shell mutations. Use 'chmod -x' to remove the exec bit."
-                fi
-            fi
-
-            BU_COMMANDS[$command]=$script_path
-
+            # Register through the write funnel: the definition write settles
+            # the dispatch type from the file's # Dispatch: header (unsetting
+            # any stale cached type when the header is absent).
             local _dir_module=${BU_COMMAND_SEARCH_DIR_MODULE[$dir]:-}
-            if [[ -n "$_dir_module" ]]
-            then
-                __bu_stamp_command_module "$command" "$_dir_module"
-            fi
+            __bu_command_register "$command" "$script_path" \
+                --settle-from-file "$script_path" \
+                --module "$_dir_module"
         done
     done
 

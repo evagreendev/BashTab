@@ -1285,3 +1285,81 @@ function test_dispatch_declared_source_exec_bit_warns { #@test
     for _d in "${!saved_dirs[@]}"; do BU_COMMAND_SEARCH_DIRS[$_d]=${saved_dirs[$_d]}; done
     rm -rf "$tmpdir"
 }
+
+function test_register_funnel_settles_type_on_rescan { #@test
+    # The write-funnel invariant: registering a definition settles the type.
+    # The dispatch type cache is populated lazily; a rescan of a headerless
+    # file must INVALIDATE the cached type — else chmod +x between scans
+    # leaves type=source over an executable and dispatch sources it into
+    # the caller's shell (env/cwd pollution).
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    printf '#!/usr/bin/env bash\necho ran\n' > "$tmpdir/flip-cmd.sh"
+    # no exec bit, no # Dispatch: header
+
+    local -A saved_dirs=()
+    local _d; for _d in "${!BU_COMMAND_SEARCH_DIRS[@]}"; do saved_dirs[$_d]=${BU_COMMAND_SEARCH_DIRS[$_d]}; done
+    BU_COMMAND_SEARCH_DIRS=()
+    BU_COMMAND_SEARCH_DIRS[$tmpdir]=
+    __bu_init_env_commands
+
+    # Dispatch once: lazily derives + caches type=source (fallback demotion)
+    bu flip-cmd &>/dev/null || true
+    assert_equal "${BU_COMMAND_PROPERTIES[flip-cmd,type]}" source
+
+    # File becomes executable; the rescan must clear the stale cached type...
+    chmod +x "$tmpdir/flip-cmd.sh"
+    __bu_init_env_commands
+    assert [ -z "${BU_COMMAND_PROPERTIES[flip-cmd,type]:-}" ]
+
+    # ...so the next dispatch re-derives execute from the exec bit.
+    bu flip-cmd &>/dev/null || true
+    assert_equal "${BU_COMMAND_PROPERTIES[flip-cmd,type]}" execute
+
+    # A declared header still wins over the exec bit on rescan.
+    printf '#!/usr/bin/env bash\n# Dispatch: source\necho ran\n' > "$tmpdir/flip-cmd.sh"
+    __bu_init_env_commands
+    assert_equal "${BU_COMMAND_PROPERTIES[flip-cmd,type]}" source
+
+    BU_COMMAND_SEARCH_DIRS=()
+    for _d in "${!saved_dirs[@]}"; do BU_COMMAND_SEARCH_DIRS[$_d]=${saved_dirs[$_d]}; done
+    rm -rf "$tmpdir"
+}
+
+function test_register_funnel_alias_over_command_and_back { #@test
+    # Cross-kind re-registration keeps the (definition,type) pair coherent
+    # in both directions: alias-over-file writes type=alias atomically;
+    # file-over-alias settles (invalidates) so dispatch re-derives from the
+    # file rather than word-splitting a path as an alias spec.
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    printf '#!/usr/bin/env bash\necho from-file\n' > "$tmpdir/pair-cmd.sh"
+    chmod +x "$tmpdir/pair-cmd.sh"
+
+    local -A saved_dirs=()
+    local _d; for _d in "${!BU_COMMAND_SEARCH_DIRS[@]}"; do saved_dirs[$_d]=${BU_COMMAND_SEARCH_DIRS[$_d]}; done
+    BU_COMMAND_SEARCH_DIRS=()
+    BU_COMMAND_SEARCH_DIRS[$tmpdir]=
+    __bu_init_env_commands
+    bu pair-cmd &>/dev/null || true
+    assert_equal "${BU_COMMAND_PROPERTIES[pair-cmd,type]}" execute
+
+    # Alias overwrites the name: pair flips together.
+    bu_preinit_register_new_alias pair-cmd get-command '{...}'
+    assert_equal "${BU_COMMAND_PROPERTIES[pair-cmd,type]}" alias
+    assert_equal "${BU_COMMANDS[pair-cmd]}" "get-command {...}"
+
+    # File re-registers over the alias: type settles, dispatch runs the file.
+    __bu_init_env_commands
+    assert [ -z "${BU_COMMAND_PROPERTIES[pair-cmd,type]:-}" ]
+    run bu pair-cmd
+    assert_success
+    assert_output --partial from-file
+
+    unset 'BU_COMMANDS[pair-cmd]'
+    unset 'BU_COMMAND_PROPERTIES[pair-cmd,type]'
+    BU_COMMAND_SEARCH_DIRS=()
+    for _d in "${!saved_dirs[@]}"; do BU_COMMAND_SEARCH_DIRS[$_d]=${saved_dirs[$_d]}; done
+    rm -rf "$tmpdir"
+}
+

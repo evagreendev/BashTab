@@ -482,12 +482,11 @@ bu_cap_reprobe_unavailable()
         fi
         if reason=$(BU_IS_COMPAT_PROBE=1 bash "$script_path" --is-compatible 2>&1)
         then
-            # Probe passed — register the command
-            BU_COMMANDS[$cmd]=$script_path
+            # Probe passed — register through the write funnel. settle-from-file
+            # clears any stale cached type so dispatch re-derives from the file.
+            __bu_command_register "$cmd" "$script_path" --settle-from-file "$script_path" --module ""
             unset 'BU_COMMAND_UNAVAILABLE[$cmd]'
             unset 'BU_COMMAND_PROPERTIES[$cmd,unavailable_path]'
-            # Clear cached type so it gets re-resolved
-            unset 'BU_COMMAND_PROPERTIES[$cmd,type]'
             bu_log_info "Reprobe recovered $cmd"
             : $((recovered++))
         fi

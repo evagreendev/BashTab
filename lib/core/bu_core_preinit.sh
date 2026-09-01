@@ -228,6 +228,103 @@ __bu_stamp_command_module()
 
 # ```
 # *Description*:
+# Single write funnel for the command registry.  Every definition write goes
+# through here so that registering a definition always settles its dispatch
+# type — the (BU_COMMANDS, BU_COMMAND_PROPERTIES[,type]) pair can never
+# disagree the way it did when each write site maintained its own consistency
+# rules (a stale cached type surviving a definition rewrite).
+#
+# *Params*:
+# - `$1`: command name
+# - `$2`: definition (script path | function name | alias spec string)
+# - `--type T`: write this exact dispatch type (caller already knows it —
+#   alias registration passes `alias`; the function/file helpers pass an
+#   explicit type argument when one was given).
+# - `--settle-from-file PATH`: definition is a script file — write the type
+#   from the file's `# Dispatch:` header, else UNSET any cached type so the
+#   lazy derivation runs fresh on next dispatch.
+# - `--module M`: stamp the owning module (defaults to `BU_CURRENT_MODULE`;
+#   an explicitly-passed empty module suppresses stamping rather than falling
+#   back to the default).
+#
+# *Returns*: None
+# ```
+__bu_command_register()
+{
+    local -r name=$1
+    local -r definition=$2
+    shift 2
+
+    local type=
+    local settle_file=
+    local module=
+    local has_module=false
+
+    while (($#))
+    do
+        case "$1" in
+        --type)
+            type=$2
+            shift 2
+            ;;
+        --settle-from-file)
+            settle_file=$2
+            shift 2
+            ;;
+        --module)
+            module=$2
+            has_module=true
+            shift 2
+            ;;
+        *)
+            bu_log_err "__bu_command_register: unrecognized option $1"
+            shift
+            ;;
+        esac
+    done
+
+    # ── Definition write (the ONLY BU_COMMANDS assignment in the codebase)
+    BU_COMMANDS[$name]=$definition
+
+    # ── Settle the dispatch type
+    if [[ -n "$type" ]]
+    then
+        BU_COMMAND_PROPERTIES[$name,type]=$type
+    elif [[ -n "$settle_file" ]]
+    then
+        local dispatch_decl
+        __bu_command_dispatch_decl "$settle_file"
+        dispatch_decl=$BU_RET
+        if [[ -n "$dispatch_decl" ]]
+        then
+            BU_COMMAND_PROPERTIES[$name,type]=$dispatch_decl
+            # A shell-mutating script with the exec bit is an attractive
+            # nuisance: invoked as ./cmd.sh or via PATH it runs as a child
+            # process and silently no-ops its mutations.
+            if [[ "$dispatch_decl" == source && -x "$settle_file" ]]
+            then
+                bu_log_warn "Command[$name] declares '# Dispatch: source' but has the exec bit; invoking it as '$settle_file' will silently no-op its shell mutations. Use 'chmod -x' to remove the exec bit."
+            fi
+        else
+            unset "BU_COMMAND_PROPERTIES[$name,type]"
+        fi
+    else
+        unset "BU_COMMAND_PROPERTIES[$name,type]"
+    fi
+
+    # ── Stamp the owning module
+    if ! "$has_module"
+    then
+        module=${BU_CURRENT_MODULE:-}
+    fi
+    if [[ -n "$module" ]]
+    then
+        __bu_stamp_command_module "$name" "$module"
+    fi
+}
+
+# ```
+# *Description*:
 # Register a single user-defined subcommand file
 #
 # *Params*:
@@ -276,16 +373,11 @@ bu_preinit_register_user_defined_subcommand_file()
         command=${file_base%.sh}
     fi
 
-    BU_COMMANDS[$command]=$file
-
-    if [[ -n "${BU_CURRENT_MODULE:-}" ]]
-    then
-        __bu_stamp_command_module "$command" "$BU_CURRENT_MODULE"
-    fi
-
     if [[ -n "$type" ]]
     then
-        BU_COMMAND_PROPERTIES[$command,type]=$type
+        __bu_command_register "$command" "$file" --type "$type"
+    else
+        __bu_command_register "$command" "$file" --settle-from-file "$file"
     fi
 
     if [[ -n "$synopsis" ]]
@@ -342,16 +434,11 @@ bu_preinit_register_user_defined_subcommand_function()
         command=$fn
     fi
 
-    BU_COMMANDS[$command]=$fn
-
-    if [[ -n "${BU_CURRENT_MODULE:-}" ]]
-    then
-        __bu_stamp_command_module "$command" "$BU_CURRENT_MODULE"
-    fi
-
     if [[ -n "$type" ]]
     then
-        BU_COMMAND_PROPERTIES[$command,type]=$type
+        __bu_command_register "$command" "$fn" --type "$type"
+    else
+        __bu_command_register "$command" "$fn"
     fi
 
     if [[ -n "$synopsis" ]]
@@ -619,12 +706,7 @@ bu_preinit_register_new_alias()
         esac
     done
     local alias_spec=$*
-    BU_COMMANDS[$alias_name]="$alias_spec"
-    BU_COMMAND_PROPERTIES[$alias_name,type]=alias
-    if [[ -n "${BU_CURRENT_MODULE:-}" ]]
-    then
-        __bu_stamp_command_module "$alias_name" "$BU_CURRENT_MODULE"
-    fi
+    __bu_command_register "$alias_name" "$alias_spec" --type alias
     if [[ -n "$synopsis" ]]
     then
         BU_COMMAND_PROPERTIES[$alias_name,synopsis]=$synopsis
