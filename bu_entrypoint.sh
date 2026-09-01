@@ -89,6 +89,10 @@ bu_source_user_defined_configs
 
 source ./lib/core/bu_core_var.sh --__bu-once
 source ./lib/core/bu_core_base.sh --__bu-once
+# Context-variable origin tracking + consumption logging (bu_var_origin_* /
+# bu_context_*).  Loaded early so embedders can wrap their configuration
+# sourcing chain in bu_var_origin_enable/bu_var_origin_disable windows.
+source ./lib/core/bu_core_context.sh --__bu-once
 # Location/repo/help-topic registries are re-sourced every activation (no
 # --__bu-once) so their arrays reset before preinits and the local file
 # re-register entries.
