@@ -2354,10 +2354,30 @@ __bu_autocomplete_completion_func_cli()
                 local ns_prefix=":$ns_name:"
                 local cmd_prefix=${ns_part#$ns_name:}
                 local -a ns_commands=()
+                local -A _ns_seen=()
                 local cmd
                 for cmd in "${!BU_COMMANDS[@]}"
                 do
-                    [[ "${BU_COMMAND_PROPERTIES[$cmd,namespace]}" == "$ns_name" ]] && ns_commands+=("$cmd")
+                    if [[ "${BU_COMMAND_PROPERTIES[$cmd,namespace]}" == "$ns_name" ]]
+                    then
+                        _ns_seen[$cmd]=1
+                        ns_commands+=("$cmd")
+                    fi
+                done
+                # Shadowed (collision-parked) commands from the qualified store.
+                local _qkey _qbare
+                for _qkey in "${!BU_COMMANDS_QUALIFIED[@]}"
+                do
+                    if [[ "$_qkey" == ":$ns_name:"* ]]
+                    then
+                        _qbare=${_qkey#*:}
+                        _qbare=${_qbare#*:}
+                        if [[ -z "${_ns_seen[$_qbare]:-}" ]]
+                        then
+                            _ns_seen[$_qbare]=1
+                            ns_commands+=("$_qbare")
+                        fi
+                    fi
                 done
                 if ((${#ns_commands[@]} > 0))
                 then
@@ -2373,11 +2393,25 @@ __bu_autocomplete_completion_func_cli()
                 # No namespace yet: complete namespace names
                 _completion_kind=namespace-list
                 local -a namespaces=()
+                local -A _ns_list_seen=()
                 local ns
                 for ns in "${!BU_COMMAND_NAMESPACES[@]}"
                 do
                     [[ -z "$ns" ]] && continue  # skip default/empty namespace
+                    _ns_list_seen[$ns]=1
                     namespaces+=(":$ns:")
+                done
+                # Namespaces that exist only in the qualified store (every
+                # command of that module lost its bare name).
+                local _qkey _qns
+                for _qkey in "${!BU_COMMANDS_QUALIFIED[@]}"
+                do
+                    _qns=${_qkey#:}
+                    _qns=${_qns%%:*}
+                    [[ -z "$_qns" ]] && continue
+                    [[ -n "${_ns_list_seen[$_qns]:-}" ]] && continue
+                    _ns_list_seen[$_qns]=1
+                    namespaces+=(":$_qns:")
                 done
                 bu_compgen -W "${namespaces[*]}" -- "$cur_word"
                 # Accepting a bare :ns: must NOT add a trailing space — the
@@ -2412,6 +2446,12 @@ __bu_autocomplete_completion_func_cli()
                     for _c in "${!BU_COMMANDS[@]}"
                     do
                         [[ "${BU_COMMAND_PROPERTIES[$_c,namespace]:-}" == "$_ns_name" ]] && : $((_ns_count++))
+                    done
+                    # Count shadowed commands from the qualified store too.
+                    local _qk
+                    for _qk in "${!BU_COMMANDS_QUALIFIED[@]}"
+                    do
+                        [[ "$_qk" == ":$_ns_name:"* ]] && : $((_ns_count++))
                     done
                     local _ns_label=commands
                     if (( _ns_count == 1 ))

@@ -1471,4 +1471,89 @@ function test_module_rank_built_from_module_list_order { #@test
     assert_output --partial "a=1 b=2 g=3 bu=900"
 }
 
+function test_get_command_shadow_fields_and_all { #@test
+    # Layer 3 introspection: the winner carries shadows, --all includes the
+    # parked loser with the reverse shadowed_by link, and empty shadow
+    # fields serialize as typed nulls so -isnotnull audits are exact.
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    printf '#!/usr/bin/env bash\necho A\n' > "$tmpdir/t.sh"
+    printf '#!/usr/bin/env bash\necho B\n' > "$tmpdir/d.sh"
+    chmod +x "$tmpdir/t.sh" "$tmpdir/d.sh"
+    BU_MODULE_RANK[topmod]=1
+    BU_MODULE_RANK[depmod]=2
+    __bu_command_register coll-e "$tmpdir/t.sh" --module topmod
+    __bu_command_register coll-e "$tmpdir/d.sh" --module depmod 2>/dev/null
+
+    # Default listing: winner only, shadows set, loser absent.
+    run bu get-command --format jsonl
+    assert_output --partial '"name":"coll-e"'
+    refute_output --partial '"name":":depmod:coll-e"'
+
+    local winner
+    winner=$(bu get-command --format jsonl | "$BU_OUT_JQ" -c 'select(.name == "coll-e")')
+    assert_equal "$(printf '%s' "$winner" | "$BU_OUT_JQ" -r .shadows)" ":depmod:coll-e"
+
+    # --all: the loser appears with the reverse link.
+    local loser
+    loser=$(bu get-command --all --format jsonl | "$BU_OUT_JQ" -c 'select(.name == ":depmod:coll-e")')
+    assert_equal "$(printf '%s' "$loser" | "$BU_OUT_JQ" -r .shadowed_by)" "coll-e"
+
+    # Reads are subshell-safe (only registration writes are not).
+    local audit
+    audit=$(bu get-command --all --format jsonl | bu query-object where shadowed_by -isnotnull)
+    [[ "$audit" == *':depmod:coll-e'* ]]
+    [[ "$audit" != *'"name":"get-command"'* ]]
+
+    unset 'BU_COMMANDS[coll-e]' 'BU_COMMANDS_QUALIFIED[:depmod:coll-e]'
+    unset 'BU_MODULE_RANK[topmod]' 'BU_MODULE_RANK[depmod]'
+    rm -rf "$tmpdir"
+}
+
+function test_completion_offers_shadowed_qualified_names { #@test
+    # A parked loser Tab-completes: :<ns>:<TAB> offers it, and :<TAB>
+    # includes a namespace that exists only in the qualified store.
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    printf '#!/usr/bin/env bash\necho A\n' > "$tmpdir/t.sh"
+    printf '#!/usr/bin/env bash\necho B\n' > "$tmpdir/d.sh"
+    chmod +x "$tmpdir/t.sh" "$tmpdir/d.sh"
+    BU_MODULE_RANK[topmod]=1
+    BU_MODULE_RANK[shadowns]=2
+    __bu_command_register coll-f "$tmpdir/t.sh" --module topmod
+    __bu_command_register coll-f "$tmpdir/d.sh" --module shadowns 2>/dev/null
+
+    COMP_WORDS=("$BU_CLI_COMMAND_NAME" ":shadowns:")
+    COMP_CWORD=1
+    COMP_LINE="$BU_CLI_COMMAND_NAME :shadowns:"
+    COMP_POINT=${#COMP_LINE}
+    COMPREPLY=()
+    __bu_autocomplete_completion_func_cli "$BU_CLI_COMMAND_NAME" ":shadowns:" "" 2>/dev/null
+    local joined="${COMPREPLY[*]}"
+    [[ "$joined" == *":shadowns:coll-f"* ]]
+
+    COMP_WORDS=("$BU_CLI_COMMAND_NAME" ":")
+    COMP_CWORD=1
+    COMP_LINE="$BU_CLI_COMMAND_NAME :"
+    COMP_POINT=${#COMP_LINE}
+    COMPREPLY=()
+    # || true: the namespace-list arm calls compopt, which errors outside a
+    # real completion context (fatal under bats errexit); COMPREPLY is
+    # still populated before that point.
+    __bu_autocomplete_completion_func_cli "$BU_CLI_COMMAND_NAME" ":" "" 2>/dev/null || true
+    local _c _found=false
+    for _c in "${COMPREPLY[@]}"
+    do
+        [[ "$_c" == *shadowns* ]] && { _found=true; break; }
+    done
+    "$_found"
+
+    unset 'BU_COMMANDS[coll-f]' 'BU_COMMANDS_QUALIFIED[:shadowns:coll-f]'
+    unset 'BU_MODULE_RANK[topmod]' 'BU_MODULE_RANK[shadowns]'
+    rm -rf "$tmpdir"
+}
+
+
 

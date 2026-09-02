@@ -3,7 +3,7 @@
 # Tab-Execute: true
 # Synopsis: List registered commands and their properties
 # Help-Topic: commands
-# Fields: name verb noun namespace type definition synopsis fields stage module
+# Fields: name verb noun namespace type definition synopsis fields stage module shadows shadowed_by
 function __bu_bu_get_command_main()
 {
 local -r invocation_dir=$PWD
@@ -41,6 +41,7 @@ local is_allow_empty_noun=false
 local is_allow_empty_namespace=false
 local format=auto
 local columns=
+local is_all=false
 local is_help=false
 local error_msg=
 local options_finished=false
@@ -89,9 +90,13 @@ do
         bu_validate_positional "${!shift_by}"
         format=${!shift_by}
         ;;
+    -a|--all)# _FLAG
+        # Include collision-parked (shadowed) commands from the qualified store
+        is_all=true
+        ;;
     --columns)# COLUMNS
         # Fields to display, in order (comma-separated)
-        bu_parse_positional $# --delimited name verb noun namespace type definition synopsis fields stage module delimited-- --hint "Comma-separated fields"
+        bu_parse_positional $# --delimited name verb noun namespace type definition synopsis fields stage module shadows shadowed_by delimited-- --hint "Comma-separated fields"
         columns=${!shift_by}
         ;;
     -h|--help)# _FLAG
@@ -140,8 +145,15 @@ local command_namespace
 local command_type
 
 local filtered_commands=()
+local -a sweep_commands=()
+if "$is_all"
+then
+    sweep_commands=("${!BU_COMMANDS[@]}" "${!BU_COMMANDS_QUALIFIED[@]}")
+else
+    sweep_commands=("${!BU_COMMANDS[@]}")
+fi
 
-for command in "${!BU_COMMANDS[@]}"
+for command in "${sweep_commands[@]}"
 do
     if [[ -n "$verb_filter" ]]
     then
@@ -193,7 +205,7 @@ for command in "${filtered_commands[@]}"
 do
     __bu_cli_command_type "$command"
     local _ct=$BU_RET
-    local _path=${BU_COMMANDS[$command]}
+    local _path=${BU_COMMANDS[$command]:-${BU_COMMANDS_QUALIFIED[$command]:-}}
     case "$_ct" in
     execute|source)
         if [[ -f "$_path" ]]
@@ -267,7 +279,7 @@ __bu_get_cmd_registry_lookup()
         local synopsis=${BU_COMMAND_PROPERTIES[$command,synopsis]:-}
         if [[ -z "$synopsis" ]]
         then
-            local _cmd_path=${BU_COMMANDS[$command]}
+            local _cmd_path=${BU_COMMANDS[$command]:-${BU_COMMANDS_QUALIFIED[$command]:-}}
             case "$command_type" in
             execute|source)
                 synopsis=${file_synopsis[$_cmd_path]:-}
@@ -288,15 +300,33 @@ __bu_get_cmd_registry_lookup()
         __bu_get_cmd_registry_lookup BU_OUT_STAGE_EFFECT "$command"
         local stage=$BU_RET
 
-        # Definition: raw BU_COMMANDS value — script path (execute/source),
+        # Definition: BU_COMMANDS value (falling back to the qualified store
+        # for --all collision-parked losers) — script path (execute/source),
         # function name (function), or expansion spec (alias).
-        local definition=${BU_COMMANDS[$command]}
+        local definition=${BU_COMMANDS[$command]:-${BU_COMMANDS_QUALIFIED[$command]:-}}
 
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        # shadows: the qualified name this command beat (winner only).
+        local shadows=${BU_COMMAND_PROPERTIES[$command,shadows]:-}
+        # shadowed_by: reverse link, derived only on qualified entries whose
+        # bare sibling's shadows property points back at them.
+        local shadowed_by=
+        if [[ "$command" == :*:* ]]
+        then
+            local _shadow_bare=${command#:}
+            _shadow_bare=${_shadow_bare#*:}
+            if [[ "${BU_COMMAND_PROPERTIES[$_shadow_bare,shadows]:-}" == "$command" ]]
+            then
+                shadowed_by=$_shadow_bare
+            fi
+        fi
+
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "$command" "$command_verb" "$command_noun" "$command_namespace" \
-            "$command_type" "$definition" "$synopsis" "$fields" "$stage" "$command_module"
+            "$command_type" "$definition" "$synopsis" "$fields" "$stage" "$command_module" \
+            "$shadows" "$shadowed_by"
     done
-} | sort | bu_out_from_tsv --columns name,verb,noun,namespace,type,definition,synopsis,fields,stage,module \
+} | sort | bu_out_from_tsv --columns name,verb,noun,namespace,type,definition,synopsis,fields,stage,module,shadows,shadowed_by \
+    | "$BU_OUT_JQ" -c '.shadows = (if .shadows == "" then null else .shadows end) | .shadowed_by = (if .shadowed_by == "" then null else .shadowed_by end)' \
     | bu_out --format "$format" --columns "${columns:-name,type,definition,synopsis}"
 
 

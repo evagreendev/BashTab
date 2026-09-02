@@ -355,6 +355,7 @@ __bu_command_register()
                 if [[ -n "$module" ]]
                 then
                     BU_COMMAND_PROPERTIES[$qualified,module]=$module
+                    BU_COMMAND_PROPERTIES[$qualified,namespace]=$module
                 fi
                 BU_COMMAND_PROPERTIES[$name,shadows]=$qualified
                 bu_log_warn "Command collision: [$name] is registered by module[$incumbent_module] (rank $inc_rank) and module[$module] (rank $new_rank); keeping [$incumbent_module] on the bare name and parking [$module] at $qualified"
@@ -366,6 +367,7 @@ __bu_command_register()
             local qualified=":$incumbent_module:$name"
             BU_COMMANDS_QUALIFIED[$qualified]=$incumbent_def
             local inc_type=${BU_COMMAND_PROPERTIES[$name,type]:-}
+            local inc_ns=${BU_COMMAND_PROPERTIES[$name,namespace]:-}
             if [[ -n "$inc_type" ]]
             then
                 BU_COMMAND_PROPERTIES[$qualified,type]=$inc_type
@@ -373,6 +375,10 @@ __bu_command_register()
             if [[ -n "$incumbent_module" ]]
             then
                 BU_COMMAND_PROPERTIES[$qualified,module]=$incumbent_module
+            fi
+            if [[ -n "$inc_ns" ]]
+            then
+                BU_COMMAND_PROPERTIES[$qualified,namespace]=$inc_ns
             fi
             BU_COMMAND_PROPERTIES[$name,shadows]=$qualified
             # Clear the loser's namespace label so `:<loser>:<cmd>` resolves to
