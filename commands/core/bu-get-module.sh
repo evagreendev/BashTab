@@ -3,7 +3,7 @@
 # Tab-Execute: true
 # Synopsis: List loaded BashTab modules
 # Help-Topic: modules
-# Fields: name version path describe branch dirty
+# Fields: name rank version path describe branch dirty
 function __bu_bu_get_module_main()
 {
 local -r invocation_dir=$PWD
@@ -34,7 +34,7 @@ do
         ;;
     --columns)# COLUMNS
         # Fields to display, in order (comma-separated)
-        bu_parse_positional $# --enum name version path describe branch dirty enum-- --hint "Comma-separated fields"
+        bu_parse_positional $# --enum name rank version path describe branch dirty enum-- --hint "Comma-separated fields"
         columns=${!shift_by}
         ;;
     --no-status)# _FLAG
@@ -123,6 +123,14 @@ else
             local version=${rest%%:*}
             local path=${rest#*:}
 
+            # Precedence rank (lower wins bare-name collisions). Read from
+            # BU_MODULE_RANK; null when the module-list parser never ranked
+            # this entry (e.g. a hand-set BU_MODULE_LIST in tests/subshells).
+            local rank=null
+            if [[ -n "${BU_MODULE_RANK[$name]:-}" ]]; then
+                rank=${BU_MODULE_RANK[$name]}
+            fi
+
             local describe=
             local branch=
             local dirty=null
@@ -154,7 +162,7 @@ else
                 fi
             fi
 
-            bu_out_record name="$name" version="$version" path="$path" \
+            bu_out_record name="$name" rank:="$rank" version="$version" path="$path" \
                 describe="$describe" branch="$branch" dirty:="$dirty"
         done
     } | bu_out --format "$format" ${columns:+--columns "$columns"}

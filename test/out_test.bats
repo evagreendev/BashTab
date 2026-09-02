@@ -380,7 +380,7 @@ function test_bu_get_module_non_git_path_exact_shape { #@test
     # a typed null dirty — no probe of the caller's CWD.
     local out
     out=$(BU_MODULE_LIST="alpha:1.0.0:/nonexistent/preinit.sh" bu get-module)
-    assert_equal "$out" '{"name":"alpha","version":"1.0.0","path":"/nonexistent/preinit.sh","describe":"","branch":"","dirty":null}'
+    assert_equal "$out" '{"name":"alpha","rank":null,"version":"1.0.0","path":"/nonexistent/preinit.sh","describe":"","branch":"","dirty":null}'
 }
 
 function test_bu_get_module_git_identity { #@test
@@ -403,7 +403,7 @@ function test_bu_get_module_git_identity { #@test
     describe=$(printf '%s' "$out" | jq -r .describe)
     [[ -n "$describe" ]]
     [[ "$describe" != *-dirty ]]
-    assert_equal "$(printf '%s' "$out" | jq -c keys_unsorted)" '["name","version","path","describe","branch","dirty"]'
+    assert_equal "$(printf '%s' "$out" | jq -c keys_unsorted)" '["name","rank","version","path","describe","branch","dirty"]'
 }
 
 function test_bu_get_module_git_dirty { #@test
@@ -636,7 +636,7 @@ function test_pipeline_fields_ts_pipe_before { #@test
     # The tree-sitter binding exposes the producer text as pipe_before
     local pipe_before="bu get-module | "
     __bu_out_complete_pipeline_fields ""
-    assert_equal "${BU_RET[*]}" "name version path describe branch dirty"
+    assert_equal "${BU_RET[*]}" "name rank version path describe branch dirty"
 }
 
 function test_pipeline_fields_comp_words_fallback { #@test
@@ -803,7 +803,7 @@ function test_e2e_where_dot_fields { #@test
 function test_e2e_sort_pipeline_fields { #@test
     local pipe_before="bu get-module | "
     bu_autocomplete_get_autocompletions bu sort ""
-    assert_equal "${COMPREPLY[*]}" "name version path describe branch dirty"
+    assert_equal "${COMPREPLY[*]}" "name rank version path describe branch dirty"
 }
 
 function test_e2e_format_table_columns_pipeline_fields { #@test
@@ -954,7 +954,7 @@ function test_bu_query_object_invalid_first { #@test
 function test_bu_query_object_no_clauses_passthrough { #@test
     local out
     out=$(BU_MODULE_LIST="a:1.0.0:/x" bu get-module | bu query-object)
-    assert_equal "$out" '{"name":"a","version":"1.0.0","path":"/x","describe":"","branch":"","dirty":null}'
+    assert_equal "$out" '{"name":"a","rank":null,"version":"1.0.0","path":"/x","describe":"","branch":"","dirty":null}'
 }
 
 function test_bu_query_object_metadata { #@test
