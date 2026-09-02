@@ -30,6 +30,11 @@ __bu_cli_command_type()
     local function_or_script_path=${BU_COMMANDS[$bu_command]:-}
     if [[ -z "$function_or_script_path" ]]
     then
+        # Collision-parked losers live in the qualified side-store.
+        function_or_script_path=${BU_COMMANDS_QUALIFIED[$bu_command]:-}
+    fi
+    if [[ -z "$function_or_script_path" ]]
+    then
         # Also accept non bu command
         function_or_script_path=$bu_command
     fi

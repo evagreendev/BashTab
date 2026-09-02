@@ -32,6 +32,12 @@ declare -A -g BU_AUTOCOMPLETE_COMPLETION_FUNCS=(
 # ```
 declare -A -g BU_COMMANDS=()
 # ```
+# Qualified side-store for same-name commands from different modules, keyed
+# `:<ns>:<cmd>`. Populated by __bu_command_register when a collision parks or
+# demotes a definition. Dispatch and type resolution read it; never write.
+# ```
+declare -A -g BU_COMMANDS_QUALIFIED=()
+# ```
 # Map of directory to convert_file_to_command
 # ```
 declare -A -g BU_COMMAND_SEARCH_DIRS=()
@@ -94,6 +100,11 @@ fi
 # Populated by __bu_parse_module_list from BU_MODULE_LIST. Inspected by bu get-module.
 # ```
 declare -A -g BU_MODULE_REGISTRY=()
+# Precedence rank: lower rank wins the bare command name. Populated by
+# __bu_parse_module_list (1-based BU_MODULE_LIST position); the framework
+# itself is pinned at 900, unranked modules default to 500, and a no-module
+# (interactive/session) registration is rank 0.
+declare -A -g BU_MODULE_RANK=([bu]=900)
 # Reverse map: preinit_path → module name, built by __bu_parse_module_list.
 # Used by bu_source_user_defined_pre_init_callbacks to expose BU_CURRENT_MODULE.
 declare -A -g BU_MODULE_PREINIT_MAP=()

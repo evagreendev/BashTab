@@ -228,11 +228,42 @@ __bu_stamp_command_module()
 
 # ```
 # *Description*:
+# Resolve the precedence rank for a module name.  Lower rank wins the bare
+# command name.  Rank 0 = no module (interactive/session registration, beats
+# everything); unranked modules default to 500; the framework ("bu") is
+# pinned at 900 via BU_MODULE_RANK's declaration.
+#
+# *Params*:
+# - `$1`: module name (may be empty)
+#
+# *Returns*:
+# - BU_RET: numeric rank
+# ```
+__bu_module_rank()
+{
+    local -r m=$1
+    if [[ -z "$m" ]]
+    then
+        BU_RET=0
+    else
+        BU_RET=${BU_MODULE_RANK[$m]:-500}
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
 # Single write funnel for the command registry.  Every definition write goes
 # through here so that registering a definition always settles its dispatch
 # type — the (BU_COMMANDS, BU_COMMAND_PROPERTIES[,type]) pair can never
 # disagree the way it did when each write site maintained its own consistency
 # rules (a stale cached type surviving a definition rewrite).
+#
+# Name collisions across DIFFERENT modules are legal and non-destructive: the
+# lower-rank module keeps the bare name (ties keep the incumbent), the loser
+# is parked in BU_COMMANDS_QUALIFIED under `:<module>:<name>` and stays
+# dispatchable via the qualified spelling.  Same-module re-registration is an
+# ordinary overwrite (a rescan), and string-identical definitions never warn.
 #
 # *Params*:
 # - `$1`: command name
@@ -283,6 +314,75 @@ __bu_command_register()
         esac
     done
 
+    # ── Resolve owning module (default BU_CURRENT_MODULE; explicit empty suppresses)
+    if ! "$has_module"
+    then
+        module=${BU_CURRENT_MODULE:-}
+    fi
+
+    # ── Collision handling (different module, different definition) ──
+    local incumbent_def=${BU_COMMANDS[$name]:-}
+    if [[ -n "$incumbent_def" && "$incumbent_def" != "$definition" ]]
+    then
+        local incumbent_module=${BU_COMMAND_PROPERTIES[$name,module]:-}
+        if [[ "$incumbent_module" != "$module" ]]
+        then
+            local new_rank inc_rank
+            __bu_module_rank "$module"
+            new_rank=$BU_RET
+            __bu_module_rank "$incumbent_module"
+            inc_rank=$BU_RET
+
+            if (( new_rank >= inc_rank ))
+            then
+                # Ties keep the incumbent: park the NEWCOMER in the qualified
+                # store, leave the bare entry untouched, and return.
+                local qualified=":$module:$name"
+                BU_COMMANDS_QUALIFIED[$qualified]=$definition
+                if [[ -n "$type" ]]
+                then
+                    BU_COMMAND_PROPERTIES[$qualified,type]=$type
+                elif [[ -n "$settle_file" ]]
+                then
+                    local park_decl
+                    __bu_command_dispatch_decl "$settle_file"
+                    park_decl=$BU_RET
+                    if [[ -n "$park_decl" ]]
+                    then
+                        BU_COMMAND_PROPERTIES[$qualified,type]=$park_decl
+                    fi
+                fi
+                if [[ -n "$module" ]]
+                then
+                    BU_COMMAND_PROPERTIES[$qualified,module]=$module
+                fi
+                BU_COMMAND_PROPERTIES[$name,shadows]=$qualified
+                bu_log_warn "Command collision: [$name] is registered by module[$incumbent_module] (rank $inc_rank) and module[$module] (rank $new_rank); keeping [$incumbent_module] on the bare name and parking [$module] at $qualified"
+                return 0
+            fi
+
+            # Newcomer outranks the incumbent: demote the INCUMBENT into the
+            # qualified store, then fall through to the normal registration.
+            local qualified=":$incumbent_module:$name"
+            BU_COMMANDS_QUALIFIED[$qualified]=$incumbent_def
+            local inc_type=${BU_COMMAND_PROPERTIES[$name,type]:-}
+            if [[ -n "$inc_type" ]]
+            then
+                BU_COMMAND_PROPERTIES[$qualified,type]=$inc_type
+            fi
+            if [[ -n "$incumbent_module" ]]
+            then
+                BU_COMMAND_PROPERTIES[$qualified,module]=$incumbent_module
+            fi
+            BU_COMMAND_PROPERTIES[$name,shadows]=$qualified
+            # Clear the loser's namespace label so `:<loser>:<cmd>` resolves to
+            # the parked entry via the qualified store, not to the winner
+            # through the bare entry's stale namespace label.
+            unset "BU_COMMAND_PROPERTIES[$name,namespace]"
+            bu_log_warn "Command collision: [$name] is registered by module[$incumbent_module] (rank $inc_rank) and module[$module] (rank $new_rank); [$module] takes the bare name and [$incumbent_module] is parked at $qualified"
+        fi
+    fi
+
     # ── Definition write (the ONLY BU_COMMANDS assignment in the codebase)
     BU_COMMANDS[$name]=$definition
 
@@ -313,15 +413,12 @@ __bu_command_register()
     fi
 
     # ── Stamp the owning module
-    if ! "$has_module"
-    then
-        module=${BU_CURRENT_MODULE:-}
-    fi
     if [[ -n "$module" ]]
     then
         __bu_stamp_command_module "$name" "$module"
     fi
 }
+
 
 # ```
 # *Description*:

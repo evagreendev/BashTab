@@ -1363,3 +1363,112 @@ function test_register_funnel_alias_over_command_and_back { #@test
     rm -rf "$tmpdir"
 }
 
+function test_collision_incumbent_toplevel_wins_bare_name { #@test
+    # Layer 2 precedence: lower rank (top-level=1) keeps the bare name;
+    # the higher-rank newcomer is parked in the qualified store and stays
+    # dispatchable as :<ns>:<cmd>. get-command style properties record the
+    # shadow link.
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    printf '#!/usr/bin/env bash\necho FROM-TOP\n' > "$tmpdir/t.sh"
+    printf '#!/usr/bin/env bash\necho FROM-DEP\n' > "$tmpdir/d.sh"
+    chmod +x "$tmpdir/t.sh" "$tmpdir/d.sh"
+    BU_MODULE_RANK[topmod]=1
+    BU_MODULE_RANK[depmod]=2
+
+    __bu_command_register coll-a "$tmpdir/t.sh" --module topmod
+    # NOT `run` and NOT $(...) capture: both are subshells, and the parking
+    # writes would vanish with them. Registration runs in THIS shell; the
+    # collision message is checked via a stderr file.
+    __bu_command_register coll-a "$tmpdir/d.sh" --module depmod 2>"$tmpdir/msg"
+    grep -q collision "$tmpdir/msg"
+
+    run bu coll-a
+    assert_output --partial FROM-TOP
+    run bu :depmod:coll-a
+    assert_output --partial FROM-DEP
+    assert_equal "${BU_COMMAND_PROPERTIES[coll-a,shadows]}" ":depmod:coll-a"
+
+    unset 'BU_COMMANDS[coll-a]' 'BU_COMMANDS_QUALIFIED[:depmod:coll-a]'
+    unset 'BU_MODULE_RANK[topmod]' 'BU_MODULE_RANK[depmod]'
+    rm -rf "$tmpdir"
+}
+
+function test_collision_newcomer_toplevel_demotes_incumbent { #@test
+    # Reverse arrival order: the dependency registered first; the top-level
+    # demotes it into the qualified store and takes the bare name. Both
+    # spellings dispatch their own definition afterwards.
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    printf '#!/usr/bin/env bash\necho FROM-TOP\n' > "$tmpdir/t.sh"
+    printf '#!/usr/bin/env bash\necho FROM-DEP\n' > "$tmpdir/d.sh"
+    chmod +x "$tmpdir/t.sh" "$tmpdir/d.sh"
+    BU_MODULE_RANK[topmod]=1
+    BU_MODULE_RANK[depmod]=2
+
+    __bu_command_register coll-b "$tmpdir/d.sh" --module depmod
+    __bu_command_register coll-b "$tmpdir/t.sh" --module topmod 2>/dev/null
+
+    run bu coll-b
+    assert_output --partial FROM-TOP
+    run bu :depmod:coll-b
+    assert_output --partial FROM-DEP
+    run bu :topmod:coll-b
+    assert_output --partial FROM-TOP
+
+    unset 'BU_COMMANDS[coll-b]' 'BU_COMMANDS_QUALIFIED[:depmod:coll-b]'
+    unset 'BU_MODULE_RANK[topmod]' 'BU_MODULE_RANK[depmod]'
+    rm -rf "$tmpdir"
+}
+
+function test_collision_same_module_rescan_is_not_a_collision { #@test
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    printf '#!/usr/bin/env bash\necho hi\n' > "$tmpdir/r.sh"
+    chmod +x "$tmpdir/r.sh"
+    BU_MODULE_RANK[modx]=2
+
+    __bu_command_register coll-c "$tmpdir/r.sh" --module modx
+    run __bu_command_register coll-c "$tmpdir/r.sh" --module modx
+    refute_output --partial "collision"
+
+    unset 'BU_COMMANDS[coll-c]' 'BU_MODULE_RANK[modx]'
+    rm -rf "$tmpdir"
+}
+
+function test_collision_session_registration_beats_all { #@test
+    # Rank 0 (no module: interactive/session registration) wins over the
+    # top-level; the demoted command stays reachable qualified.
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    printf '#!/usr/bin/env bash\necho FROM-TOP\n' > "$tmpdir/t.sh"
+    chmod +x "$tmpdir/t.sh"
+    BU_MODULE_RANK[topmod]=1
+    __coll_sess_fn() { echo FROM-SESSION; }
+
+    __bu_command_register coll-d "$tmpdir/t.sh" --module topmod
+    __bu_command_register coll-d __coll_sess_fn --type function --module "" 2>/dev/null
+
+    run bu coll-d
+    assert_output --partial FROM-SESSION
+    run bu :topmod:coll-d
+    assert_output --partial FROM-TOP
+
+    unset 'BU_COMMANDS[coll-d]' 'BU_COMMANDS_QUALIFIED[:topmod:coll-d]'
+    unset 'BU_MODULE_RANK[topmod]'
+    unset -f __coll_sess_fn
+    rm -rf "$tmpdir"
+}
+
+function test_module_rank_built_from_module_list_order { #@test
+    # BU_MODULE_RANK derives from BU_MODULE_LIST order: top-level=1,
+    # dependencies in list order; the framework is pinned at 900.
+    run bash -c '
+        export BU_MODULE_LIST="alpha:1:/x/a.sh;beta:1:/x/b.sh;gamma:1:/x/c.sh;"
+        source "'"$DIR"'/../bu_entrypoint.sh" >/dev/null 2>&1
+        echo "a=${BU_MODULE_RANK[alpha]} b=${BU_MODULE_RANK[beta]} g=${BU_MODULE_RANK[gamma]} bu=${BU_MODULE_RANK[bu]}"
+    '
+    assert_output --partial "a=1 b=2 g=3 bu=900"
+}
+
+

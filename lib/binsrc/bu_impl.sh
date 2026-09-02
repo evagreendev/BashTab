@@ -130,6 +130,14 @@ __bu_impl()
         done
         if [[ -z "$function_or_script_path" ]]
         then
+            # Fall back to the qualified side-store (a collision-parked loser).
+            # Read-only: never write the resolved definition back into
+            # BU_COMMANDS, or the parked loser would become a bare-name
+            # claimant on first use.
+            function_or_script_path=${BU_COMMANDS_QUALIFIED[$bu_command_raw]:-}
+        fi
+        if [[ -z "$function_or_script_path" ]]
+        then
             bu_log_err "Command not found in namespace[$ns_name]: $ns_cmd"
             __bu_cli_help
             return 1

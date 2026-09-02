@@ -180,6 +180,13 @@ __bu_parse_module_list()
         fi
         seen_names[$name]=1
 
+        # Precedence rank: 1-based position in the deduped list (top-level=1,
+        # dependencies in list order). First assignment wins so re-activation
+        # cannot renumber an already-ranked module.
+        if [[ -z "${BU_MODULE_RANK[$name]:-}" ]]; then
+            BU_MODULE_RANK[$name]=${#seen_names[@]}
+        fi
+
         # Append to deduped list
         deduped+="${name}:${version}:${path};"
 
