@@ -557,6 +557,18 @@ function test_bu_get_shopt_option_covers_known_options { #@test
     [[ "$out" == *dotglob* ]]
 }
 
+function test_bu_get_shopt_option_site_overrides { #@test
+    # Site extension point: BU_SHOPT_SYNOPSIS_OVERRIDES entries merge OVER
+    # the static table — distro-patched options gain a synopsis, and a
+    # vanilla description can be reworded. Absent map = vanilla behavior.
+    local -A BU_SHOPT_SYNOPSIS_OVERRIDES=(
+        [nullglob]="site-reworded description"
+    )
+    local out
+    out=$(bu get-shopt-option nullglob | jq -r .synopsis)
+    assert_equal "$out" "site-reworded description"
+}
+
 # ===========================================================================
 # Builtin wrappers: variable / builtin / completion / ulimit / umask / trap
 # ===========================================================================

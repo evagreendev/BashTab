@@ -60,6 +60,31 @@ __bu_site_resolve_module() {
 BU_CAP_MISS_RESOLVER=__bu_site_resolve_module
 ```
 
+## Shopt synopsis overrides
+
+`bu get-shopt-option` ships a static synopsis table covering vanilla bash's
+shopt options. Distros that patch bash with extra options (e.g. Red Hat-family
+bash ships a downstream `syslog_history` option) would otherwise list those
+options with a blank description.
+
+Populate the global associative array `BU_SHOPT_SYNOPSIS_OVERRIDES` to add or
+reword descriptions. Its entries merge over the static table; leave it
+unset/empty for byte-identical vanilla behavior.
+
+```bash
+# site/01_shopt_synopsis.sh
+# Red Hat-family bash ships a downstream shopt option absent from the vanilla
+# table; give it a description (and optionally reword a vanilla one).
+declare -A -g BU_SHOPT_SYNOPSIS_OVERRIDES=(
+    [syslog_history]="Log shell commands to syslog when enabled"
+    # [nullglob]="Patterns matching nothing expand to the empty string"
+)
+```
+
+The `declare -A -g` is required: `site/*.sh` is sourced through BashTab's
+custom `source` function, so a bare `declare -A` would create a function-local
+that vanishes when the file returns (see the notes below).
+
 ## Notes for site file authors
 
 - `site/*.sh` is sourced through BashTab's custom `source` function, so a

@@ -71,6 +71,11 @@ Covers globstar, nullglob, dotglob, autocd, extglob, and ~50 more; each
 record has name, value (boolean), and a one-line synopsis describing what
 the option does. Runs in the current shell, so the values are the live
 settings. Toggle them with bu set-shopt-option.
+
+Site extension point: a site/*.sh file may declare the global associative
+array BU_SHOPT_SYNOPSIS_OVERRIDES (option name → one-line synopsis) to
+document distro-patched shopt options or reword a vanilla description;
+entries merge over the built-in table. See site/README.md.
 " \
         --example "All options" "" \
         --example "What is on right now" "" \
@@ -142,8 +147,27 @@ local synopsis_table='{
   "xpg_echo": "echo expands backslash escape sequences by default"
 }'
 
+# Site extension point: BU_SHOPT_SYNOPSIS_OVERRIDES is an optional global
+# associative array (option name → one-line synopsis) that site/*.sh files
+# populate with `declare -A -g`. Entries merge OVER the static table so
+# distro-patched options (e.g. Red Hat's downstream `syslog_history`) gain a
+# description and a vanilla description can be reworded. Absent/empty map =
+# byte-identical vanilla behavior. The merge is built with jq `--arg` (never
+# string interpolation) so synopsis text containing quotes survives verbatim.
+local synopsis_json=$synopsis_table
+if declare -p BU_SHOPT_SYNOPSIS_OVERRIDES &>/dev/null && ((${#BU_SHOPT_SYNOPSIS_OVERRIDES[@]} > 0))
+then
+    local -a _so_jq_args=()
+    local _so_key
+    for _so_key in "${!BU_SHOPT_SYNOPSIS_OVERRIDES[@]}"
+    do
+        _so_jq_args+=(--arg "$_so_key" "${BU_SHOPT_SYNOPSIS_OVERRIDES[$_so_key]}")
+    done
+    synopsis_json=$(printf '%s' "$synopsis_table" | jq -c "${_so_jq_args[@]}" '. + $ARGS.named')
+fi
+
 # Runs sourced, so `shopt` reports the current shell's live settings
-shopt | jq -R -c --arg name "$name" --argjson synopsis "$synopsis_table" '
+shopt | jq -R -c --arg name "$name" --argjson synopsis "$synopsis_json" '
     select(. != "")
     | capture("^(?<name>\\S+)\\s+(?<value>on|off)$")
     | select($name == "" or .name == $name)
