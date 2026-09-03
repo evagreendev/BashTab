@@ -1555,5 +1555,126 @@ function test_completion_offers_shadowed_qualified_names { #@test
     rm -rf "$tmpdir"
 }
 
+# ===========================================================================
+# Compat-cache staleness
+# ===========================================================================
+
+# A gated command whose --is-compatible probe checks a binary that is NOT
+# part of the BU_CAP fingerprint (which only hashes the probed binaries).
+# This is the dynamic-dependency case: the fingerprint does not change when
+# this binary appears/disappears, so a stale compat cache would otherwise
+# register a broken command.
+__write_gated_fixture()
+{
+    local dir=$1
+    cat > "$dir/get-gated.sh" <<'EOF'
+#!/usr/bin/env bash
+# Dispatch: source
+function __bu_get_gated_main()
+{
+if [[ "$1" == "--is-compatible" ]]; then
+    command -v bu_test_gated_dep &>/dev/null || { echo "bu_test_gated_dep required" >&2; exit 1; }
+    exit 0
+fi
+echo gated
+}
+__bu_get_gated_main "$@"
+EOF
+}
+
+function test_compat_cache_bypassed_when_command_cache_disabled { #@test
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local cache_dir="$BATS_TEST_TMPDIR/out"
+    local bindir="$BATS_TEST_TMPDIR/bin"
+    __write_gated_fixture "$tmpdir"
+
+    # Act 1: caching ENABLED, dependency missing. The probe fails, the command
+    # is marked unavailable, and the compat cache is persisted.
+    run timeout 60 bash -c '
+        export BU_OUT_DIR="$1"
+        export BU_COMMAND_CACHE_ENABLED=true
+        export BU_COMMAND_SCAN_LAZY=true
+        unset BU_TOP_LEVEL_MODULE BU_MODULE_LIST
+        source "$2"/bu_entrypoint.sh || true
+        unset BU_COMMAND_SEARCH_DIRS
+        declare -A BU_COMMAND_SEARCH_DIRS=(["$3"]=)
+        BU_COMMAND_SCAN_LAZY=false
+        __bu_init_env_commands
+        [[ -n "${BU_COMMANDS[get-gated]:-}" ]] && echo "ACT1=REGISTERED" || echo "ACT1=UNAVAILABLE"
+        grep -l "get-gated" "$1"/cache/compat-*.cache >/dev/null 2>&1 && echo "ACT1=CACHED" || echo "ACT1=NOT_CACHED"
+    ' _ "$cache_dir" "$DIR/.." "$tmpdir"
+    assert_success
+    assert_output --partial "ACT1=UNAVAILABLE"
+    assert_output --partial "ACT1=CACHED"
+
+    # Make the dependency appear on PATH.
+    mkdir -p "$bindir"
+    printf '#!/usr/bin/env bash\n' > "$bindir/bu_test_gated_dep"
+    chmod +x "$bindir/bu_test_gated_dep"
+
+    # Act 2: caching DISABLED, dependency present. The per-environment compat
+    # cache must be BYPASSED (not just the command cache): a fresh probe runs
+    # and registers the command despite the stale "unavailable" entry.
+    run timeout 60 bash -c '
+        export BU_OUT_DIR="$1"
+        export PATH="$2:$PATH"
+        export BU_COMMAND_CACHE_ENABLED=false
+        export BU_COMMAND_SCAN_LAZY=true
+        unset BU_TOP_LEVEL_MODULE BU_MODULE_LIST
+        source "$3"/bu_entrypoint.sh || true
+        unset BU_COMMAND_SEARCH_DIRS
+        declare -A BU_COMMAND_SEARCH_DIRS=(["$4"]=)
+        BU_COMMAND_SCAN_LAZY=false
+        __bu_init_env_commands
+        [[ -n "${BU_COMMANDS[get-gated]:-}" ]] && echo "ACT2=REGISTERED" || echo "ACT2=UNAVAILABLE"
+        [[ -z "${BU_COMPAT_CACHE_FILE:-}" ]] && echo "ACT2=NO_CACHE_LOADED" || echo "ACT2=CACHE_LOADED"
+    ' _ "$cache_dir" "$bindir" "$DIR/.." "$tmpdir"
+    assert_success
+    assert_output --partial "ACT2=REGISTERED"
+    assert_output --partial "ACT2=NO_CACHE_LOADED"
+
+    rm -rf "$tmpdir" "$bindir" "$cache_dir"
+}
+
+function test_compat_reprobe_recovers_after_dep_appears { #@test
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local bindir="$BATS_TEST_TMPDIR/bin"
+    mkdir -p "$bindir"
+    __write_gated_fixture "$tmpdir"
+
+    run timeout 60 bash -c '
+        export BU_OUT_DIR="$1"
+        export BU_COMMAND_CACHE_ENABLED=false
+        export BU_COMMAND_SCAN_LAZY=true
+        unset BU_TOP_LEVEL_MODULE BU_MODULE_LIST
+        source "$2"/bu_entrypoint.sh || true
+        unset BU_COMMAND_SEARCH_DIRS
+        declare -A BU_COMMAND_SEARCH_DIRS=(["$3"]=)
+        BU_COMMAND_SCAN_LAZY=false
+        __bu_init_env_commands
+        [[ -z "${BU_COMMANDS[get-gated]:-}" ]] && echo "BEFORE=UNAVAILABLE" || echo "BEFORE=REGISTERED"
+        [[ -n "${BU_COMMAND_UNAVAILABLE[get-gated]:-}" ]] && echo "BEFORE=REASON:${BU_COMMAND_UNAVAILABLE[get-gated]}"
+
+        # Make the missing dependency appear on PATH, then reprobe.
+        printf "#!/usr/bin/env bash\n" > "$4/bu_test_gated_dep"
+        chmod +x "$4/bu_test_gated_dep"
+        export PATH="$4:$PATH"
+        bu_cap_reprobe_unavailable get-gated
+
+        [[ -n "${BU_COMMANDS[get-gated]:-}" ]] && echo "AFTER=REGISTERED" || echo "AFTER=UNAVAILABLE"
+        [[ -z "${BU_COMMAND_UNAVAILABLE[get-gated]:-}" ]] && echo "AFTER=REASON_CLEARED" || echo "AFTER=REASON:${BU_COMMAND_UNAVAILABLE[get-gated]}"
+    ' _ "$BATS_TEST_TMPDIR/out" "$DIR/.." "$tmpdir" "$bindir"
+    assert_success
+    assert_output --partial "BEFORE=UNAVAILABLE"
+    assert_output --partial "BEFORE=REASON:bu_test_gated_dep required"
+    assert_output --partial "AFTER=REGISTERED"
+    assert_output --partial "AFTER=REASON_CLEARED"
+
+    rm -rf "$tmpdir" "$bindir" "$BATS_TEST_TMPDIR/out"
+}
+
+
 
 
