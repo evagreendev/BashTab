@@ -305,3 +305,137 @@ function test_config_module_stamp_sticky { #@test
 
     assert_equal "${BU_CONFIG_PROPERTIES[BU_LOG_LVL,module]}" "bu"
 }
+
+# ===========================================================================
+# set-config managed block
+# ===========================================================================
+
+function test_set_config_embedder_prefix_roundtrip { #@test
+    # Embedders append their own namespaced prefix to BU_CONFIG_NAME_PREFIXES
+    # and register settings under it; set/get must round-trip the value.
+    BU_CONFIG_NAME_PREFIXES+=(WIDGET_)
+    bu_config_register WIDGET_COLOR --default blue --hint "widget color"
+
+    bu set-config WIDGET_COLOR red >/dev/null
+    assert_equal "$WIDGET_COLOR" red
+
+    local val
+    val=$(bu get-config --format jsonl 2>/dev/null | jq -r 'select(.name == "WIDGET_COLOR") | .value')
+    assert_equal "$val" red
+
+    # The value is persisted in the managed block, not just the live shell.
+    grep -q '^WIDGET_COLOR=red$' "$BU_CONFIG_LOCAL_FILE"
+}
+
+function test_set_config_preserves_outside_lines_byte_for_byte { #@test
+    local file="$BATS_TEST_TMPDIR/settings.sh"
+    {
+        printf '# top comment\n'
+        printf 'if [[ -n "$FEATURE_FLAG" ]]; then\n'
+        printf '    export HAND_WRITTEN=1\n'
+        printf 'fi\n'
+        printf '\n'
+        printf '# trailing comment with spaces   \n'
+    } > "$file"
+
+    local before
+    before=$(cat "$file")
+
+    bu set-config --file "$file" BU_TEST_OUTSIDE val >/dev/null 2>&1
+
+    # Everything outside the managed block survives byte-for-byte.
+    local actual_before
+    actual_before=$(sed '/^# >>> bu set-config managed block/,$d' "$file")
+    assert_equal "$actual_before" "$before"
+
+    # And the managed block was appended after it.
+    grep -q '^BU_TEST_OUTSIDE=val$' "$file"
+}
+
+function test_set_config_rewrites_block_in_place { #@test
+    local file="$BATS_TEST_TMPDIR/settings.sh"
+    {
+        printf '# preamble\n'
+        printf 'PRE_EXISTING=keep\n'
+    } > "$file"
+
+    bu set-config --file "$file" BU_TEST_AAA first >/dev/null 2>&1
+    bu set-config --file "$file" BU_TEST_BBB second >/dev/null 2>&1
+    bu set-config --file "$file" BU_TEST_AAA updated >/dev/null 2>&1
+
+    # Exactly one managed block — no duplicates.
+    assert_equal "$(grep -c '^# >>> bu set-config managed block' "$file")" 1
+    assert_equal "$(grep -c '^# <<< bu set-config managed block' "$file")" 1
+
+    # One sorted NAME=value line per var; the re-set value wins.
+    local body
+    body=$(sed -n '/^# >>> bu set-config managed block/,/^# <<< bu set-config managed block/p' "$file" | grep '^BU_TEST_')
+    assert_equal "$body" $'BU_TEST_AAA=updated\nBU_TEST_BBB=second'
+
+    # Block position stable: the hand-written preamble still precedes it.
+    assert_equal "$(sed -n '1p' "$file")" "# preamble"
+    assert_equal "$(sed -n '2p' "$file")" "PRE_EXISTING=keep"
+    assert_equal "$(sed -n '3p' "$file")" "# >>> bu set-config managed block -- do not hand-edit inside"
+}
+
+function test_set_config_after_block_assignment_wins { #@test
+    local file="$BATS_TEST_TMPDIR/settings.sh"
+    bu set-config --file "$file" BU_TEST_AFTER managed >/dev/null 2>&1
+
+    # Hand-write an assignment AFTER the managed block.
+    printf 'BU_TEST_AFTER=handwritten\n' >> "$file"
+
+    # The advisory note names the conflict, but the write still succeeds.
+    run bu set-config --file "$file" BU_TEST_AFTER managed2
+    assert_success
+    assert_output --partial "note: BU_TEST_AFTER"
+    assert_output --partial "assigned AFTER the managed block"
+    assert_output --partial "overrides the value just set"
+
+    # The managed block value was updated (the note is non-fatal).
+    grep -q '^BU_TEST_AFTER=managed2$' "$file"
+
+    # File order is authoritative: the AFTER assignment wins when sourced.
+    unset BU_TEST_AFTER
+    source "$file"
+    assert_equal "$BU_TEST_AFTER" "handwritten"
+}
+
+function test_set_config_unset_removes_only_target_pair { #@test
+    local file="$BATS_TEST_TMPDIR/settings.sh"
+    bu set-config --file "$file" BU_TEST_KEEP1 a >/dev/null 2>&1
+    bu set-config --file "$file" BU_TEST_KEEP2 b >/dev/null 2>&1
+    bu set-config --file "$file" BU_TEST_DROP c >/dev/null 2>&1
+
+    bu set-config --file "$file" --unset BU_TEST_DROP >/dev/null 2>&1
+
+    # Only the target pair is removed; the others remain sorted.
+    local body
+    body=$(sed -n '/^# >>> bu set-config managed block/,/^# <<< bu set-config managed block/p' "$file" | grep '^BU_TEST_')
+    assert_equal "$body" $'BU_TEST_KEEP1=a\nBU_TEST_KEEP2=b'
+    ! grep -q '^BU_TEST_DROP=' "$file"
+}
+
+function test_set_config_degenerate_markers_refused { #@test
+    local file="$BATS_TEST_TMPDIR/settings.sh"
+
+    # Opener without closer.
+    printf '# >>> bu set-config managed block -- do not hand-edit inside\n' > "$file"
+    printf 'BU_TEST_X=1\n' >> "$file"
+    local snapshot
+    snapshot=$(cat "$file")
+    run bu set-config --file "$file" BU_TEST_Y 2
+    assert_failure
+    assert_output --partial "inconsistent"
+    assert_equal "$(cat "$file")" "$snapshot"
+
+    # Duplicated opener.
+    printf '# >>> bu set-config managed block -- do not hand-edit inside\n' > "$file"
+    printf 'BU_TEST_X=1\n' >> "$file"
+    printf '# >>> bu set-config managed block -- do not hand-edit inside\n' >> "$file"
+    snapshot=$(cat "$file")
+    run bu set-config --file "$file" BU_TEST_Y 2
+    assert_failure
+    assert_output --partial "inconsistent"
+    assert_equal "$(cat "$file")" "$snapshot"
+}
