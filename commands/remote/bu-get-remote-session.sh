@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Dispatch: source
 # Synopsis: List remote ControlMaster sessions and their status
+# Tab-Execute: true
 # Fields: host alive socket master_pid
 function __bu_bu_get_remote_session_main()
 {
