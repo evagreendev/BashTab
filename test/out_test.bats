@@ -745,7 +745,7 @@ function test_pipeline_fields_comma_excludes_used { #@test
 function test_pipeline_fields_dot_mode { #@test
     local command_line_front_before_pipe="bu get-command | "
     __bu_out_complete_pipeline_fields --dot ""
-    assert_equal "${BU_RET[*]}" ".name .verb .noun .namespace .type .definition .synopsis .fields .stage .module"
+    assert_equal "${BU_RET[*]}" ".name .verb .noun .namespace .type .definition .synopsis .fields .stage .module .shadows .shadowed_by"
 }
 
 function test_pipeline_fields_register_custom_producer { #@test
@@ -830,7 +830,7 @@ function test_pipeline_fields_dsl_keyword_dot { #@test
     local pipe_before=
     # Test the underlying function directly for the dot variant
     __bu_out_complete_pipeline_fields --dot ""
-    assert_equal "${BU_RET[*]}" ".name .verb .noun .namespace .type .definition .synopsis .fields .stage .module"
+    assert_equal "${BU_RET[*]}" ".name .verb .noun .namespace .type .definition .synopsis .fields .stage .module .shadows .shadowed_by"
 }
 
 function test_pipeline_fields_dsl_dynamic_hint { #@test
