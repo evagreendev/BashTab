@@ -499,7 +499,12 @@ __bu_setup_tput()
     local joined_cmd=$*
     # Note that the --str --proc mode will lock up at the `read` if there is no newline.
     # tput functions don't make a newline, so we avoid the --proc mode in all cases, WSL or not. 
-    bu_cached_keyed_execute --str tput_"${joined_cmd// /_}" bu_stdout_to_ret --no-proc --str tput "$@" 2>/dev/null || BU_RET=
+    # tput output is TERM-dependent (e.g. sgr0 is \E[m\017 under screen TERMs
+    # but \E(B\E[m under xterm), so the cache key must include the TERM value;
+    # otherwise whichever TERM runs first poisons every later session. The
+    # `|| BU_RET=` guard stays load-bearing: TERM-less / capability-less
+    # environments (ssh without a tty, cron, TERM=dumb) degrade to empty.
+    bu_cached_keyed_execute --str tput_"${TERM:-dumb}"_"${joined_cmd// /_}" bu_stdout_to_ret --no-proc --str tput "$@" 2>/dev/null || BU_RET=
     __bu_setup_tput_outvar=$BU_RET
 }
 
