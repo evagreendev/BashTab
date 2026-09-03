@@ -180,11 +180,14 @@ function test_namespace_defaults_to_module_scoped_completion { #@test
 function test_prefix_converter_keeps_filename_namespace { #@test
     local preinit
     preinit=$(__make_module_fixture moda myns-get-alpha-thing prefix)
+    # jq 1.6 treats `module` as a reserved keyword, so the `{module,namespace}`
+    # shorthand form is a parse error there (jq 1.7 relaxed this). Spell the
+    # keys out so this passes on enterprise distros that still ship 1.6.
     run bash -c '
         export BU_TOP_LEVEL_MODULE=moda
         export BU_MODULE_LIST="moda:0.1.0:$1;"
         source "$2"/bu_entrypoint.sh >/dev/null 2>&1
-        echo "RECORD=$(bu get-command --format jsonl 2>/dev/null | jq -c "select(.name == \"get-alpha-thing\") | {module,namespace}")"
+        echo "RECORD=$(bu get-command --format jsonl 2>/dev/null | jq -c "select(.name == \"get-alpha-thing\") | {module: .module, namespace: .namespace}")"
     ' _ "$preinit" "$DIR"/..
     assert_success
     assert_line 'RECORD={"module":"moda","namespace":"myns"}'
