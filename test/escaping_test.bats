@@ -157,3 +157,133 @@ SCRIPT
     run __parse_docs "$tmpdir/demo.sh"
     assert_output --partial 'LIVE'
 }
+
+# ===========================================================================
+# Autohelp positional (catch-all `*)`) parsing
+# ===========================================================================
+
+function test_autohelp_documented_positional_parsed { #@test
+    # A `*)# NAME` arm with a comment block below it is a documented
+    # positional: it contributes a `*` row with its synopsis and description.
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    trap "rm -rf '$tmpdir'" EXIT
+    cat > "$tmpdir/demo.sh" <<'SCRIPT'
+while (($#)); do
+  case "$1" in
+  --fmt)# VAL
+    # Output format.
+    shift 2;;
+  *)# WIDGET
+    # The widget identifier to fetch.
+    shift;;
+  esac
+done
+SCRIPT
+    local -a bu_script_options=() bu_script_option_synopsis=() bu_script_option_docs=()
+    eval "$(bu_autohelp_parse_case_block_help "$tmpdir/demo.sh" "" "" "")"
+    assert_equal "${bu_script_options[*]}" "--fmt *"
+    assert_equal "${bu_script_option_synopsis[1]}" "WIDGET"
+    [[ "${bu_script_option_docs[1]}" == *"The widget identifier to fetch."* ]]
+}
+
+function test_autohelp_undocumented_positional_no_row { #@test
+    # An undocumented `*)` arm contributes no phantom positional row.
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    trap "rm -rf '$tmpdir'" EXIT
+    cat > "$tmpdir/demo.sh" <<'SCRIPT'
+while (($#)); do
+  case "$1" in
+  --fmt)# VAL
+    # Output format.
+    shift 2;;
+  *)
+    shift;;
+  esac
+done
+SCRIPT
+    local -a bu_script_options=() bu_script_option_synopsis=() bu_script_option_docs=()
+    eval "$(bu_autohelp_parse_case_block_help "$tmpdir/demo.sh" "" "" "")"
+    assert_equal "${bu_script_options[*]}" "--fmt"
+}
+
+function test_autocomplete_parser_never_offers_star { #@test
+    # The completion parser must never offer the literal `*` as a candidate,
+    # even when the `*)` arm is documented for autohelp.
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    trap "rm -rf '$tmpdir'" EXIT
+    cat > "$tmpdir/demo.sh" <<'SCRIPT'
+while (($#)); do
+  case "$1" in
+  --fmt)# VAL
+    # Output format.
+    shift 2;;
+  *)# WIDGET
+    # The widget identifier to fetch.
+    shift;;
+  esac
+done
+SCRIPT
+    local -a bu_script_options=() bu_script_option_synopsis=() bu_script_option_docs=()
+    eval "$(bu_autocomplete_parse_case_block_options_v2 "$tmpdir/demo.sh" "" "" "")"
+    assert_equal "${bu_script_options[*]}" "--fmt"
+    local opt
+    for opt in "${bu_script_options[@]}"
+    do
+        [[ "$opt" != "*" ]]
+    done
+}
+
+function test_autohelp_documented_positional_renders { #@test
+    # End-to-end: a documented positional renders in --help output with its
+    # description and the (positional) label.
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    trap "rm -rf '$tmpdir'" EXIT
+    cat > "$tmpdir/get-widget.sh" <<'CMDEOF'
+#!/usr/bin/env bash
+# Dispatch: source
+# Synopsis: Get a widget
+function __bu_get_widget_main()
+{
+    source "$BU_NULL"
+    bu_scope_push_function
+    bu_run_log_command "$@"
+    local is_help=false
+    local error_msg=
+    local shift_by=
+    while (($#))
+    do
+        bu_parse_multiselect $# "$1"
+        case "$1" in
+        -h|--help)# _FLAG
+            # Print help
+            is_help=true
+            ;;
+        *)# WIDGET
+            # The widget identifier to fetch.
+            bu_parse_error_enum "$1"
+            ;;
+        esac
+        if "$is_help"; then break; fi
+        shift "$shift_by"
+    done
+    if bu_env_is_in_autocomplete; then bu_autocomplete; return 0; fi
+    if "$is_help"; then
+        bu_autohelp --description "Get a widget."
+        return 0
+    fi
+    bu_scope_pop_function
+}
+__bu_get_widget_main "$@"
+CMDEOF
+    bu_preinit_register_user_defined_subcommand_file "$tmpdir/get-widget.sh" get-widget source
+
+    run bu get-widget --help
+    assert_success
+    assert_output --partial "(positional)"
+    assert_output --partial "WIDGET"
+    assert_output --partial "The widget identifier to fetch."
+}
