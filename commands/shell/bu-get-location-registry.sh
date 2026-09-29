@@ -3,7 +3,7 @@
 # Dispatch: source
 # Synopsis: List registered named locations
 # Help-Topic: locations
-# Fields: name kind path_expr resolved description tags aliases on_enter source
+# Fields: name kind path_expr resolved description tags aliases on_enter source param
 function __bu_bu_get_location_registry_main()
 {
 local -r invocation_dir=$PWD
@@ -79,7 +79,8 @@ then
         --description "
 List the named-location registry as records. Each entry shows its unexpanded
 path expression and a best-effort resolved value (empty when the resolver
-fails or a referenced environment variable is unset). Filter by kind and tag.
+fails or a referenced environment variable is unset). The param column shows
+the family hint; parameter-only families show resolved = -. Filter by kind and tag.
 " \
         --example "All locations" "" \
         --example "Only directories" "--kind dir" \
@@ -88,7 +89,7 @@ fails or a referenced environment variable is unset). Filter by kind and tag.
 fi
 
 {
-    local key k display path_expr resolved description tags aliases_csv on_enter source
+    local key k display path_expr resolved description tags aliases_csv on_enter source param
     local a
     for key in "${!BU_LOCATION_REGISTRY[@]}"
     do
@@ -109,8 +110,11 @@ fi
         source=${BU_LOCATION_PROPERTIES[$key,source]:-}
 
         # Best-effort resolution: empty on failure (never fails the listing).
+        param=${BU_LOCATION_PROPERTIES[$key,param_hint]:-}
         resolved=
-        if bu_location_resolve "$key" --no-verify 2>/dev/null
+        if [[ -z "$path_expr${BU_LOCATION_PROPERTIES[$key,resolver]:-}" ]]; then
+            resolved=-
+        elif bu_location_resolve "$key" --no-verify 2>/dev/null
         then
             resolved=$(printf '%s ' "${BU_RET[@]}")
             resolved=${resolved% }
@@ -128,7 +132,7 @@ fi
         bu_out_record \
             name="$display" kind="$k" path_expr="$path_expr" resolved="$resolved" \
             description="$description" tags="$tags" aliases="$aliases_csv" \
-            on_enter="$on_enter" source="$source"
+            on_enter="$on_enter" source="$source" param="$param"
     done
 } | bu_out --format "$format" ${columns:+--columns "$columns"}
 

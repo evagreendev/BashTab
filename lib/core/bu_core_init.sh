@@ -160,6 +160,8 @@ __bu_init_tmux()
 
 __bu_init_autocomplete()
 {
+    # Keep NAME@VALUE together for programmable completion (like bash-completion).
+    shopt -u hostcomplete
     local completion_command
     for completion_command in "${!BU_AUTOCOMPLETE_COMPLETION_FUNCS[@]}"
     do

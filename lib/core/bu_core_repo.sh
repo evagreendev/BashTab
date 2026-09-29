@@ -14,6 +14,7 @@
 # *Params*:
 # - `$1`: name
 # - `--path`/`--resolver`/`--alias`/`--description`/`--on-enter`: forwarded
+# - `--param-*`     forwarded; any explicit option suppresses default worktrees
 # - `--tags CSV`    extra tags appended after "repo"
 # - `--remote NAME` (default origin)
 # - `--gh-host HOST`
@@ -28,6 +29,7 @@ bu_repo_register()
 {
     local name=$1
     shift
+    local custom_param=false
     local remote=origin
     local gh_host=
     local gh_slug=
@@ -41,6 +43,7 @@ bu_repo_register()
             bu_log_err "bu_repo_register: --kind is not allowed (repos are always dir)"
             return 1
             ;;
+        --param-*)         custom_param=true; loc_args+=("$1" "$2"); shift 2 ;;
         --path)            loc_args+=(--path "$2"); shift 2 ;;
         --resolver)        loc_args+=(--resolver "$2"); shift 2 ;;
         --alias)           loc_args+=(--alias "$2"); shift 2 ;;
@@ -61,6 +64,9 @@ bu_repo_register()
         tags+=",${extra_tags[*]}"
     fi
 
+    if ! "$custom_param"; then
+        loc_args+=(--param-complete __bu_repo_worktree_complete --param-resolve __bu_repo_worktree_resolve --param-hint worktree)
+    fi
     bu_location_register "$name" --kind dir --tags "$tags" "${loc_args[@]}" || return 1
     local key=$BU_RET
 
@@ -77,7 +83,87 @@ bu_repo_register()
 # ```
 bu_repo_names()
 {
-    bu_location_names --tag repo
+    bu_location_names --tag repo --no-stubs
+}
+
+# ```md
+# Read live worktree records into caller-local arrays. NUL-delimited porcelain
+# preserves spaces, newlines, and git's otherwise quoted path characters.
+# ```
+__bu_repo_worktree_list()
+{
+    local key=$1 base= field= path= branch= primary= short=
+    bu_location_resolve "$key" --kind dir || return 1
+    base=${BU_RET[0]}
+    if ! git -C "$base" rev-parse --git-dir >/dev/null 2>&1; then
+        bu_log_err "repo[$key] is not a git repo: $base"
+        return 1
+    fi
+    # Check command status before reading via process substitution.
+    git -C "$base" worktree list --porcelain >/dev/null 2>&1 || return 1
+    while IFS= read -r -d '' field; do
+        case "$field" in
+        'worktree '*) path=${field#worktree }; branch= ;;
+        'branch '*) branch=${field#branch refs/heads/} ;;
+        '')
+            [[ -n "$path" ]] || continue
+            [[ -n "$primary" ]] || primary=${path##*/}
+            short=${path##*/}
+            short=${short#"$primary-worktree-"}
+            wt_paths+=("$path")
+            wt_names+=("$short")
+            wt_branches+=("$branch")
+            # -ef compares device/inode, including symlinked registrations.
+            if [[ "$path" -ef "$base" ]]; then
+                wt_self+=(true)
+            else
+                wt_self+=(false)
+            fi
+            ;;
+        esac
+    done < <(git -C "$base" worktree list --porcelain -z)
+    return 0
+}
+
+# ```md
+# FN KEY -> BU_RET values, omitting the registered directory itself.
+# ```
+__bu_repo_worktree_complete()
+{
+    local -a wt_paths=() wt_names=() wt_branches=() wt_self=()
+    local i
+    __bu_repo_worktree_list "$1" || return 1
+    BU_RET=()
+    for i in "${!wt_paths[@]}"; do
+        [[ "${wt_self[$i]}" == true ]] || BU_RET+=("${wt_names[$i]}")
+    done
+    return 0
+}
+
+# ```md
+# FN KEY VALUE -> BU_RET directory. Prefer short names, then basenames,
+# then branch names across the whole list (not per-record precedence).
+# ```
+__bu_repo_worktree_resolve()
+{
+    local key=$1 value=$2 i mode candidate
+    local -a wt_paths=() wt_names=() wt_branches=() wt_self=()
+    __bu_repo_worktree_list "$key" || return 1
+    for mode in short basename branch; do
+        for i in "${!wt_paths[@]}"; do
+            case "$mode" in
+            short) candidate=${wt_names[$i]} ;;
+            basename) candidate=${wt_paths[$i]##*/} ;;
+            branch) candidate=${wt_branches[$i]} ;;
+            esac
+            if [[ "$candidate" == "$value" ]]; then
+                BU_RET=("${wt_paths[$i]}")
+                return 0
+            fi
+        done
+    done
+    bu_log_err "repo[$key] has no worktree[$value]; available: ${wt_names[*]}"
+    return 1
 }
 
 # ```

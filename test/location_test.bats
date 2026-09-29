@@ -225,7 +225,7 @@ function test_get_location_registry_records_and_filters { #@test
 
     local out
     out=$(bu get-location-registry --format jsonl | jq -c 'select(.name == "src") | del(.source)')
-    assert_equal "$out" '{"name":"src","kind":"dir","path_expr":"/tmp","resolved":"/tmp","description":"src","tags":"work","aliases":"s","on_enter":""}'
+    assert_equal "$out" '{"name":"src","kind":"dir","path_expr":"/tmp","resolved":"/tmp","description":"src","tags":"work","aliases":"s","on_enter":"","param":""}'
 
     # Provenance is recorded (actual registrant file).
     out=$(bu get-location-registry --format jsonl | jq -r 'select(.name == "src") | .source')
@@ -382,4 +382,153 @@ function test_get_repo_missing_path_graceful { #@test
     out=$(bu get-repo gone --format jsonl)
     assert_equal "$(printf '%s' "$out" | jq -c '{exists,is_repo,ahead,behind}')" \
         '{"exists":false,"is_repo":false,"ahead":null,"behind":null}'
+}
+
+# Parameterized families: keep values live and never enumerate in bare mode.
+function test_location_param_resolution_and_hook { #@test
+    local args= hook_args=
+    family_complete() { BU_RET=(v 'x@y'); }
+    family_resolve() { args="$1:$2"; BU_RET=(/tmp); }
+    family_hook() { hook_args="$1:$2"; }
+    bu_location_register fam --path / --alias al --param-complete family_complete --param-resolve family_resolve --param-hint item --on-enter family_hook
+    __bu_location_resolve_key al@x@y
+    assert_equal "$BU_RET" fam
+    assert_equal "${BU_RET_MAP[param]}" x@y
+    __bu_location_resolve_key fam@
+    assert_equal "${BU_RET_MAP[param]}" ''
+    bu_location_resolve fam
+    assert_equal "$BU_RET" /
+    bu_location_resolve al@x@y
+    assert_equal "$args" 'fam:x@y'
+    assert_equal "$BU_RET" /tmp
+    bu_location_resolve fam@v
+    assert_equal "$args" fam:v
+    bu_location_enter al@v
+    assert_equal "$PWD" /tmp
+    assert_equal "$hook_args" al@v:/tmp
+    bu_location_canonical_name al@v
+    assert_equal "$BU_RET" fam
+    bu_location_canonical_name @x
+    assert_equal "$BU_RET" @x
+}
+
+function test_location_param_errors_and_validation { #@test
+    family_complete() { BU_RET=(v); }
+    family_resolve() { BU_RET=(/tmp); }
+    bu_location_register fam --param-complete family_complete --param-resolve family_resolve --param-hint item
+    local name
+    for name in fam fam@; do
+        run bu_location_resolve "$name"
+        assert_failure
+        assert_output --partial 'location[fam] needs a parameter: fam@<item>'
+    done
+    bu_location_register plain --path /tmp
+    run bu_location_resolve plain@v
+    assert_failure
+    assert_output --partial 'location [plain] takes no parameter (given [plain@v])'
+    for name in 'unknown@v' '@' '@x'; do
+        run bu_location_resolve "$name"
+        assert_failure
+        assert_output --partial "Unknown location[$name]"
+        refute_output --partial 'bad array subscript'
+    done
+    run bu_location_register bad --kind file --param-complete family_complete --param-resolve family_resolve
+    assert_failure
+    run bu_location_register bad --path /tmp --param-complete family_complete
+    assert_failure
+    run bu_location_register bad --param-resolve family_resolve
+    assert_failure
+    run bu_location_register bad --path /tmp --resolver family_resolve
+    assert_failure
+    run bu_location_register bad
+    assert_failure
+    run bu_location_register 'a@b' --path /tmp
+    assert_failure
+    run bu_location_register good --path /tmp --alias 'a@b'
+    assert_failure
+    bu_location_register fam --path /tmp
+    assert_equal "${BU_LOCATION_PROPERTIES[fam,param_complete]:-}" ''
+    assert_equal "${BU_LOCATION_PROPERTIES[fam,param_resolve]:-}" ''
+    assert_equal "${BU_LOCATION_PROPERTIES[fam,param_hint]:-}" ''
+}
+
+function test_location_param_completion_modes { #@test
+    family_complete() { [[ "$1" == fam || "$1" == only ]]; BU_RET=(v 'x@y'); }
+    family_resolve() { BU_RET=(/tmp); }
+    bu_location_register fam --path /tmp --alias al --tags family --param-complete family_complete --param-resolve family_resolve
+    bu_location_register only --tags family --alias ol --param-complete family_complete --param-resolve family_resolve
+    bu_location_register plain --path /tmp
+    run bu_location_names --tag family --with-aliases
+    assert_success
+    assert_output $'al\nal@\nfam\nfam@\nol@\nonly@'
+    run bu_location_names --tag family --with-aliases --no-stubs
+    assert_output $'al\nfam'
+    run bu_location_names al@part
+    assert_output $'al@v\nal@x@y'
+    run bu_location_names only@
+    assert_output $'only@v\nonly@x@y'
+    local word
+    for word in plain@ unknown@ @ @x; do
+        run bu_location_names "$word"
+        assert_success
+        assert_output ''
+    done
+    run bu_location_names --kind file fam@
+    assert_output ''
+    run bu_location_names --tag other fam@
+    assert_output ''
+    run bu_location_names --kind file
+    refute_output --partial fam
+}
+
+function test_repo_param_worktrees_live { #@test
+    local root="$BATS_TEST_TMPDIR/repos" value
+    mkdir -p "$root/project"
+    root=$(cd "$root" && pwd -P)
+    git -C "$root/project" init -q
+    git -C "$root/project" -c user.name=Test -c user.email=test@example.com commit --allow-empty -qm initial
+    bu_repo_register repo --path "$root/project"
+    git -C "$root/project" worktree add -q "$root/project-worktree-foo" -b feat/x
+    git -C "$root/project" worktree add -q "$root/plain" -b other
+    run bu_location_names repo@
+    assert_success
+    assert_equal "$(printf '%s\n' "$output" | sort)" $'repo@foo\nrepo@plain'
+    for value in foo project-worktree-foo feat/x; do
+        bu_location_resolve "repo@$value"
+        assert_equal "$BU_RET" "$root/project-worktree-foo"
+    done
+    bu_location_resolve repo@plain
+    assert_equal "$BU_RET" "$root/plain"
+    run bu_location_resolve repo@nope
+    assert_failure
+    assert_output --partial 'repo[repo] has no worktree[nope]; available:'
+    assert_output --partial foo
+    assert_output --partial plain
+    bu_repo_register secondary --path "$root/project-worktree-foo"
+    run bu_location_names secondary@
+    assert_equal "$(printf '%s\n' "$output" | sort)" $'secondary@plain\nsecondary@project'
+    bu set-location repo@feat/x
+    assert_equal "$PWD" "$root/project-worktree-foo"
+    run bu_location_names --tag repo
+    assert_output $'repo\nrepo@\nsecondary\nsecondary@'
+    run bu_repo_names
+    assert_output $'repo\nsecondary'
+    mkdir "$root/notgit"
+    bu_repo_register nongit --path "$root/notgit"
+    run bu_location_resolve nongit@v
+    assert_failure
+    assert_output --partial 'not a git repo'
+}
+
+function test_location_param_registry_rows_and_repo_override { #@test
+    family_complete() { BU_RET=(v); }
+    family_resolve() { BU_RET=(/tmp); }
+    bu_location_register only --param-complete family_complete --param-resolve family_resolve --param-hint item
+    local out
+    out=$(bu get-location-registry --format jsonl)
+    assert_equal "$(printf '%s' "$out" | jq -c '{param,resolved}')" '{"param":"item","resolved":"-"}'
+    bu_repo_register custom --path /tmp --param-complete family_complete --param-resolve family_resolve --param-hint custom
+    assert_equal "${BU_LOCATION_PROPERTIES[custom,param_complete]}" family_complete
+    bu_repo_register base --path /tmp --param-hint disabled
+    assert_equal "${BU_LOCATION_PROPERTIES[base,param_resolve]}" ''
 }

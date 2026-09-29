@@ -14,6 +14,7 @@ source "$BU_NULL"
 bu_scope_push_function
 bu_run_log_command "$@"
 
+local location_head=
 local path=
 local format=auto
 local is_help=false
@@ -82,14 +83,18 @@ bu pop-location and inspect with bu get-location-stack.
     return 0
 fi
 
-if [[ -n "$path" && ! -d "$path" ]] \
-    && [[ -n "${BU_LOCATION_ALIASES[$path]:-}" || -n "${BU_LOCATION_REGISTRY[$path]:-}" ]]
+location_head=${path%%@*}
+if [[ -n "$location_head" && ! -d "$path" ]] \
+    && [[ -n "${BU_LOCATION_ALIASES[$location_head]:-}" || -n "${BU_LOCATION_REGISTRY[$location_head]:-}" ]]
 then
     # Not an existing directory, but a registered dir name (alias-aware).
     # A real ./name directory always beats a registered name (checked above).
     if bu_location_resolve "$path" --kind dir
     then
         path=${BU_RET[0]}
+    else
+        bu_scope_pop_function
+        return 1
     fi
 fi
 
@@ -132,7 +137,8 @@ __bu_push_location_complete()
     while IFS= read -r name
     do
         [[ -n "$name" ]] && BU_RET+=("$name")
-    done < <(bu_location_names --kind dir --with-aliases 2>/dev/null)
+    done < <(bu_location_names --kind dir --with-aliases "${1:-}" 2>/dev/null)
+    [[ "${1:-}" == *@* ]] && return 0
     local d
     for d in ./*/
     do

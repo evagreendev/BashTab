@@ -17,6 +17,7 @@
 declare -A -g BU_LOCATION_REGISTRY=()      # name -> kind (dir|file|multi)
 declare -A -g BU_LOCATION_PROPERTIES=()    # [name,path] [name,resolver] [name,description]
                                            # [name,tags] [name,on_enter] [name,source]
+                                           # [name,param_complete] [name,param_resolve] [name,param_hint]
                                            # [name,repo_*] (see bu_core_repo.sh)
 declare -A -g BU_LOCATION_ALIASES=()       # alias -> canonical name/key
 
@@ -130,7 +131,8 @@ __bu_location_expand_path()
 #
 # *Returns*:
 # - BU_RET: storage key
-# - 0 on success, 1 on unknown name / kind mismatch
+# - BU_RET_MAP[param]: value after the first @ (empty for bare names or NAME@)
+# - 0 on success, 1 on unknown name / kind mismatch / invalid parameter use
 # ```
 __bu_location_resolve_key()
 {
@@ -145,7 +147,15 @@ __bu_location_resolve_key()
         esac
     done
 
-    local canonical=${BU_LOCATION_ALIASES[$name]:-$name}
+    local head=${name%%@*}
+    local param=
+    BU_RET_MAP[param]=
+    [[ "$name" == *@* ]] && param=${name#*@}
+    if [[ -z "$head" ]]; then
+        bu_log_err "Unknown location[$name] (list with: bu get-location-registry)"
+        return 1
+    fi
+    local canonical=${BU_LOCATION_ALIASES[$head]:-$head}
     local key=$canonical
     local entry_kind=${BU_LOCATION_REGISTRY[$key]:-}
 
@@ -167,13 +177,23 @@ __bu_location_resolve_key()
         fi
     fi
 
+    if [[ -n "$param" && -z "${BU_LOCATION_PROPERTIES[$key,param_resolve]:-}" ]]; then
+        bu_log_err "location [$head] takes no parameter (given [$name])"
+        return 1
+    fi
+    if [[ -z "$param" && -z "${BU_LOCATION_PROPERTIES[$key,path]:-}" && -z "${BU_LOCATION_PROPERTIES[$key,resolver]:-}" ]]; then
+        bu_log_err "location[$head] needs a parameter: $head@<${BU_LOCATION_PROPERTIES[$key,param_hint]:-value}>"
+        return 1
+    fi
+    BU_RET_MAP[param]=$param
     BU_RET=("$key")
     return 0
 }
 
 # ```
 # *Description*:
-# Map a name or alias to its canonical storage key.  Identity for
+# Map a name or alias head to its canonical storage key, stripping @VALUE.
+# Empty heads return the input unchanged. Identity for
 # non-aliases and for names that are not registered at all.
 #
 # Unlike `__bu_location_resolve_key`, this NEVER errors: embedders use it to
@@ -192,7 +212,12 @@ __bu_location_resolve_key()
 bu_location_canonical_name()
 {
     local name=$1
-    BU_RET=${BU_LOCATION_ALIASES[$name]:-$name}
+    local head=${name%%@*}
+    if [[ -z "$head" ]]; then
+        BU_RET=$name
+    else
+        BU_RET=${BU_LOCATION_ALIASES[$head]:-$head}
+    fi
     return 0
 }
 
@@ -209,7 +234,7 @@ __bu_location_clear_entry()
 {
     local key=$1
     local prop
-    for prop in path resolver description tags on_enter source \
+    for prop in path resolver description tags on_enter source param_complete param_resolve param_hint \
                 repo_remote repo_gh_host repo_gh_slug repo_default_branch \
                 repo_gh_slug_cached repo_gh_host_cached
     do
@@ -235,6 +260,9 @@ __bu_location_clear_entry()
 # - `--kind dir|file|multi` (default dir)
 # - `--path 'EXPR'`       unexpanded path expression (mutually exclusive with --resolver)
 # - `--resolver FN`       resolver function (returns BU_RET scalar/array)
+# - `--param-complete FN` KEY -> BU_RET values (dir only, paired with --param-resolve)
+# - `--param-resolve FN`  KEY VALUE -> BU_RET directory, nonzero on failure
+# - `--param-hint TEXT`   value description for parameter-only errors
 # - `--alias A`           repeatable
 # - `--description TEXT`
 # - `--tags CSV`
@@ -251,6 +279,8 @@ bu_location_register()
     local kind=dir
     local path_expr=
     local resolver=
+    local param_complete= param_resolve= param_hint=
+    local a
     local on_enter=
     local description=
     local tags=
@@ -261,6 +291,9 @@ bu_location_register()
         --kind)        kind=$2; shift 2 ;;
         --path)        path_expr=$2; shift 2 ;;
         --resolver)    resolver=$2; shift 2 ;;
+        --param-complete) param_complete=$2; shift 2 ;;
+        --param-resolve) param_resolve=$2; shift 2 ;;
+        --param-hint) param_hint=$2; shift 2 ;;
         --alias)       aliases+=("$2"); shift 2 ;;
         --description) description=$2; shift 2 ;;
         --tags)        tags=$2; shift 2 ;;
@@ -275,6 +308,21 @@ bu_location_register()
         return 1
     fi
 
+    for a in "$name" "${aliases[@]}"; do
+        if [[ -z "$a" || "$a" == *@* ]]; then
+            bu_log_err "bu_location_register: name/alias [$a] must be nonempty and cannot contain @"
+            return 1
+        fi
+    done
+    if [[ -n "$param_complete" && -z "$param_resolve" || -z "$param_complete" && -n "$param_resolve" ]]; then
+        bu_log_err "bu_location_register[$name]: --param-complete and --param-resolve must be given together"
+        return 1
+    fi
+    if [[ "$kind" != dir && -n "$param_complete$param_resolve$param_hint" ]]; then
+        bu_log_err "bu_location_register[$name]: parameters are only valid for kind dir"
+        return 1
+    fi
+
     case "$kind" in
     dir|file|multi) ;;
     *) bu_log_err "bu_location_register: invalid kind[$kind] for [$name]"; return 1 ;;
@@ -285,9 +333,9 @@ bu_location_register()
         bu_log_err "bu_location_register[$name]: --path and --resolver are mutually exclusive"
         return 1
     fi
-    if [[ -z "$path_expr" && -z "$resolver" ]]
+    if [[ -z "$path_expr" && -z "$resolver" && -z "$param_resolve" ]]
     then
-        bu_log_err "bu_location_register[$name]: exactly one of --path or --resolver is required"
+        bu_log_err "bu_location_register[$name]: a base target (--path or --resolver) or parameter pair is required"
         return 1
     fi
 
@@ -317,6 +365,9 @@ bu_location_register()
     fi
 
     BU_LOCATION_REGISTRY[$key]=$kind
+    BU_LOCATION_PROPERTIES[$key,param_complete]=$param_complete
+    BU_LOCATION_PROPERTIES[$key,param_resolve]=$param_resolve
+    BU_LOCATION_PROPERTIES[$key,param_hint]=$param_hint
     BU_LOCATION_PROPERTIES[$key,path]=$path_expr
     BU_LOCATION_PROPERTIES[$key,resolver]=$resolver
     BU_LOCATION_PROPERTIES[$key,description]=$description
@@ -326,7 +377,6 @@ bu_location_register()
     __bu_location_provenance
     BU_LOCATION_PROPERTIES[$key,source]=$BU_RET
 
-    local a
     for a in "${aliases[@]}"
     do
         BU_LOCATION_ALIASES[$a]=$key
@@ -369,7 +419,11 @@ bu_location_resolve()
     local entry_kind=${BU_LOCATION_REGISTRY[$key]}
 
     local resolver=${BU_LOCATION_PROPERTIES[$key,resolver]:-}
-    if [[ -n "$resolver" ]]
+    local param=${BU_RET_MAP[param]:-}
+    if [[ -n "$param" ]]; then
+        BU_RET=()
+        "${BU_LOCATION_PROPERTIES[$key,param_resolve]}" "$key" "$param" || return 1
+    elif [[ -n "$resolver" ]]
     then
         BU_RET=()
         if ! "$resolver" "$name"
@@ -414,63 +468,69 @@ bu_location_resolve()
 # - `--kind K`        filter by kind
 # - `--tag T`         filter by tag (comma-separated CSV)
 # - `--with-aliases`  also include alias names
+# - `--no-stubs`      omit family stubs in bare mode
+# - final word       NAME@ queries live values; bare mode never calls completers
 # ```
 bu_location_names()
 {
-    local kind=
-    local tag=
-    local with_aliases=false
-    while (($#))
-    do
+    local kind= tag= word= head= key= k= display= a= value=
+    local with_aliases=false no_stubs=false
+    local -a out=()
+    while (($#)); do
         case "$1" in
-        --kind)          kind=$2; shift 2 ;;
-        --tag)           tag=$2; shift 2 ;;
-        --with-aliases)  with_aliases=true; shift ;;
-        # Completion-feed contract: `--stdout bu_location_names ...` appends
-        # the user's in-progress word (`opt_cur_word`), which may be `''`,
-        # `--`, or any partial token. Erroring here would spray
-        # `bu_location_names: unknown option[...]` onto the prompt on every
-        # Tab press, so unrecognized words are silently ignored.
-        *) shift ;;
+        --kind) kind=$2; shift 2 ;;
+        --tag) tag=$2; shift 2 ;;
+        --with-aliases) with_aliases=true; shift ;;
+        --no-stubs) no_stubs=true; shift ;;
+        *) word=$1; shift ;;
         esac
     done
 
-    local -A seen=()
-    local -a out=()
-    local key k display
-    for key in "${!BU_LOCATION_REGISTRY[@]}"
-    do
-        k=${BU_LOCATION_REGISTRY[$key]}
-        [[ -n "$kind" && "$k" != "$kind" ]] && continue
-        if [[ -n "$tag" ]]
-        then
-            __bu_location_tag_match "${BU_LOCATION_PROPERTIES[$key,tags]:-}" "$tag" || continue
+    if [[ "$word" == *@* ]]; then
+        head=${word%%@*}
+        [[ -n "$head" ]] || return 0
+        key=${BU_LOCATION_ALIASES[$head]:-$head}
+        k=${BU_LOCATION_REGISTRY[$key]:-}
+        if [[ -n "$kind" && "$k" != "$kind" && -n "${BU_LOCATION_REGISTRY[$kind:$key]:-}" ]]; then
+            key=$kind:$key
+            k=${BU_LOCATION_REGISTRY[$key]}
         fi
-        display=$key
-        [[ "$key" == *:* ]] && display=${key#*:}
-        [[ -n "${seen[$display]:-}" ]] && continue
-        seen[$display]=1
-        out+=("$display")
-    done
-
-    if "$with_aliases"
-    then
-        local a target
-        for a in "${!BU_LOCATION_ALIASES[@]}"
-        do
-            target=${BU_LOCATION_ALIASES[$a]}
-            k=${BU_LOCATION_REGISTRY[$target]:-}
-            [[ -n "$kind" && "$k" != "$kind" ]] && continue
-            if [[ -n "$tag" ]]
-            then
-                __bu_location_tag_match "${BU_LOCATION_PROPERTIES[$target,tags]:-}" "$tag" || continue
-            fi
-            out+=("$a")
+        [[ -n "$k" && ( -z "$kind" || "$kind" == "$k" ) ]] || return 0
+        [[ -z "$tag" ]] || __bu_location_tag_match "${BU_LOCATION_PROPERTIES[$key,tags]:-}" "$tag" || return 0
+        [[ -n "${BU_LOCATION_PROPERTIES[$key,param_complete]:-}" ]] || return 0
+        BU_RET=()
+        "${BU_LOCATION_PROPERTIES[$key,param_complete]}" "$key" || return 0
+        for value in "${BU_RET[@]}"; do
+            printf '%s@%s\n' "$head" "$value"
         done
+        return 0
     fi
 
-    if ((${#out[@]} > 0))
-    then
+    for key in "${!BU_LOCATION_REGISTRY[@]}"; do
+        k=${BU_LOCATION_REGISTRY[$key]}
+        [[ -n "$kind" && "$k" != "$kind" ]] && continue
+        [[ -z "$tag" ]] || __bu_location_tag_match "${BU_LOCATION_PROPERTIES[$key,tags]:-}" "$tag" || continue
+        display=$key
+        [[ "$key" == *:* ]] && display=${key#*:}
+        if [[ -n "${BU_LOCATION_PROPERTIES[$key,path]:-}${BU_LOCATION_PROPERTIES[$key,resolver]:-}" ]]; then
+            out+=("$display")
+        fi
+        if ! "$no_stubs" && [[ -n "${BU_LOCATION_PROPERTIES[$key,param_complete]:-}" ]]; then
+            out+=("$display@")
+        fi
+        if "$with_aliases"; then
+            for a in "${!BU_LOCATION_ALIASES[@]}"; do
+                [[ "${BU_LOCATION_ALIASES[$a]}" == "$key" ]] || continue
+                if [[ -n "${BU_LOCATION_PROPERTIES[$key,path]:-}${BU_LOCATION_PROPERTIES[$key,resolver]:-}" ]]; then
+                    out+=("$a")
+                fi
+                if ! "$no_stubs" && [[ -n "${BU_LOCATION_PROPERTIES[$key,param_complete]:-}" ]]; then
+                    out+=("$a@")
+                fi
+            done
+        fi
+    done
+    if ((${#out[@]} > 0)); then
         printf '%s\n' "${out[@]}" | sort -u
     fi
     return 0

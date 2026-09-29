@@ -103,6 +103,9 @@ Equivalent to PowerShell's Set-Location.
 
 With a NAME positional, resolves a registered dir location (see
 bu new-location / bu get-location-registry) and cds into it.
+Use NAME@VALUE for a parameterized directory family, e.g. myrepo@feat/x.
+A bare parameter-only family reports: location[NAME] needs a parameter: NAME@<hint>.
+A plain location with a value reports: location [NAME] takes no parameter (given [NAME@VALUE]).
 " \
     --example "Jump to a registered location" "myproj" \
     --example "Jump to the top-level module root" "--module" \
@@ -116,14 +119,12 @@ if [[ -n "$location_name" ]]
 then
     if "$is_dry_run"
     then
-        __bu_location_resolve_key "$location_name" --kind dir 2>/dev/null || {
-            error_msg="Unknown dir location[$location_name]"
-            bu_autohelp
+        __bu_location_resolve_key "$location_name" --kind dir || {
             bu_scope_pop_function
             return 1
         }
         local _loc_key=$BU_RET
-        bu_location_resolve "$location_name" --kind dir 2>/dev/null || {
+        bu_location_resolve "$location_name" --kind dir || {
             bu_scope_pop_function
             return 1
         }

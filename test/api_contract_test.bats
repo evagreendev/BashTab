@@ -699,3 +699,43 @@ function test_cached_execute_allow_empty { #@test
     run bu_cached_execute --allow-empty -- printf '' 2>/dev/null
     assert_success
 }
+
+function test_location_param_cli_contract { #@test
+    contract_complete() { BU_RET=(v); }
+    contract_resolve() { BU_RET=(/tmp); }
+    bu_location_register fam --alias al --param-complete contract_complete --param-resolve contract_resolve --param-hint item
+    run bu set-location fam --dry-run
+    assert_failure
+    assert_output --partial 'needs a parameter: fam@<item>'
+    bu_location_register plain --path /tmp
+    run bu set-location plain@v --dry-run
+    assert_failure
+    assert_output --partial 'takes no parameter (given [plain@v])'
+    run bu set-location al@v --dry-run
+    assert_success
+    assert_output --partial '"name":"al@v","path":"/tmp"'
+    bu push-location al@v >/dev/null
+    assert_equal "$PWD" /tmp
+    bu pop-location >/dev/null
+    __bu_push_location_complete al@
+    assert_equal "${BU_RET[*]}" al@v
+    shopt -s hostcomplete
+    __bu_init_autocomplete
+    run shopt -q hostcomplete
+    assert_failure
+}
+
+function test_location_param_cli_completion { #@test
+    contract_complete() { BU_RET=(foo plain); }
+    contract_resolve() { BU_RET=(/tmp); }
+    bu_location_register myrepo --path /tmp --alias mr --param-complete contract_complete --param-resolve contract_resolve
+    local COMPREPLY=() BU_COMPREPLY_METADATA=()
+    bu_autocomplete_get_autocompletions bu set-location 'myrepo@'
+    assert_equal "${COMPREPLY[*]}" 'myrepo@foo myrepo@plain'
+    COMPREPLY=()
+    bu_autocomplete_get_autocompletions bu set-location 'myrepo'
+    assert_equal "${COMPREPLY[*]}" 'myrepo myrepo@'
+    COMPREPLY=()
+    bu_autocomplete_get_autocompletions bu push-location 'mr@'
+    assert_equal "${COMPREPLY[*]}" 'mr@foo mr@plain'
+}
