@@ -2477,6 +2477,18 @@ function test_bu_distinct_object_metadata { #@test
 # BU_TABLE_PAGER
 # ===========================================================================
 
+# Run a helper under a terminal on both BSD/macOS and util-linux script(1).
+__test_table_pager_terminal()
+{
+    local helper=$1 command_line=
+    if [[ "$OSTYPE" == darwin* ]]; then
+        HELPER_DIR="$DIR" script -q /dev/null bash "$helper" </dev/null
+    else
+        printf -v command_line 'bash %q' "$helper"
+        HELPER_DIR="$DIR" script -qec "$command_line" /dev/null </dev/null
+    fi
+}
+
 function test_bu_table_pager_piped_noop { #@test
     # When stdout is a pipe (not a TTY), BU_TABLE_PAGER must be ignored.
     # We use a pager that would transform the output, and verify it didn't run.
@@ -2521,13 +2533,13 @@ export BU_TABLE_PAGER="preset:marker"
 printf '{"name":"test"}\n' | bu_format_table
 SCRIPT_EOF
     local out
-    out=$(HELPER_DIR="$DIR" script -qec "bash $helper" /dev/null </dev/null | tr -d '\r\000\016\017')
+    out=$(__test_table_pager_terminal "$helper" | tr -d '\r\000\016\017')
     # The sed pager should have prepended "PAGED:" to every line
     [[ "$out" == *PAGED:* ]]
 }
 
 function test_bu_table_pager_custom_on_terminal { #@test
-    # A bare command (no preset: prefix) is used verbatim.
+    # A command line that is not a preset key is used verbatim.
     if ! command -v script &>/dev/null; then
         skip "script(1) not available"
     fi
@@ -2538,7 +2550,7 @@ export BU_TABLE_PAGER="sed s/^/CUSTOM:/"
 printf '{"name":"test"}\n' | bu_format_table
 SCRIPT_EOF
     local out
-    out=$(HELPER_DIR="$DIR" script -qec "bash $helper" /dev/null </dev/null | tr -d '\r\000\016\017')
+    out=$(__test_table_pager_terminal "$helper" | tr -d '\r\000\016\017')
     [[ "$out" == *CUSTOM:* ]]
 }
 
@@ -2554,7 +2566,7 @@ export BU_TABLE_PAGER="preset:never"
 printf '{"name":"test"}\n' | bu_format_table
 SCRIPT_EOF
     local out
-    out=$(HELPER_DIR="$DIR" script -qec "bash $helper" /dev/null </dev/null | tr -d '\r\000\016\017')
+    out=$(__test_table_pager_terminal "$helper" | tr -d '\r\000\016\017')
     # Table should render normally (header, separator, data)
     [[ "$out" == *name* ]]
     [[ "$out" == *test* ]]
@@ -2590,7 +2602,7 @@ export BU_TABLE_PAGER="preset:marker"
 bu
 SCRIPT_EOF
     local out
-    out=$(HELPER_DIR="$DIR" script -qec "bash $helper" /dev/null </dev/null | tr -d '\r\000\016\017' | sed 's/\x1b\[[0-9;]*m//g;s/\x1b(B//g')
+    out=$(__test_table_pager_terminal "$helper" | tr -d '\r\000\016\017' | sed 's/\x1b\[[0-9;]*m//g;s/\x1b(B//g')
     # One uninterrupted help document with its command listing...
     [[ "$out" == *"Help for bu"* ]]
     [[ "$out" == *"The following commands using a"* ]]
@@ -2882,4 +2894,32 @@ EOF
     refute_regex "$out" 'query-stage'
 
     rm -rf "$tmpdir"
+}
+
+function test_bu_table_pager_bare_and_explicit_terminal_forms { #@test
+    if ! command -v script &>/dev/null; then
+        skip "script(1) not available"
+    fi
+    local helper=$BATS_TEST_TMPDIR/pager_forms_pty.sh out
+    cat > "$helper" <<'SCRIPT_EOF'
+source "$HELPER_DIR/../bu_entrypoint.sh" >/dev/null 2>&1
+less() { printf 'LESS_ARGS:%s\n' "$*"; cat; }
+never() { printf 'CUSTOM_NEVER:%s\n' "$*"; cat; }
+for pager in less preset:less 'less -FRSX' never preset:never preset:x preset: ''; do
+    printf 'BEGIN[%s]\n' "$pager"
+    printf '{"name":"test"}\n' | BU_TABLE_PAGER="$pager" bu_format_table
+    printf 'END[%s]\n' "$pager"
+done
+printf '{"name":"test"}\n' | BU_TABLE_PAGER='never --custom' bu_format_table
+SCRIPT_EOF
+    out=$(__test_table_pager_terminal "$helper" | tr -d '\r\000\016\017')
+    assert_equal "$(printf '%s\n' "$out" | grep -c '^LESS_ARGS:-FRX$')" 2
+    [[ "$out" == *'LESS_ARGS:-FRSX'* ]]
+    [[ "$out" == *'Unknown pager preset[x]'* ]]
+    [[ "$out" == *'Unknown pager preset[]'* ]]
+    [[ "$out" != *'bad array subscript'* ]]
+    assert_equal "$(printf '%s\n' "$out" | grep -c '^CUSTOM_NEVER:')" 1
+    [[ "$out" == *'CUSTOM_NEVER:--custom'* ]]
+    # All forms, including never/empty/unknown presets, retain the table data.
+    assert_equal "$(printf '%s\n' "$out" | grep -c '│.*test.*│')" 9
 }

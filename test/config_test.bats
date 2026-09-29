@@ -588,3 +588,15 @@ function test_docs_config_defaults_match_registry { #@test
     # The documented BU_STACKTRACE_CONTEXT_LINES default must match the global.
     assert grep -q "(default \`${BU_STACKTRACE_CONTEXT_LINES}\`)" "$docs_ref"
 }
+
+function test_config_preset_completion_verbatim { #@test
+    bu_config_register BU_TEST_PRESETS --presets alpha preset:explicit beta presets--
+    __bu_config_completion_values BU_TEST_PRESETS
+    assert_equal "${BU_RET[*]}" 'alpha preset:explicit beta'
+    bu set-config BU_TEST_PRESETS "${BU_RET[0]}" >/dev/null
+    assert_equal "$BU_TEST_PRESETS" alpha
+    __bu_config_completion_values BU_TABLE_PAGER
+    assert_equal "${BU_RET[*]}" 'less less-quit bat never'
+    bu set-config BU_TABLE_PAGER "${BU_RET[0]}" >/dev/null
+    assert_equal "$BU_TABLE_PAGER" less
+}

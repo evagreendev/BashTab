@@ -427,7 +427,7 @@ __bu_config_completion_values()
     done
     for entry in ${BU_CONFIG_PROPERTIES[$name,presets]:-}
     do
-        BU_RET+=("preset:${entry}")
+        BU_RET+=("$entry")
     done
 }
 

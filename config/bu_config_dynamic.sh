@@ -74,12 +74,12 @@ BU_QUERY_EXECUTOR=${BU_QUERY_EXECUTOR:-${BU_CONFIG_PROPERTIES[BU_QUERY_EXECUTOR,
 
 # Pager for tabular output. When set and stdout is a terminal,
 # bu_format_table pipes output through this command.
-#   "preset:less"   → less -FRX    "preset:bat" → bat --paging=always
-#   "preset:never"  → cat (no paging)
+#   "less" / "preset:less" → less -FRX; "bat" → bat --paging=always
+#   "never" / "preset:never" → cat (no paging)
 #   "less -FRX"     → custom command, used verbatim
 bu_config_register BU_TABLE_PAGER --default "preset:less" \
     --presets less less-quit bat never presets-- \
-    --hint "Pager for tabular output (preset:less, preset:bat, or a custom command). Empty disables."
+    --hint "Pager: less, less-quit, bat, never (preset names), preset:NAME (explicit), or a custom command. Empty disables."
 BU_TABLE_PAGER=${BU_TABLE_PAGER:-"preset:less"}
 
 # Default table display style for `bu format-table` / `bu out --format table`.

@@ -24,8 +24,8 @@ BU_OUT_JQ=$(command -v jq 2>/dev/null) || BU_OUT_JQ=
 # Used by --format flags and Out-Default auto-detection.
 BU_OUT_FORMATS=(auto table list json jsonl tsv)
 
-# Preset pager shortcuts for BU_TABLE_PAGER.  Maps preset names (the part
-# after "preset:") to full pager command lines.  Extend via
+# Preset pager shortcuts for BU_TABLE_PAGER. Maps bare names (also accepted
+# after "preset:") to full pager command lines. Extend via
 # bu_register_table_pager_preset.
 # The default "less" preset passes:
 #   -F  exit immediately when the output fits on one screen, so short tables
@@ -42,7 +42,7 @@ declare -A -g __BU_TABLE_PAGER_PRESETS=(
 # ```
 # *Description*:
 # Register a preset pager shortcut for BU_TABLE_PAGER.
-# Users can then write BU_TABLE_PAGER=preset:<name>.
+# Users can then write BU_TABLE_PAGER=<name> or BU_TABLE_PAGER=preset:<name>.
 #
 # *Params*:
 # - `$1`: Preset name (e.g. "less", "bat")
@@ -1364,9 +1364,12 @@ bu_format_table()
 
     # Pager support: when BU_TABLE_PAGER is set and stdout is a terminal,
     # pipe table output through the configured pager.
-    # - "preset:less"   → resolves to "less -FRX" (or whatever the preset maps to)
+    # - "less"          → bare preset key resolves to "less -FRX"
+    # - "preset:less"   → explicit preset lookup; unknown names warn and use cat
     # - "less -FRX"     → used verbatim as a custom pager command
     # - "" (empty)      → no paging (cat passthrough)
+    # Bare names matching preset keys take priority over custom binaries;
+    # use a path or arguments to run a colliding binary verbatim.
     # Falls back to cat if the pager command is invalid or not found.
     local __bu_pager_pipe=cat
     if [[ -n "${BU_TABLE_PAGER:-}" && -t 1 ]]
@@ -1374,12 +1377,15 @@ bu_format_table()
         if [[ "$BU_TABLE_PAGER" == preset:* ]]
         then
             local __bu_preset_name=${BU_TABLE_PAGER#preset:}
-            if [[ -n "${__BU_TABLE_PAGER_PRESETS[$__bu_preset_name]:-}" ]]
+            if [[ -n "$__bu_preset_name" && -n "${__BU_TABLE_PAGER_PRESETS[$__bu_preset_name]+present}" ]]
             then
                 __bu_pager_pipe=${__BU_TABLE_PAGER_PRESETS[$__bu_preset_name]}
             else
                 bu_log_warn "Unknown pager preset[$__bu_preset_name]; valid presets: ${!__BU_TABLE_PAGER_PRESETS[*]}"
             fi
+        elif [[ -n "${__BU_TABLE_PAGER_PRESETS[$BU_TABLE_PAGER]+present}" ]]
+        then
+            __bu_pager_pipe=${__BU_TABLE_PAGER_PRESETS[$BU_TABLE_PAGER]}
         else
             __bu_pager_pipe=$BU_TABLE_PAGER
         fi
