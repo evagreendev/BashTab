@@ -710,7 +710,10 @@ function test_location_param_cli_contract { #@test
     bu_location_register plain --path /tmp
     run bu set-location plain@v --dry-run
     assert_failure
-    assert_output --partial 'takes no parameter (given [plain@v])'
+    assert_output --partial 'location[plain] takes no parameter (given [plain@v])'
+    run bu set-location plain@v
+    assert_failure
+    assert_output --partial 'location[plain] takes no parameter (given [plain@v])'
     run bu set-location al@v --dry-run
     assert_success
     assert_output --partial '"name":"al@v","path":"/tmp"'

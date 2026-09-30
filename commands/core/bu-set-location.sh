@@ -105,7 +105,7 @@ With a NAME positional, resolves a registered dir location (see
 bu new-location / bu get-location-registry) and cds into it.
 Use NAME@VALUE for a parameterized directory family, e.g. myrepo@feat/x.
 A bare parameter-only family reports: location[NAME] needs a parameter: NAME@<hint>.
-A plain location with a value reports: location [NAME] takes no parameter (given [NAME@VALUE]).
+A plain location with a value reports: location[NAME] takes no parameter (given [NAME@VALUE]).
 " \
     --example "Jump to a registered location" "myproj" \
     --example "Jump to the top-level module root" "--module" \

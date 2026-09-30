@@ -130,7 +130,7 @@ ${BU_TPUT_BOLD}FAILURE SIGNATURES${BU_TPUT_RESET}
     "location[name] needs a parameter: name@<hint>"
         This family has no bare target. Supply a nonempty value after @.
 
-    "location [name] takes no parameter (given [name@value])"
+    "location[name] takes no parameter (given [name@value])"
         This location is not a family. Use its bare name.
 
 ${BU_TPUT_BOLD}SEE ALSO${BU_TPUT_RESET}

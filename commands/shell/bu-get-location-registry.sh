@@ -80,7 +80,7 @@ then
 List the named-location registry as records. Each entry shows its unexpanded
 path expression and a best-effort resolved value (empty when the resolver
 fails or a referenced environment variable is unset). The param column shows
-the family hint; parameter-only families show resolved = -. Filter by kind and tag.
+the family hint (value when omitted); parameter-only families show resolved = -. Filter by kind and tag.
 " \
         --example "All locations" "" \
         --example "Only directories" "--kind dir" \
@@ -110,7 +110,10 @@ fi
         source=${BU_LOCATION_PROPERTIES[$key,source]:-}
 
         # Best-effort resolution: empty on failure (never fails the listing).
-        param=${BU_LOCATION_PROPERTIES[$key,param_hint]:-}
+        param=
+        if [[ -n "${BU_LOCATION_PROPERTIES[$key,param_complete]:-}" ]]; then
+            param=${BU_LOCATION_PROPERTIES[$key,param_hint]:-value}
+        fi
         resolved=
         if [[ -z "$path_expr${BU_LOCATION_PROPERTIES[$key,resolver]:-}" ]]; then
             resolved=-

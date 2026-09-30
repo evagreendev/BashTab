@@ -178,7 +178,7 @@ __bu_location_resolve_key()
     fi
 
     if [[ -n "$param" && -z "${BU_LOCATION_PROPERTIES[$key,param_resolve]:-}" ]]; then
-        bu_log_err "location [$head] takes no parameter (given [$name])"
+        bu_log_err "location[$head] takes no parameter (given [$name])"
         return 1
     fi
     if [[ -z "$param" && -z "${BU_LOCATION_PROPERTIES[$key,path]:-}" && -z "${BU_LOCATION_PROPERTIES[$key,resolver]:-}" ]]; then
@@ -499,7 +499,8 @@ bu_location_names()
         [[ -z "$tag" ]] || __bu_location_tag_match "${BU_LOCATION_PROPERTIES[$key,tags]:-}" "$tag" || return 0
         [[ -n "${BU_LOCATION_PROPERTIES[$key,param_complete]:-}" ]] || return 0
         BU_RET=()
-        "${BU_LOCATION_PROPERTIES[$key,param_complete]}" "$key" || return 0
+        # Completion failures are silent; resolution still reports diagnostics.
+        "${BU_LOCATION_PROPERTIES[$key,param_complete]}" "$key" 2>/dev/null || return 0
         for value in "${BU_RET[@]}"; do
             printf '%s@%s\n' "$head" "$value"
         done

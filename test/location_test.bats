@@ -425,7 +425,7 @@ function test_location_param_errors_and_validation { #@test
     bu_location_register plain --path /tmp
     run bu_location_resolve plain@v
     assert_failure
-    assert_output --partial 'location [plain] takes no parameter (given [plain@v])'
+    assert_output --partial 'location[plain] takes no parameter (given [plain@v])'
     for name in 'unknown@v' '@' '@x'; do
         run bu_location_resolve "$name"
         assert_failure
@@ -531,4 +531,326 @@ function test_location_param_registry_rows_and_repo_override { #@test
     assert_equal "${BU_LOCATION_PROPERTIES[custom,param_complete]}" family_complete
     bu_repo_register base --path /tmp --param-hint disabled
     assert_equal "${BU_LOCATION_PROPERTIES[base,param_resolve]}" ''
+}
+
+function test_location_param_register_and_resolve { #@test
+    local seen_key=
+    fam_complete() { BU_RET=(alpha beta); }
+    fam_resolve()  { seen_key=$1; BU_RET=("$BATS_TEST_TMPDIR/famdir-$2"); }
+    mkdir -p "$BATS_TEST_TMPDIR"/famdir-alpha
+    bu_location_register fam --path /tmp --alias fa \
+        --param-complete fam_complete --param-resolve fam_resolve --param-hint variant
+    assert_equal "${BU_LOCATION_PROPERTIES[fam,param_complete]}" fam_complete
+    assert_equal "${BU_LOCATION_PROPERTIES[fam,param_resolve]}" fam_resolve
+    assert_equal "${BU_LOCATION_PROPERTIES[fam,param_hint]}" variant
+
+    # bare name still resolves the base target
+    bu_location_resolve fam
+    assert_equal "${BU_RET[0]}" /tmp
+
+    # head@value goes through the param resolver with (key, value)
+    bu_location_resolve fam@alpha
+    assert_equal "${BU_RET[0]}" "$BATS_TEST_TMPDIR/famdir-alpha"
+    assert_equal "$seen_key" fam
+
+    # alias head
+    bu_location_resolve fa@alpha --kind dir
+    assert_equal "${BU_RET[0]}" "$BATS_TEST_TMPDIR/famdir-alpha"
+
+    # resolved dir is still verified
+    run bu_location_resolve fam@beta
+    assert_failure
+    assert_output --partial 'directory missing'
+
+    # canonical name strips the param
+    bu_location_canonical_name fa@alpha
+    assert_equal "$BU_RET" fam
+
+    # value may itself contain '@' (split is at the FIRST '@' only)
+    mkdir -p "$BATS_TEST_TMPDIR"/famdir-a@b
+    bu_location_resolve fam@a@b
+    assert_equal "${BU_RET[0]}" "$BATS_TEST_TMPDIR/famdir-a@b"
+}
+
+function test_location_param_empty_head { #@test
+    run bu_location_names --kind dir '@'
+    assert_success
+    assert_output ''
+    run bu_location_names --kind dir '@x'
+    assert_success
+    assert_output ''
+    run bu_location_resolve '@x'
+    assert_failure
+    assert_output --partial 'Unknown location[@x]'
+    refute_output --partial 'bad array subscript'
+    bu_location_canonical_name '@x'
+    assert_equal "$BU_RET" '@x'
+}
+
+function test_location_param_only_family { #@test
+    po_complete() { BU_RET=(x y); }
+    po_resolve()  { BU_RET=("$BATS_TEST_TMPDIR/po-$2"); }
+    mkdir -p "$BATS_TEST_TMPDIR"/po-x
+    bu_location_register po --param-complete po_complete --param-resolve po_resolve \
+        --param-hint thing
+    assert_equal "${BU_LOCATION_REGISTRY[po]}" dir
+
+    bu_location_resolve po@x
+    assert_equal "${BU_RET[0]}" "$BATS_TEST_TMPDIR/po-x"
+
+    run bu_location_resolve po
+    assert_failure
+    assert_output --partial 'location[po] needs a parameter: po@<thing>'
+
+    # empty value counts as no value
+    run bu_location_resolve po@
+    assert_failure
+    assert_output --partial 'needs a parameter'
+}
+
+function test_location_param_errors { #@test
+    bu_location_register plainloc --path /tmp
+    run bu_location_resolve plainloc@x
+    assert_failure
+    assert_output --partial 'location[plainloc] takes no parameter'
+
+    run bu_location_resolve nosuchfam@x
+    assert_failure
+    assert_output --partial 'Unknown location[nosuchfam@x]'
+}
+
+function test_location_param_register_validation { #@test
+    vc() { BU_RET=(); }
+    vr() { BU_RET=(/tmp); }
+    # param options are dir-only
+    run bu_location_register bad1 --kind file --path /etc/hosts --param-complete vc \
+        --param-resolve vr
+    assert_failure
+    # the pair must come together
+    run bu_location_register bad2 --path /tmp --param-complete vc
+    assert_failure
+    run bu_location_register bad3 --path /tmp --param-resolve vr
+    assert_failure
+    # neither base target nor param pair
+    run bu_location_register bad4
+    assert_failure
+    # --path and --resolver still mutually exclusive
+    run bu_location_register bad5 --path /tmp --resolver vr --param-complete vc \
+        --param-resolve vr
+    assert_failure
+    # [~2 lines cut off between photos: the positive case \u2014 a param pair
+    #  alongside a base target is accepted, e.g.
+    #  bu_location_register okfam --path /tmp --param-complete vc --param-resolve vr
+    #  assert_equal "${BU_LOCATION_PROPERTIES[okfam,param_complete]}" vc]
+
+    # '@' is reserved in a NAME (would be a silently unreachable entry)
+    run bu_location_register 'a@b' --path /tmp
+    assert_failure
+    assert_output --partial 'cannot contain @'    # adapted to the existing message text
+    # ...and in an --alias value
+    run bu_location_register okname --path /tmp --alias 'x@y'
+    assert_failure
+}
+
+function test_location_param_overwrite_clears { #@test
+    oc() { BU_RET=(); }
+    orr() { BU_RET=(/tmp); }
+    bu_location_register ow2 --path /tmp --param-complete oc --param-resolve orr \
+        --param-hint h
+    bu_location_register ow2 --path /tmp
+    assert_equal "${BU_LOCATION_PROPERTIES[ow2,param_complete]:-}" ""
+    assert_equal "${BU_LOCATION_PROPERTIES[ow2,param_resolve]:-}" ""
+    assert_equal "${BU_LOCATION_PROPERTIES[ow2,param_hint]:-}" ""
+    # now a plain entry: a value is an error again
+    run bu_location_resolve ow2@x
+    assert_failure
+}
+
+function test_location_enter_param { #@test
+    local hook_args=
+    ph() { hook_args="$1:$2"; }
+    pc() { BU_RET=(one); }
+    pr() { BU_RET=("$BATS_TEST_TMPDIR/wt-$2"); }
+    mkdir -p "$BATS_TEST_TMPDIR"/wt-one
+    bu_location_register pe --path /tmp --param-complete pc --param-resolve pr --on-enter ph
+    cd /
+    bu_location_enter pe@one
+    assert_equal "$PWD" "$BATS_TEST_TMPDIR/wt-one"
+    # hook receives the name AS TYPED and the resolved dir
+    assert_equal "$hook_args" "pe@one:$BATS_TEST_TMPDIR/wt-one"
+}
+
+function test_location_names_param_modes { #@test
+    nc() { BU_RET=(v1 v2); }
+    nr() { BU_RET=(/tmp); }
+    bu_location_register nfam --path /tmp --alias nf --param-complete nc --param-resolve nr \
+        --tags fam
+    bu_location_register nonly --param-complete nc --param-resolve nr
+    bu_location_register nplain --path /tmp
+
+    # bare mode: static names plus one stub per family; param-only bare name absent
+    run bu_location_names --kind dir ''
+    assert_success
+    assert_line nfam
+    assert_line 'nfam@'
+    assert_line 'nonly@'
+    assert_line nplain
+    refute_line nonly
+
+    run bu_location_names --kind dir --with-aliases ''
+    assert_line nf
+    assert_line 'nf@'
+
+    # @ mode: only that family's values, typed head spelling preserved
+    run bu_location_names --kind dir 'nfam@'
+    assert_success
+    assert_output $'nfam@v1\nnfam@v2'
+    run bu_location_names --kind dir 'nf@v'
+    assert_output $'nf@v1\nnf@v2'
+
+    # plain entry / unknown head \u2192 nothing, never an error
+    run bu_location_names --kind dir 'nplain@'
+    assert_success
+    assert_output ''
+    run bu_location_names --kind dir 'nosuch@'
+    assert_success
+    assert_output ''
+
+    # kind/tag filters apply to the family
+    run bu_location_names --tag fam 'nfam@'
+    assert_line 'nfam@v1'
+    run bu_location_names --tag other 'nfam@'
+    assert_output ''
+    run bu_location_names --kind file 'nfam@'
+    assert_output ''
+}
+
+function test_get_location_registry_param_family_rows { #@test
+    gc() { BU_RET=(a); }
+    gr() { BU_RET=(/tmp); }
+    bu_location_register gfam --path /tmp --param-complete gc --param-resolve gr \
+        --param-hint variant
+    bu_location_register gonly --param-complete gc --param-resolve gr --param-hint thing
+    local out
+    out=$(bu get-location-registry --format jsonl | jq -c 'select(.name == "gfam") | {resolved, param}')
+    assert_equal "$out" '{"resolved":"/tmp","param":"variant"}'
+    out=$(bu get-location-registry --format jsonl | jq -c 'select(.name == "gonly") | {resolved, param}')
+    assert_equal "$out" '{"resolved":"-","param":"thing"}'
+}
+
+function test_repo_names_no_stubs { #@test
+    bu_repo_register rn1 --path /tmp
+    run bu_repo_names
+    assert_line rn1
+    refute_line 'rn1@'
+    run bu_location_names --tag repo
+    assert_line 'rn1@'
+    run bu_location_names --tag repo --no-stubs ''
+    refute_line 'rn1@'
+}
+
+function test_repo_worktree_family_primary_only { #@test
+    local base=$BATS_TEST_TMPDIR/solo
+    git init -q "$base"
+    git -C "$base" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m init
+    bu_repo_register solo --path "$base"
+    __bu_repo_worktree_complete solo
+    assert_equal "${#BU_RET[@]}" 0
+    run bu_location_names --kind dir 'solo@'
+    assert_success
+    assert_output ''
+    run bu_location_resolve solo@nope
+    assert_failure
+    assert_output --partial 'has no worktree[nope]'
+}
+
+function test_repo_worktree_family_complete_and_resolve { #@test
+    local base=$BATS_TEST_TMPDIR/wtrepo
+    git init -q "$base"
+    git -C "$base" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m init
+    git -C "$base" worktree add -q "$BATS_TEST_TMPDIR"/wtrepo-worktree-foo -b feat/x
+    git -C "$base" worktree add -q "$BATS_TEST_TMPDIR"/plainwt -b feat/y
+    local foo_phys plain_phys
+    foo_phys=$(cd "$BATS_TEST_TMPDIR"/wtrepo-worktree-foo && pwd -P)
+    plain_phys=$(cd "$BATS_TEST_TMPDIR"/plainwt && pwd -P)
+
+    bu_repo_register wtrepo --path "$base" --alias wr
+    assert_equal "${BU_LOCATION_PROPERTIES[wtrepo,param_complete]}" __bu_repo_worktree_complete
+    assert_equal "${BU_LOCATION_PROPERTIES[wtrepo,param_resolve]}" __bu_repo_worktree_resolve
+    assert_equal "${BU_LOCATION_PROPERTIES[wtrepo,param_hint]}" worktree
+
+    # completer: short names, prefix '<primary>-worktree-' stripped, self omitted
+    __bu_repo_worktree_complete wtrepo
+    assert_equal "$(printf '%s\n' "${BU_RET[@]}" | sort | paste -sd' ')" "foo plainwt"
+
+    # resolver: short name, basename, branch
+    bu_location_resolve wtrepo@foo
+    assert_equal "$(cd "${BU_RET[0]}" && pwd -P)" "$foo_phys"
+    bu_location_resolve wr@wtrepo-worktree-foo
+    assert_equal "$(cd "${BU_RET[0]}" && pwd -P)" "$foo_phys"
+    bu_location_resolve wtrepo@feat/x
+    assert_equal "$(cd "${BU_RET[0]}" && pwd -P)" "$foo_phys"
+    bu_location_resolve wtrepo@plainwt
+    assert_equal "$(cd "${BU_RET[0]}" && pwd -P)" "$plain_phys"
+
+    # names feed through the alias head
+    run bu_location_names --kind dir 'wr@'
+    assert_line 'wr@foo'
+    assert_line 'wr@plainwt'
+
+    # bare listing carries the stub AND the bare repo name
+    run bu_location_names --tag repo ''
+    assert_line wtrepo
+    assert_line 'wtrepo@'
+}
+
+function test_repo_worktree_family_from_secondary_checkout { #@test
+    local base=$BATS_TEST_TMPDIR/secrepo
+    git init -q "$base"
+    git -C "$base" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m init
+    git -C "$base" worktree add -q "$BATS_TEST_TMPDIR"/secrepo-worktree-foo -b feat/x
+    git -C "$base" worktree add -q "$BATS_TEST_TMPDIR"/secrepo-worktree-bar -b feat/z
+
+    # the registered dir IS a secondary worktree: self (foo) omitted, the
+    # primary appears under its plain basename
+    bu_repo_register secfoo --path "$BATS_TEST_TMPDIR"/secrepo-worktree-foo
+    __bu_repo_worktree_complete secfoo
+    assert_equal "$(printf '%s\n' "${BU_RET[@]}" | sort | paste -sd' ')" "bar secrepo"
+    bu_location_resolve secfoo@secrepo
+    assert_equal "$(cd "${BU_RET[0]}" && pwd -P)" "$(cd "$base" && pwd -P)"
+}
+
+function test_repo_worktree_family_non_git_and_override { #@test
+    mkdir -p "$BATS_TEST_TMPDIR"/notgit
+    bu_repo_register ngr --path "$BATS_TEST_TMPDIR"/notgit
+    run bu_location_resolve ngr@x
+    assert_failure
+    assert_output --partial 'not a git repo'    # adapted to the existing message text
+    run bu_location_names --kind dir 'ngr@'
+    assert_success
+    assert_output ''
+
+    # a caller-supplied pair wins over the git default
+    myc() { BU_RET=(custom); }
+    myr() { BU_RET=(/tmp); }
+    bu_repo_register ovr --path /tmp --param-complete myc --param-resolve myr --param-hint mine
+    assert_equal "${BU_LOCATION_PROPERTIES[ovr,param_complete]}" myc
+    assert_equal "${BU_LOCATION_PROPERTIES[ovr,param_hint]}" mine
+    bu_location_resolve ovr@custom
+    assert_equal "${BU_RET[0]}" /tmp
+}
+
+function test_get_location_registry_param_default_hint { #@test
+    default_complete() { BU_RET=(a); }
+    default_resolve() { BU_RET=(/tmp); }
+    bu_location_register nohint --param-complete default_complete --param-resolve default_resolve
+    bu_location_register plainhint --path /tmp --param-hint unused
+    local out
+    out=$(bu get-location-registry --format jsonl | jq -c 'select(.name == "nohint") | {resolved, param}')
+    assert_equal "$out" '{"resolved":"-","param":"value"}'
+    out=$(bu get-location-registry --format jsonl | jq -r 'select(.name == "plainhint") | .param')
+    assert_equal "$out" ''
+    run bu_location_resolve nohint
+    assert_failure
+    assert_output --partial 'nohint@<value>'
 }
