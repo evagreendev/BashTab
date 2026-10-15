@@ -1,4 +1,17 @@
 #!/usr/bin/env bash
+# Bash version guard (same check as bu_entrypoint.sh).  Must stay first and
+# parse under bash 3.2 and zsh, and stop before bu_mark_load_complete below
+# would fail with "command not found" and kill a `set -e` shell.
+if [ -z "${BASH_VERSINFO-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ] ||
+    { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }
+then
+    echo "bu: BashTab requires bash >= 4.4, but ${BASH:-this shell} is ${BASH_VERSION:-not bash}." \
+        "On macOS: brew install bash, then run it (or chsh to it) before sourcing activate." >&2
+    case $- in
+    *i*) return 0 ;;
+    esac
+    exit 1
+fi
 case "${BASH_SOURCE}" in
 */*) pushd "${BASH_SOURCE%/*}" &>/dev/null ;; # Enter the current directory
 *) pushd . &>/dev/null ;; # This seems like duplicate work but we need to match the popd later

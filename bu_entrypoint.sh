@@ -1,3 +1,36 @@
+# Bash version guard.  Must stay first and use only syntax that bash 3.2
+# (macOS /bin/bash) and zsh can parse; everything below needs bash >= 4.4.
+if [ -z "${BASH_VERSINFO-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ] ||
+    { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }
+then
+    # Command scripts reach here via `#!/usr/bin/env bash`, which takes the
+    # first bash on PATH.  On macOS that is often /bin/bash 3.2, because
+    # /etc/profile's path_helper moves /bin ahead of Homebrew in login shells.
+    # Re-run the script under the bash that activated BashTab (BU_BASH).
+    # The script sourced us without args, so "$@" is still its own argv, and
+    # its `invocation_dir` local is visible here (template line 1); a
+    # relative $0 only resolves from there, so cd back before testing it.
+    case $- in
+    *i*) ;;
+    *)
+        if [ -n "${BASH_VERSION-}" ] && [ -n "${BU_BASH-}" ] && [ "$BU_BASH" != "${BASH-}" ] &&
+            [ -x "$BU_BASH" ] && cd "${invocation_dir:-.}" && [ -f "$0" ]
+        then
+            exec "$BU_BASH" "$0" "$@"
+        fi
+        ;;
+    esac
+    echo "bu: BashTab requires bash >= 4.4, but ${BASH:-this shell} is ${BASH_VERSION:-not bash}." \
+        "On macOS: brew install bash, and put \$(brew --prefix)/bin ahead of /bin in PATH." >&2
+    # Never kill an interactive shell (it may run `set -e`).
+    case $- in
+    *i*) return 0 ;;
+    esac
+    exit 1
+fi
+# Inherited by command scripts so they can re-exec under it (see above).
+export BU_BASH="$BASH"
+
 case "${BASH_SOURCE}" in
 */*) pushd "${BASH_SOURCE%/*}" &>/dev/null ;; # Enter the current directory
 *) pushd . &>/dev/null ;; # This seems like duplicate work but we need to match the popd later
