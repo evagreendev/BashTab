@@ -16,6 +16,10 @@
 
 set -u
 
+# Pin the locale: under a non-UTF-8 locale bash measures bytes, so the
+# frame (status line │, truncation) would depend on the caller
+export LC_ALL=C.UTF-8
+
 DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)
 # shellcheck source=../bu_entrypoint.sh
 source "$DIR"/../bu_entrypoint.sh >/dev/null 2>&1

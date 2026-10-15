@@ -20,6 +20,8 @@ setup() {
     load "test_helper/bats-support/load.bash"
 
     DIR="$( cd "$( dirname "$BATS_TEST_FILENAME" )" >/dev/null 2>&1 && pwd )"
+    # Fixtures and widths are UTF-8; don't depend on the caller's locale
+    export LC_ALL=C.UTF-8
 }
 
 # ===========================================================================
@@ -47,6 +49,174 @@ function test_tv_frame_search_matches_golden { #@test
 function test_tv_frame_regex_query_matches_golden { #@test
     # Query with regex metachars ("a.e") must match literally
     __tv_check_golden regex
+}
+
+function test_tv_frame_independent_of_term { #@test
+    # tput sgr0 is \e(B\e[m under xterm, \e[m\017 under screen and empty
+    # under dumb; the frame must use raw CSI only.  Each run re-sources the
+    # entrypoint, so the tput values are recomputed under that TERM.
+    local t
+    for t in xterm-256color screen-256color dumb; do
+        TERM=$t bash "$DIR/tv_render_state.sh" plain > "$BATS_TEST_TMPDIR/plain.$t"
+    done
+    cmp "$BATS_TEST_TMPDIR/plain.xterm-256color" "$BATS_TEST_TMPDIR/plain.screen-256color"
+    cmp "$BATS_TEST_TMPDIR/plain.xterm-256color" "$BATS_TEST_TMPDIR/plain.dumb"
+    cmp "$BATS_TEST_TMPDIR/plain.xterm-256color" "$DIR/fixtures/tv_frame_plain.expected"
+}
+
+# ===========================================================================
+# Cell cache and sort (run in a child bash: see the perf guard note)
+# ===========================================================================
+
+# ```md
+# Run a snippet in a child bash with the viewer loaded and `rows` (JSONL,
+# one record per line) loaded into _TV_ROWS with columns extracted.
+#
+# Params:
+# - $1: JSONL rows
+# - $2: bash snippet to run afterwards
+# ```
+function __tv_in_child {
+    bash -c '
+        source "'"$DIR"'/../bu_entrypoint.sh" >/dev/null 2>&1
+        source "'"$DIR"'/../lib/core/bu_core_tv.sh"
+        mapfile -t _TV_ROWS <<<"$1"
+        _TV_NUM_ROWS=${#_TV_ROWS[@]}
+        __bu_tv_extract_columns ""
+        eval "$2"
+    ' _ "$1" "$2"
+}
+
+function test_tv_cache_empty_cells_stay_aligned { #@test
+    # IFS=$'\t' read would collapse consecutive and trailing tabs
+    local result
+    result=$(__tv_in_child \
+        '{"id":1,"name":"","note":"x"}
+{"id":2,"name":"b\tc","note":""}
+{"id":"","name":null,"note":""}' \
+        '__bu_tv_rebuild_cache; echo "rc=$?"; printf "%s|" "${#_TV_CELLS[@]}" "${_TV_CELLS[@]}"; echo; echo "${_TV_COL_WIDTHS[*]}"')
+    assert_equal "$result" 'rc=0
+9|1||x|2|b\tc|||||
+4 4 4'
+}
+
+function test_tv_cache_single_column_empty_value { #@test
+    # A row-level @tsv | split("\t") would turn "" into [] and lose the cell
+    local result
+    result=$(__tv_in_child '{"a":"x"}
+{"a":""}' \
+        '__bu_tv_rebuild_cache; echo "rc=$?"; printf "%s|" "${#_TV_CELLS[@]}" "${_TV_CELLS[@]}"')
+    assert_equal "$result" 'rc=0
+2|x||'
+}
+
+function test_tv_cache_literal_u0001_is_escaped { #@test
+    local result
+    result=$(__tv_in_child '{"a":"p\u0001q","b":"r"}' \
+        '__bu_tv_rebuild_cache; echo "rc=$?"; printf "%s|" "${#_TV_CELLS[@]}" "${_TV_CELLS[@]}"; echo; echo "${_TV_COL_WIDTHS[*]}"')
+    assert_equal "$result" 'rc=0
+2|p\u0001q|r|
+8 4'
+}
+
+function test_tv_cache_false_and_zero_render { #@test
+    # `. // ""` treats false like null; only null may be blank
+    local result
+    result=$(__tv_in_child '{"b":false,"t":true,"z":0,"n":null,"s":""}' \
+        '__bu_tv_rebuild_cache; printf "%s|" "${_TV_CELLS[@]}"')
+    assert_equal "$result" 'false|true|0|||'
+}
+
+function test_tv_cache_count_mismatch_refuses { #@test
+    # A shifted parse must clear the cache and fail rather than render
+    local result
+    result=$(__tv_in_child '{"a":1,"b":2}
+{"a":3,"b":4}' \
+        'fake_jq() { printf "4 4\n1\x012\x01.\n"; }
+        BU_OUT_JQ=fake_jq
+        __bu_tv_rebuild_cache 2>/dev/null; echo "rc=$? cells=${#_TV_CELLS[@]} widths=${#_TV_COL_WIDTHS[@]}"')
+    assert_equal "$result" 'rc=1 cells=0 widths=0'
+}
+
+function test_tv_truncated_header_not_over_padded { #@test
+    # The ellipsis occupies the last cell of the column
+    local result
+    result=$(__tv_in_child '{"abcdefghij":1,"b":2}' \
+        '__bu_tv_rebuild_cache
+        _TV_COL_WIDTHS=(6 4)
+        __bu_tv_compute_visible_cols
+        __bu_tv_render_line -1 false line
+        __bu_tv_strip_ansi line
+        printf "[%s]" "$line"')
+    assert_equal "$result" '[abcde…  b]'
+}
+
+# ```md
+# Run bu_tv_enter on empty input in a scrubbed child (env -i), then report
+# the locale it left behind and the length of a 5-character non-ASCII word.
+#
+# Params:
+# - $@: extra NAME=VALUE environment for the child
+# ```
+function __tv_locale_in_child {
+    env -i HOME="$HOME" PATH="$PATH" "$@" bash -c '
+        source "'"$DIR"'/../bu_entrypoint.sh" >/dev/null 2>&1
+        source "'"$DIR"'/../lib/core/bu_core_tv.sh"
+        bu_tv_enter "" "" </dev/null >/dev/null 2>&1
+        x=h'$'\xc3\xa9''llo
+        echo "LC_CTYPE=${LC_CTYPE-unset} LC_ALL=${LC_ALL-unset} LANG=${LANG-unset} len=${#x}"
+    '
+}
+
+function test_tv_locale_forced_to_utf8_without_lang { #@test
+    # Bash counts bytes under the POSIX locale; jq counts codepoints
+    local result
+    result=$(__tv_locale_in_child)
+    assert_equal "$result" 'LC_CTYPE=C.UTF-8 LC_ALL=unset LANG=unset len=5'
+    # A non-UTF-8 LC_ALL would override LC_CTYPE, so it must be cleared
+    result=$(__tv_locale_in_child LC_ALL=C)
+    assert_equal "$result" 'LC_CTYPE=C.UTF-8 LC_ALL=unset LANG=unset len=5'
+}
+
+function test_tv_locale_utf8_lang_left_untouched { #@test
+    local result
+    result=$(__tv_locale_in_child LANG=en_US.UTF-8)
+    assert_equal "${result% len=*}" 'LC_CTYPE=unset LC_ALL=unset LANG=en_US.UTF-8'
+}
+
+function test_tv_sort_orders_raw_values { #@test
+    # Without -s, sort_by ran per object and emptied the table
+    local result
+    result=$(__tv_in_child '{"k":2,"s":"b"}
+{"k":10,"s":"c"}
+{"k":null,"s":"n"}
+{"k":1,"s":"a"}' \
+        '__bu_tv_rebuild_cache
+        __bu_tv_sort_by_column k
+        echo "rc=$? rows=${#_TV_ROWS[@]} cells=${#_TV_CELLS[@]} $_TV_SORT_DIR perm=${_TV_SORT_PERM[*]}"
+        printf "%s|" "${_TV_CELLS[@]}"; echo
+        __bu_tv_sort_by_column k
+        echo "rc=$? rows=${#_TV_ROWS[@]} cells=${#_TV_CELLS[@]} $_TV_SORT_DIR perm=${_TV_SORT_PERM[*]}"
+        printf "%s|" "${_TV_CELLS[@]}"')
+    assert_equal "$result" 'rc=0 rows=4 cells=8 asc perm=2 3 0 1
+|n|1|a|2|b|10|c|
+rc=0 rows=4 cells=8 desc perm=3 2 1 0
+10|c|2|b|1|a||n|'
+}
+
+function test_tv_sort_bad_jq_output_leaves_rows_untouched { #@test
+    local result
+    result=$(__tv_in_child '{"k":2}
+{"k":1}' \
+        '__bu_tv_rebuild_cache
+        before=$(printf "%s|" "${_TV_ROWS[@]}" "${_TV_CELLS[@]}" "${_TV_COL_WIDTHS[@]}")
+        fake_jq() { echo one; }
+        BU_OUT_JQ=fake_jq
+        __bu_tv_sort_by_column k 2>/dev/null; rc=$?
+        after=$(printf "%s|" "${_TV_ROWS[@]}" "${_TV_CELLS[@]}" "${_TV_COL_WIDTHS[@]}")
+        [[ "$before" == "$after" ]] && same=same || same=changed
+        echo "rc=$rc $same sort=[$_TV_SORT_COL]"')
+    assert_equal "$result" 'rc=1 same sort=[]'
 }
 
 # ===========================================================================
@@ -91,6 +261,16 @@ function test_tv_interactive_scroll_tracks_keys { #@test
         printf '{"name":"cmd-%s","version":"1.0"}\n' "$i"
     done > "$rows_file"
 
+    # util-linux script takes the command via -c; BSD/macOS script has no -c
+    # and takes it as trailing arguments after the capture file
+    local -r inner="source \"$DIR\"/../activate >/dev/null 2>&1 && bu view-table < \"$rows_file\""
+    local -a script_cmd=()
+    if script -q -c true /dev/null >/dev/null 2>&1; then
+        script_cmd=(script -q -c "bash -c '$inner'" "$cap")
+    else
+        script_cmd=(script -q "$cap" bash -c "$inner")
+    fi
+
     # Feed 10x "j" then "q" through the pty; the viewer reads JSONL from the
     # file (stdin redirect) and keys from /dev/tty (the pty).
     {
@@ -102,9 +282,7 @@ function test_tv_interactive_scroll_tracks_keys { #@test
         for i in {1..10}; do printf 'j'; sleep 0.05; done
         sleep 0.5
         printf 'q'
-    } | timeout 30 script -q -c \
-        "bash -c 'source \"$DIR\"/../activate >/dev/null 2>&1 && bu view-table' < \"$rows_file\"" \
-        "$cap" >/dev/null
+    } | timeout 30 "${script_cmd[@]}" >/dev/null
 
     # After 10x j the status line must show the viewport starting at row 11
     grep -q 'Rows 11-' "$cap"

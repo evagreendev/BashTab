@@ -24,8 +24,10 @@ declare -g -r __BU_TV_CLEAR_LINE="${__BU_TV_ESC}[K"
 declare -g -r __BU_TV_REVERSE="${__BU_TV_ESC}[7m"
 declare -g -r __BU_TV_REVERSE_OFF="${__BU_TV_ESC}[27m"
 declare -g -r __BU_TV_DIM="${__BU_TV_ESC}[2m"
-declare -g -r __BU_TV_RESET="${BU_TPUT_RESET:-${__BU_TV_ESC}[0m}"
-declare -g -r __BU_TV_BOLD="${BU_TPUT_BOLD:-${__BU_TV_ESC}[1m}"
+# Raw CSI only — never tput-derived: sgr0 is \e(B\e[m under xterm, \e[m\017
+# under screen and empty under dumb, so frames would depend on TERM.
+declare -g -r __BU_TV_RESET="${__BU_TV_ESC}[0m"
+declare -g -r __BU_TV_BOLD="${__BU_TV_ESC}[1m"
 
 # ── State ────────────────────────────────────────────────────────────────
 declare -g -a _TV_ROWS=()           # Raw JSON strings, one per record
@@ -40,6 +42,7 @@ declare -g -i _TV_ROW_OFFSET=0      # First visible row (0-indexed)
 declare -g -i _TV_COL_OFFSET=0      # First visible column (0-indexed)
 declare -g    _TV_SORT_COL=         # Column key for sort, empty = unsorted
 declare -g    _TV_SORT_DIR=         # "asc" or "desc"
+declare -g -a _TV_SORT_PERM=()      # Last sort: new row index → old row index
 declare -g    _TV_SEARCH_QUERY=     # Current search string
 declare -g -a _TV_MATCHED_ROWS=()   # Indices of rows matching _TV_SEARCH_QUERY
 declare -g -i _TV_MATCH_IDX=-1      # Current position in _TV_MATCHED_ROWS
@@ -164,15 +167,23 @@ __bu_tv_extract_columns()
 
 # ```
 # *Description*:
-# Rebuild the cell cache and recompute column widths.  Uses a single jq
-# invocation for all cell extraction, then computes widths in bash from
-# the cached values.
+# Rebuild the cell cache and compute column widths in a single jq pass.
+#
+# Each cell is escaped individually (`[.] | @tsv`: tab, newline, CR and
+# backslash become two-character escapes) and a literal U+0001 becomes the
+# six characters `\u0001`, so U+0001 can delimit cells.  jq emits two lines:
+# the per-column maximum visible width (ANSI stripped, escaped text
+# measured), then every cell of every row joined by U+0001 plus a trailing
+# sentinel.  U+0001 is non-whitespace IFS, so `read -a` keeps interior
+# empty cells; the sentinel protects a trailing empty one.
 #
 # *Params*:
 # - None.  Reads _TV_ROWS[], _TV_COLUMNS[], _TV_NUM_ROWS, _TV_NUM_COLS.
 #
 # *Returns*:
 # - Sets _TV_CELLS[] and _TV_COL_WIDTHS[].
+# - 1 with both cleared if the parsed cell count is not rows x cols (a
+#   shifted table must never be rendered).
 # ```
 __bu_tv_rebuild_cache()
 {
@@ -180,7 +191,7 @@ __bu_tv_rebuild_cache()
     _TV_COL_WIDTHS=()
     if (( _TV_NUM_ROWS == 0 || _TV_NUM_COLS == 0 ))
     then
-        return
+        return 0
     fi
 
     # ── Build jq arg list and expression ──────────────────────────────
@@ -189,51 +200,55 @@ __bu_tv_rebuild_cache()
     local -i j
     for (( j = 0; j < _TV_NUM_COLS; j++ ))
     do
-        local col_key="${_TV_COLUMNS[$j]}"
-        jq_args+=('--arg' "c$j" "$col_key")
+        jq_args+=('--arg' "c$j" "${_TV_COLUMNS[$j]}")
         jq_keys+="$sep.[\$c$j]"
         sep=,
     done
 
-    # ── Extract cells and compute widths in a single jq pass ─────────
+    # `// ""` would blank `false` too; only null is empty
     local jq_expr
-    printf -v jq_expr '[%s] | map(. // "" | tostring) | @tsv' "$jq_keys"
+    printf -v jq_expr '%s' \
+        'map([' "$jq_keys" ']' \
+        ' | map(if . == null then "" else tostring end | [.] | @tsv' \
+        ' | gsub("\u0001"; "\\u0001"))) as $rows' \
+        ' | ([range(' "$_TV_NUM_COLS" ') as $j | [$rows[][$j]' \
+        ' | gsub("\u001b\\[[0-9;]*[A-Za-z]|\u001b[()]."; "") | length]' \
+        ' | max] | map(tostring) | join(" ")),' \
+        ' ([$rows[][]] + ["."] | join("\u0001"))'
 
-    local -a raw_output=()
-    local line
-    while IFS= read -r line
-    do
-        raw_output+=("$line")
-    done < <(printf '%s\n' "${_TV_ROWS[@]}" | "$BU_OUT_JQ" -r "${jq_args[@]}" "$jq_expr")
+    local out
+    out=$(printf '%s\n' "${_TV_ROWS[@]}" | "$BU_OUT_JQ" -r -s "${jq_args[@]}" "$jq_expr")
 
-    # ── Parse TSV into _TV_CELLS ─────────────────────────────────────
-    local old_ifs=$IFS
-    local -i i
-    for (( i = 0; i < _TV_NUM_ROWS; i++ ))
-    do
-        IFS=$'\t' read -r -a line <<<"${raw_output[$i]}"
-        _TV_CELLS+=("${line[@]}")
-    done
-    IFS=$old_ifs
+    # One here-string, not ${out%%$'\n'*}: that expansion is quadratic in
+    # the output size
+    local -a widths=()
+    {
+        read -r -a widths
+        IFS=$'\x01' read -r -a _TV_CELLS
+    } <<<"$out"
+    # Drop the sentinel
+    (( ${#_TV_CELLS[@]} )) && unset '_TV_CELLS[-1]'
 
-    # ── Compute widths: max of header length and each cell length ────
+    local -i expected=$((_TV_NUM_ROWS * _TV_NUM_COLS))
+    if (( ${#_TV_CELLS[@]} != expected || ${#widths[@]} != _TV_NUM_COLS ))
+    then
+        bu_log_err "bu view-table: parsed ${#_TV_CELLS[@]} cells and ${#widths[@]} widths, expected $expected cells ($_TV_NUM_ROWS rows x $_TV_NUM_COLS cols) and $_TV_NUM_COLS widths"
+        _TV_CELLS=()
+        _TV_COL_WIDTHS=()
+        return 1
+    fi
+
+    # ── Widths: max of header and content, clamped to [4, 40] ────────
     local -i wid max_width=40
-    local cell_val
     for (( j = 0; j < _TV_NUM_COLS; j++ ))
     do
-        wid=${#_TV_HEADERS[$j]}
-        for (( i = 0; i < _TV_NUM_ROWS; i++ ))
-        do
-            cell_val=${_TV_CELLS[$((i * _TV_NUM_COLS + j))]}
-            # JSONL values may embed ANSI (e.g. colored producers);
-            # measure the visible width only.
-            __bu_tv_strip_ansi cell_val
-            if (( ${#cell_val} > wid )); then wid=${#cell_val}; fi
-        done
+        wid=${widths[$j]}
+        if (( ${#_TV_HEADERS[$j]} > wid )); then wid=${#_TV_HEADERS[$j]}; fi
         if (( wid < 4 )); then wid=4; fi
         if (( wid > max_width )); then wid=$max_width; fi
         _TV_COL_WIDTHS+=($wid)
     done
+    return 0
 }
 
 # ```
@@ -624,8 +639,9 @@ __bu_tv_render_line()
             local -i hdr_len=${#hdr}
             if (( hdr_len > col_w ))
             then
+                # The ellipsis occupies the last cell: no padding left
                 hdr="${hdr:0:$((col_w - 1))}…"
-                hdr_len=$((col_w - 1))
+                hdr_len=$col_w
             fi
             __rl_out+="$sep${__BU_TV_ESC}[1m${hdr}${__BU_TV_ESC}[0m${__BU_TV_SPACES:0:col_w-hdr_len}"
         elif (( row_idx == -2 ))
@@ -999,56 +1015,84 @@ __bu_tv_update_highlight_col()
 # ```
 # *Description*:
 # Sort rows by the given column key.  Toggles direction if already sorted
-# by this column.
+# by this column, unless a direction is given.  The previous sort state is
+# kept if the sort fails.
+#
+# *Params*:
+# - `$1`: Column key
+# - `$2` (optional): Force direction ("asc" or "desc")
 # ```
 __bu_tv_sort_by_column()
 {
     local col_key=$1
-    [[ -z "$col_key" ]] && return
+    local force_dir=${2:-}
+    [[ -z "$col_key" ]] && return 0
 
-    if [[ "$_TV_SORT_COL" == "$col_key" ]]
+    local -r prev_col=$_TV_SORT_COL prev_dir=$_TV_SORT_DIR
+    if [[ -n "$force_dir" ]]
     then
-        if [[ "$_TV_SORT_DIR" == asc ]]
-        then
-            _TV_SORT_DIR=desc
-        else
-            _TV_SORT_DIR=asc
-        fi
+        _TV_SORT_DIR=$force_dir
+    elif [[ "$_TV_SORT_COL" == "$col_key" && "$_TV_SORT_DIR" == asc ]]
+    then
+        _TV_SORT_DIR=desc
     else
-        _TV_SORT_COL="$col_key"
         _TV_SORT_DIR=asc
     fi
+    _TV_SORT_COL=$col_key
 
-    __bu_tv_apply_sort
+    if ! __bu_tv_apply_sort
+    then
+        _TV_SORT_COL=$prev_col
+        _TV_SORT_DIR=$prev_dir
+        return 1
+    fi
+    return 0
 }
 
 # ```
 # *Description*:
 # Apply current sort to _TV_ROWS via jq, rebuild cache, reset view.
+# Sorting raw values (not cell strings) orders numbers numerically and null
+# first.
+#
+# *Returns*:
+# - `_TV_SORT_PERM`: New-to-old row index permutation (a cursor can follow
+#   its record through the sort)
+# - 1 with rows, cells and widths untouched if jq's output is not one
+#   permutation line plus one line per row, or the cache rebuild fails.
 # ```
 __bu_tv_apply_sort()
 {
-    [[ -z "$_TV_SORT_COL" ]] && return
+    [[ -z "$_TV_SORT_COL" ]] && return 0
 
-    local jq_sort
-    if [[ "$_TV_SORT_DIR" == desc ]]
-    then
-        jq_sort="sort_by(.[\"$_TV_SORT_COL\"]) | reverse"
-    else
-        jq_sort="sort_by(.[\"$_TV_SORT_COL\"])"
-    fi
+    local jq_expr='to_entries | sort_by(.value[$k])'
+    [[ "$_TV_SORT_DIR" == desc ]] && jq_expr+=' | reverse'
+    jq_expr+=' | (map(.key) | @tsv), (.[].value | tojson)'
 
     local -a sorted=()
-    local line
-    while IFS= read -r line
-    do
-        sorted+=("$line")
-    done < <(printf '%s\n' "${_TV_ROWS[@]}" | "$BU_OUT_JQ" -c "$jq_sort")
+    mapfile -t sorted < <(printf '%s\n' "${_TV_ROWS[@]}" \
+        | "$BU_OUT_JQ" -r -s --arg k "$_TV_SORT_COL" "$jq_expr")
+    if (( ${#sorted[@]} != _TV_NUM_ROWS + 1 ))
+    then
+        bu_log_err "bu view-table: sort by $_TV_SORT_COL produced ${#sorted[@]} lines, expected $((_TV_NUM_ROWS + 1)); rows left unsorted"
+        return 1
+    fi
 
-    _TV_ROWS=("${sorted[@]}")
+    local -a prev_rows=("${_TV_ROWS[@]}")
+    local -a prev_cells=("${_TV_CELLS[@]}")
+    local -a prev_widths=("${_TV_COL_WIDTHS[@]}")
+    _TV_ROWS=("${sorted[@]:1}")
+    if ! __bu_tv_rebuild_cache
+    then
+        _TV_ROWS=("${prev_rows[@]}")
+        _TV_CELLS=("${prev_cells[@]}")
+        _TV_COL_WIDTHS=("${prev_widths[@]}")
+        return 1
+    fi
+    IFS=$'\t' read -r -a _TV_SORT_PERM <<<"${sorted[0]}"
     _TV_ROW_OFFSET=0
-    __bu_tv_rebuild_cache
     __bu_tv_update_search_matches
+    return 0
 }
 
 # ── Search ───────────────────────────────────────────────────────────────
@@ -1198,12 +1242,7 @@ __bu_tv_dispatch_key()
     S)
         __bu_tv_update_highlight_col
         local sort_key=${_TV_COLUMNS[$_TV_HIGHLIGHT_COL]:-}
-        if [[ -n "$sort_key" ]]
-        then
-            _TV_SORT_COL="$sort_key"
-            _TV_SORT_DIR=desc
-            __bu_tv_apply_sort
-        fi
+        [[ -n "$sort_key" ]] && __bu_tv_sort_by_column "$sort_key" desc
         ;;
 
     # Redraw on Ctrl-l
@@ -1226,6 +1265,28 @@ __bu_tv_dispatch_key()
 
 # ```
 # *Description*:
+# Make bash count characters, not bytes.  Under a non-UTF-8 locale (e.g. LANG
+# unset) ${#var}, substring slicing and read -n 1 work on bytes while the jq
+# width pass counts codepoints, so any non-ASCII cell (or the status line's
+# │) misaligns padding and truncation.  Process-local: the cmdlet runs in its
+# own process.  LC_ALL must be cleared or it overrides LC_CTYPE.
+# ```
+__bu_tv_ensure_utf8_ctype()
+{
+    local -r loc=${LC_ALL:-${LC_CTYPE:-${LANG:-}}}
+    case "${loc,,}" in
+    *utf-8*|*utf8*)
+        ;;
+    *)
+        unset LC_ALL
+        export LC_CTYPE=C.UTF-8
+        ;;
+    esac
+    return 0
+}
+
+# ```
+# *Description*:
 # Entry point for the interactive table viewer.
 #
 # *Params*:
@@ -1245,6 +1306,8 @@ bu_tv_enter()
     # event loop and cause spurious exits on false (( ... )) guards.
     set +e
 
+    __bu_tv_ensure_utf8_ctype
+
     # ── Load and index data ───────────────────────────────────────────
     __bu_tv_read_stdin
 
@@ -1261,7 +1324,8 @@ bu_tv_enter()
         return 0
     fi
 
-    __bu_tv_rebuild_cache
+    # A failed rebuild means the table would render shifted: don't start
+    __bu_tv_rebuild_cache || return 1
     __bu_tv_build_colors "$colors_spec" || return 1
 
     # ── After consuming piped stdin, switch to /dev/tty for keyboard ─
