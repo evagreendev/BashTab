@@ -51,6 +51,10 @@ declare -g -i _TV_TERM_COLS=80
 declare -g -i _TV_HIGHLIGHT_COL=0   # Leftmost visible column index (for sort hint)
 declare -g    _TV_SAVED_STTY=       # Saved stty settings for cleanup
 declare -g -a _TV_VIS_COLS=()       # Visible column indices, computed once per frame
+declare -g    _TV_SIDEBAR=true      # Show the column sidebar (toggled with c)
+declare -g -i _TV_TABLE_COLS=80     # Screen columns left for the table (__bu_tv_update_layout)
+declare -g -i _TV_SIDEBAR_W=0       # Sidebar width incl. border, 0 = hidden
+declare -g -i _TV_SIDEBAR_NAME_W=0  # Column-name width inside the sidebar
 declare -g    _TV_FC_TEXT=          # Out-param: formatted cell text (__bu_tv_format_cell)
 declare -g -i _TV_FC_VIS_LEN=0      # Out-param: visible width of _TV_FC_TEXT (ANSI excluded)
 declare -g    _TV_KEY=              # Out-param: last key read (__bu_tv_read_key)
@@ -501,6 +505,46 @@ __bu_tv_update_dimensions()
     if (( _TV_TERM_ROWS < 10 )); then _TV_TERM_ROWS=24; fi
 }
 
+# ```
+# *Description*:
+# Split the screen width between the table and the column sidebar.  The
+# sidebar is as wide as the longest column label (capped) plus border,
+# cursor marker and sort arrow, and is hidden when the table would be left
+# with fewer than __BU_TV_SIDEBAR_MIN_TABLE columns.
+#
+# *Returns*:
+# - Sets _TV_TABLE_COLS, _TV_SIDEBAR_W (0 = hidden) and _TV_SIDEBAR_NAME_W.
+# ```
+declare -g -r -i __BU_TV_SIDEBAR_MAX_NAME=20
+# 40 = widest column (see __bu_tv_rebuild_cache) + its 2-space gap
+declare -g -r -i __BU_TV_SIDEBAR_MIN_TABLE=42
+__bu_tv_update_layout()
+{
+    _TV_TABLE_COLS=$_TV_TERM_COLS
+    _TV_SIDEBAR_W=0
+    _TV_SIDEBAR_NAME_W=0
+    if ! "$_TV_SIDEBAR" || (( _TV_NUM_COLS == 0 ))
+    then
+        return 0
+    fi
+
+    # Wide enough for the "Columns" title: marker + name + " ↑" >= 7
+    local -i name_w=4 j
+    for (( j = 0; j < _TV_NUM_COLS; j++ ))
+    do
+        (( ${#_TV_HEADERS[j]} > name_w )) && name_w=${#_TV_HEADERS[j]}
+    done
+    (( name_w > __BU_TV_SIDEBAR_MAX_NAME )) && name_w=$__BU_TV_SIDEBAR_MAX_NAME
+
+    # "│ " + marker + name + " ↑"
+    local -i width=$((2 + 1 + name_w + 2))
+    (( _TV_TERM_COLS - width < __BU_TV_SIDEBAR_MIN_TABLE )) && return 0
+    _TV_SIDEBAR_NAME_W=$name_w
+    _TV_SIDEBAR_W=$width
+    _TV_TABLE_COLS=$((_TV_TERM_COLS - width))
+    return 0
+}
+
 # ── Navigation / offset clamping ─────────────────────────────────────────
 
 # ```
@@ -516,6 +560,8 @@ __bu_tv_clamp_offsets()
     (( max_row < 0 )) && max_row=0
     (( _TV_ROW_OFFSET > max_row )) && _TV_ROW_OFFSET=$max_row
     (( _TV_ROW_OFFSET < 0 )) && _TV_ROW_OFFSET=0
+
+    __bu_tv_update_layout
 
     # Walk column offset rightward until at least one column is visible
     if (( _TV_NUM_COLS > 0 ))
@@ -540,7 +586,7 @@ __bu_tv_clamp_offsets()
             do
                 used=$((used + _TV_COL_WIDTHS[$j] + 2))
             done
-            (( used > _TV_TERM_COLS )) && break
+            (( used > _TV_TABLE_COLS )) && break
             _TV_COL_OFFSET=$try_start
         done
     fi
@@ -561,11 +607,12 @@ __bu_tv_clamp_offsets()
 # ```
 __bu_tv_compute_visible_cols()
 {
+    __bu_tv_update_layout
     _TV_VIS_COLS=()
     local -i j used=0
     for (( j = _TV_COL_OFFSET; j < _TV_NUM_COLS; j++ ))
     do
-        (( used + _TV_COL_WIDTHS[j] + 2 > _TV_TERM_COLS )) && break
+        (( used + _TV_COL_WIDTHS[j] + 2 > _TV_TABLE_COLS )) && break
         _TV_VIS_COLS+=($j)
         : $((used += _TV_COL_WIDTHS[j] + 2))
     done
@@ -691,6 +738,109 @@ __bu_tv_render_line()
 
 # ```
 # *Description*:
+# Append the column sidebar to a frame: a "Columns" title and separator on
+# screen rows 1-2, then one entry per column on the data rows.  Columns in
+# the viewport are drawn in reverse video (in their --colors color), the
+# rest dimmed; ▸ marks the leftmost visible column (the one s/S sort) and
+# ↑/↓ the sorted column.  When the list is taller than the data rows it
+# scrolls to keep the viewport's columns on screen, with "↑ N more" /
+# "↓ N more" rows standing in for the hidden ends.
+#
+# *Params*:
+# - `$1`: Nameref to the frame variable (appended to)
+# - `$2`: Number of data rows
+# ```
+__bu_tv_render_sidebar()
+{
+    local -n __sb_frame=$1
+    local -i avail=$2
+    local -i col=$((_TV_TABLE_COLS + 1))
+    local -i name_w=$_TV_SIDEBAR_NAME_W
+    local -i inner_w=$((_TV_SIDEBAR_W - 2))
+    (( inner_w > ${#__BU_TV_SPACES} )) && __bu_tv_ensure_pools $inner_w
+
+    printf -v __sb_frame '%s\e[1;%dH│ %s%s%s\e[K' "$__sb_frame" "$col" \
+        "$__BU_TV_BOLD" "Columns" "$__BU_TV_RESET"
+    printf -v __sb_frame '%s\e[2;%dH│ %s\e[K' "$__sb_frame" "$col" \
+        "${__BU_TV_DASHES:0:inner_w}"
+
+    local -i first_vis=-1 last_vis=-1
+    if (( ${#_TV_VIS_COLS[@]} ))
+    then
+        first_vis=${_TV_VIS_COLS[0]}
+        last_vis=${_TV_VIS_COLS[-1]}
+    fi
+
+    # Window [start, start + cap) of entries; the rest of avail is taken
+    # by the overflow indicator rows
+    local -i start=0 cap=$_TV_NUM_COLS
+    if (( _TV_NUM_COLS > avail ))
+    then
+        cap=$((avail - 2))
+        start=$((first_vis - 1))
+        (( start > _TV_NUM_COLS - cap )) && start=$((_TV_NUM_COLS - cap))
+        (( start < 0 )) && start=0
+        # Reclaim an indicator row the window doesn't need
+        if (( start == 0 ))
+        then
+            cap=$((cap + 1))
+        elif (( start + cap == _TV_NUM_COLS ))
+        then
+            start=$((start - 1))
+            cap=$((cap + 1))
+        fi
+    fi
+    local -i end=$((start + cap))
+
+    local -i i j=$start screen_row
+    local entry name marker suffix style
+    local -i name_len
+    for (( i = 0; i < avail; i++ ))
+    do
+        screen_row=$((i + 3))
+        if (( i == 0 && start > 0 ))
+        then
+            entry="${__BU_TV_DIM}↑ $start more${__BU_TV_RESET}"
+        elif (( j >= end ))
+        then
+            if (( j < _TV_NUM_COLS ))
+            then
+                entry="${__BU_TV_DIM}↓ $((_TV_NUM_COLS - j)) more${__BU_TV_RESET}"
+                j=$_TV_NUM_COLS
+            else
+                entry=
+            fi
+        else
+            name=${_TV_HEADERS[j]}
+            name_len=${#name}
+            if (( name_len > name_w ))
+            then
+                name="${name:0:name_w-1}…"
+                name_len=$name_w
+            fi
+            marker=' '
+            (( j == first_vis )) && marker='▸'
+            suffix='  '
+            if [[ "${_TV_COLUMNS[j]}" == "$_TV_SORT_COL" ]]
+            then
+                suffix=' ↑'
+                [[ "$_TV_SORT_DIR" == desc ]] && suffix=' ↓'
+            fi
+            if (( j >= first_vis && j <= last_vis && first_vis >= 0 ))
+            then
+                style=${_TV_COLORS[${_TV_COLUMNS[j]}]:-}$__BU_TV_REVERSE
+            else
+                style=$__BU_TV_DIM
+            fi
+            entry="${style}${marker}${name}${__BU_TV_SPACES:0:name_w-name_len}${suffix}${__BU_TV_RESET}"
+            j=$((j + 1))
+        fi
+        printf -v __sb_frame '%s\e[%d;%dH│ %s\e[K' "$__sb_frame" "$screen_row" "$col" "$entry"
+    done
+}
+
+# ```
+# *Description*:
 # Check if a row index is the current search match.
 # ```
 __bu_tv_is_current_match()
@@ -713,6 +863,7 @@ __bu_tv_render_frame()
     #   row 2          = separator
     #   rows 3..N-1    = data (TERM_ROWS - 3 rows)
     #   row N (bottom) = status line
+    #   right edge     = column sidebar on rows 1..N-1, unless hidden
     #
     # Each row is drawn with absolute cursor positioning and \e[K
     # (clear-to-EOL) — no newlines anywhere, so the terminal can never
@@ -748,6 +899,12 @@ __bu_tv_render_frame()
             printf -v frame '%s\e[%d;1H%s\e[K' "$frame" "$screen_row" "$line"
         fi
     done
+
+    # Sidebar — drawn after the table so each row's \e[K ran first
+    if (( _TV_SIDEBAR_W > 0 ))
+    then
+        __bu_tv_render_sidebar frame "$data_rows"
+    fi
 
     # Status line (bottom row) — absolute position, no trailing newline
     local status
@@ -810,7 +967,7 @@ __bu_tv_render_status()
     fi
 
     # Key hints
-    parts+=("q:quit /:search s:sort n:next")
+    parts+=("q:quit /:search s:sort n:next c:columns")
 
     # Join
     local sep=' │ '
@@ -1275,6 +1432,13 @@ __bu_tv_dispatch_key()
         [[ -n "$sort_key" ]] && __bu_tv_sort_by_column "$sort_key" desc
         ;;
 
+    # Toggle the column sidebar; the table width changes, so re-clamp
+    c)
+        if "$_TV_SIDEBAR"; then _TV_SIDEBAR=false; else _TV_SIDEBAR=true; fi
+        __bu_tv_clamp_offsets
+        __bu_tv_update_highlight_col
+        ;;
+
     # Redraw on Ctrl-l
     ctrl_l)
         __bu_tv_update_dimensions
@@ -1322,6 +1486,7 @@ __bu_tv_ensure_utf8_ctype()
 # *Params*:
 # - `$1`: Column spec (comma-separated key:Label,...) — optional
 # - `$2`: Color spec (key=color,... or "auto") — optional
+# - `$3`: "false" to start with the column sidebar hidden — optional
 #
 # *Notes*:
 # - Reads JSONL from stdin.
@@ -1331,6 +1496,7 @@ bu_tv_enter()
 {
     local columns_spec=$1
     local colors_spec=$2
+    _TV_SIDEBAR=${3:-true}
 
     # The viewer manages its own error handling; errexit would break the
     # event loop and cause spurious exits on false (( ... )) guards.

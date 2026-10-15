@@ -8,7 +8,7 @@
 # states can't drift.  Regenerate fixtures after intentional renderer
 # changes with:
 #
-#     for s in plain scrolled search regex; do
+#     for s in plain scrolled search regex nosidebar sorted overflow; do
 #         bash test/tv_render_state.sh "$s" > test/fixtures/tv_frame_$s.expected
 #     done
 #
@@ -49,6 +49,21 @@ function test_tv_frame_search_matches_golden { #@test
 function test_tv_frame_regex_query_matches_golden { #@test
     # Query with regex metachars ("a.e") must match literally
     __tv_check_golden regex
+}
+
+function test_tv_frame_nosidebar_matches_golden { #@test
+    __tv_check_golden nosidebar
+}
+
+function test_tv_frame_sorted_sidebar_matches_golden { #@test
+    # Sidebar shows the sort arrow and the ▸ cursor on the leftmost column
+    __tv_check_golden sorted
+}
+
+function test_tv_frame_sidebar_overflow_matches_golden { #@test
+    # More columns than data rows: the list scrolls to the viewport with
+    # "↑ N more" / "↓ N more" rows
+    __tv_check_golden overflow
 }
 
 function test_tv_frame_independent_of_term { #@test
@@ -149,6 +164,41 @@ function test_tv_truncated_header_not_over_padded { #@test
         __bu_tv_strip_ansi line
         printf "[%s]" "$line"')
     assert_equal "$result" '[abcde…  b]'
+}
+
+function test_tv_sidebar_layout_reserves_width { #@test
+    local result
+    result=$(__tv_in_child '{"name":1,"version":2}' \
+        '__bu_tv_rebuild_cache
+        _TV_TERM_COLS=80; __bu_tv_update_layout; echo "$_TV_SIDEBAR_W $_TV_TABLE_COLS"
+        _TV_SIDEBAR=false; __bu_tv_update_layout; echo "$_TV_SIDEBAR_W $_TV_TABLE_COLS"')
+    # "│ " + marker + "version" + " ↑" = 12
+    assert_equal "$result" '12 68
+0 80'
+}
+
+function test_tv_sidebar_hidden_on_narrow_terminal { #@test
+    # The table must keep room for its widest possible column (40 + gap)
+    local result
+    result=$(__tv_in_child '{"name":1,"version":2}' \
+        '__bu_tv_rebuild_cache
+        _TV_TERM_COLS=53; __bu_tv_update_layout; echo "$_TV_SIDEBAR_W $_TV_TABLE_COLS"
+        _TV_TERM_COLS=54; __bu_tv_update_layout; echo "$_TV_SIDEBAR_W $_TV_TABLE_COLS"')
+    assert_equal "$result" '0 53
+12 42'
+}
+
+function test_tv_sidebar_toggle_reclamps_columns { #@test
+    # With the sidebar hidden, the freed width brings more columns into view
+    local result
+    result=$(__tv_in_child '{"aaaaaaaaaaaaaaaaaaaa":1,"bbbbbbbbbbbbbbbbbbbb":2,"cccccccccccccccccccc":3}' \
+        '__bu_tv_rebuild_cache
+        _TV_TERM_COLS=80; __bu_tv_clamp_offsets
+        __bu_tv_compute_visible_cols; echo "${_TV_VIS_COLS[*]}"
+        _TV_KEY=c; __bu_tv_dispatch_key
+        __bu_tv_compute_visible_cols; echo "$_TV_SIDEBAR ${_TV_VIS_COLS[*]}"')
+    assert_equal "$result" '0 1
+false 0 1 2'
 }
 
 # ```md

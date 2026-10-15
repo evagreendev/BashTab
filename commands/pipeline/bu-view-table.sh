@@ -30,6 +30,7 @@ bu_run_log_command "$@"
 
 local columns=
 local colors=
+local is_sidebar=true
 local is_help=false
 local error_msg=
 local autocompletion=()
@@ -47,6 +48,10 @@ do
         # Colorize column cells (comma-separated key=color pairs, or "auto" for rainbow)
         bu_parse_positional $# --hint "Comma-separated key=color pairs (e.g. name=green,version=yellow) or auto"
         colors=${!shift_by}
+        ;;
+    --no-sidebar)# _FLAG
+        # Start with the column sidebar hidden (toggle it with c)
+        is_sidebar=false
         ;;
     -h|--help)# _FLAG
         # Print help
@@ -83,7 +88,9 @@ Interactive table viewer for JSONL streams.  A superior alternative to piping
 through less(1) for tabular data — provides fixed headers, column-aware
 horizontal scrolling, interactive sort, and search with vim/less keybindings.
 
-Reads JSONL records from stdin and opens a full-screen TUI.  Press q to quit.
+Reads JSONL records from stdin and opens a full-screen TUI.  A sidebar on the
+right lists every column and highlights those currently in view; press c to
+toggle it.  Press q to quit.
 " \
         --example "View all commands" "" \
         --example "Select columns" "--columns name,type,namespace" \
@@ -96,7 +103,7 @@ fi
 source "$BU_DIR/lib/core/bu_core_tv.sh"
 
 # Enter the interactive viewer (reads stdin, renders TUI)
-bu_tv_enter "$columns" "$colors"
+bu_tv_enter "$columns" "$colors" "$is_sidebar"
 local rc=$?
 
 bu_scope_pop_function
