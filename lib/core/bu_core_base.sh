@@ -773,40 +773,80 @@ __bu_log()
     local log_lvl=$2
     local log_prefix=$3
     shift 3
-    
-    local log_lvl_setting
-    if bu_env_is_in_autocomplete
-    then
-        log_lvl_setting=$BU_AUTOCOMPLETE_LOG_LVL
-    else
-        log_lvl_setting=$BU_LOG_LVL
-    fi
 
-    if (( log_lvl < log_lvl_setting ))
+    if ! __bu_log_lvl_enabled "$log_lvl"
     then
         return 0
     fi
 
     local log_idx=0
-    case "$1" in
+    case "${1-}" in
     -i|--idx)
         log_idx=$2
         shift 2
         ;;
     esac
+    __bu_log_print "$color" "$log_prefix" "$((log_idx + 2))" "$@"
+}
+
+# ```
+# *Description*:
+# Check whether a log level is currently enabled
+#
+# *Params*:
+# - `$1`: Log level
+#
+# *Returns*:
+# - Exit code 0 if messages at this level are shown, 1 otherwise
+#
+# *Notes*:
+# - Compares against `BU_AUTOCOMPLETE_LOG_LVL` while autocompleting, `BU_LOG_LVL` otherwise.
+# - Only use as a condition (`if`, `!`, `&&`, `||`), never as a bare statement under set -e.
+# ```
+__bu_log_lvl_enabled()
+{
+    local log_lvl_setting
+    if bu_env_is_in_autocomplete
+    then
+        log_lvl_setting=${BU_AUTOCOMPLETE_LOG_LVL-}
+    else
+        log_lvl_setting=${BU_LOG_LVL-}
+    fi
+    (( $1 >= log_lvl_setting ))
+}
+
+# ```
+# *Description*:
+# Print a single log line in the standard format: `PREFIX  file:line[func] message`
+#
+# *Params*:
+# - `$1`: Color code
+# - `$2`: Log prefix
+# - `$3`: Index into the caller's `FUNCNAME` of the function to attribute the line to
+# - `...`: Log message
+#
+# *Notes*:
+# - Writes to /dev/tty while autocompleting, stderr otherwise.
+# ```
+__bu_log_print()
+{
+    local color=$1
+    local log_prefix=$2
+    # Shift by one to account for this function's own frame
+    local -r frame=$(( $3 + 1 ))
+    shift 3
+
     local BU_RET
-    bu_basename "${BASH_SOURCE[log_idx+2]}"
-    local basename=$BU_RET
+    bu_basename "${BASH_SOURCE[frame]-}"
+    local -r basename=$BU_RET
     # 7 because SUCCESS is the longest log prefix
     printf -v log_prefix '%-7s' "$log_prefix"
 
-    # echo ${FUNCNAME[@]}
-    # echo ${BASH_LINENO[@]}
     if bu_env_is_in_autocomplete
     then
-        printf "${color}${log_prefix} ${basename}:${BASH_LINENO[log_idx+1]}[${FUNCNAME[log_idx+2]}] %s${BU_TPUT_RESET}\n" "$*" >/dev/tty
+        printf "${color}${log_prefix} ${basename}:${BASH_LINENO[frame-1]-}[${FUNCNAME[frame]-}] %s${BU_TPUT_RESET}\n" "$*" >/dev/tty
     else
-        printf "${color}${log_prefix} ${basename}:${BASH_LINENO[log_idx+1]}[${FUNCNAME[log_idx+2]}] %s${BU_TPUT_RESET}\n" "$*" >&2
+        printf "${color}${log_prefix} ${basename}:${BASH_LINENO[frame-1]-}[${FUNCNAME[frame]-}] %s${BU_TPUT_RESET}\n" "$*" >&2
     fi
 }
 
@@ -879,7 +919,14 @@ bu_log_info()
 # ```
 bu_log_trace()
 {
-    __bu_log "$BU_TPUT_GREY" "$BU_LOG_LVL_TRACE" TRACE "[${EPOCHREALTIME}] $*"
+    local log_idx=0
+    case "${1-}" in
+    -i|--idx)
+        log_idx=$2
+        shift 2
+        ;;
+    esac
+    __bu_log "$BU_TPUT_GREY" "$BU_LOG_LVL_TRACE" TRACE -i "$log_idx" "[${EPOCHREALTIME-}] $*"
 }
 
 # ```
@@ -905,7 +952,7 @@ bu_log_debug()
 # ```
 bu_log_success()
 {
-    __bu_log "$BU_TPUT_GREEN" "$BU_LOG_LVL_INFO" SUCCESS "$*"
+    __bu_log "$BU_TPUT_GREEN" "$BU_LOG_LVL_INFO" SUCCESS "$@"
 }
 
 # ```
@@ -922,6 +969,60 @@ bu_log_tty()
 
 # ```
 # *Description*:
+# Log an input validation error, followed by a hint pointing the user at `--help`
+#
+# *Params*:
+# - `-i|--idx <index>` (optional): Stacktrace index offset for the logging context
+# - `...`: Error message
+#
+# *Returns*:
+# - Exit code 0 (the caller is expected to `return 1` itself)
+#
+# *Notes*:
+# - The hint is `hint:  <cli> <script> --help`, where `<cli>` is `${BU_USER_DEFINED_CLI_COMMAND_NAME:-bu}`
+#   and `<script>` is the basename (without `.sh`) of the file defining the attributed function.
+# - The exit handler suppresses the traceback for a logged error followed by `return 1`.
+#
+# *Examples*:
+# ```bash
+# if [[ -z "$name" ]]
+# then
+#     bu_log_err_usage "Missing --name"
+#     return 1
+# fi
+# ```
+# ```
+bu_log_err_usage()
+{
+    local log_idx=0
+    case "${1-}" in
+    -i|--idx)
+        log_idx=$2
+        shift 2
+        ;;
+    esac
+    bu_log_err -i "$((log_idx + 1))" "$@"
+
+    if ! __bu_log_lvl_enabled "$BU_LOG_LVL_ERR"
+    then
+        return 0
+    fi
+
+    local BU_RET
+    bu_basename "${BASH_SOURCE[log_idx+1]-}"
+    local -r script_name=${BU_RET%.sh}
+    local -r hint="${BU_TPUT_GREY}hint:  ${BU_USER_DEFINED_CLI_COMMAND_NAME:-bu} ${script_name} --help${BU_TPUT_RESET}"
+    if bu_env_is_in_autocomplete
+    then
+        printf '%s\n' "$hint" >/dev/tty
+    else
+        printf '%s\n' "$hint" >&2
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
 # Internal command logging function
 #
 # *Params*:
@@ -929,109 +1030,198 @@ bu_log_tty()
 # - `$2`: Log level
 # - `$3`: Log prefix
 # - `-i|--idx <index>` (optional): Stacktrace index offset for the logging context
+# - `--ignore-exit-code` (optional): Do not report or propagate a non-zero exit code
 # - `...`: Command to execute
+#
+# *Returns*:
+# - Exit code 1 if the command ran and failed (without `--ignore-exit-code`), 0 otherwise
 #
 # *Notes*:
 # - This should not be called externally, because it (in particular log_idx) assumes it is called by a bu_log_cmd_[LOG_LVL] function.
+# - If the log level is suppressed, the command is not run at all.
 # ```
 __bu_log_cmd()
 {
-    local BU_RET
     local color=$1
     local log_lvl=$2
     local log_prefix=$3
     shift 3
 
     local log_idx=0
-    case "$1" in
-    -i|--idx)
-        log_idx=$2
-        shift 2
-        ;;
-    esac
-    {
+    local is_ignore_exit_code=false
+    while (($#))
+    do
         case "$1" in
-        echo|printf)
+        -i|--idx)
+            log_idx=$2
+            shift 2
+            ;;
+        --ignore-exit-code)
+            is_ignore_exit_code=true
+            shift
             ;;
         *)
-            bu_basename "${BASH_SOURCE[log_idx+2]}"
-            local basename=$BU_RET
-            # 7 because SUCCESS is the longest log prefix
-            printf -v log_prefix '%-7s' "$log_prefix"
-            echo -n "${BU_TPUT_BLUE}${log_prefix}:  ${TPUT_BOLD}${basename}:${BASH_LINENO[log_idx+1]}[${FUNCNAME[log_idx+2]}] "
-            printf '%q ' "$@"
-            echo "${BU_TPUT_RESET}"
+            break
             ;;
         esac
-        echo -n "${BU_TPUT_BLUE}"
-        if ! "$@"
-        then
-            echo -n "(cmd failed)${BU_TPUT_RESET}"
-            return 1
-        fi
-        echo -n "${BU_TPUT_RESET}"
-        case "$1" in
-        printf)
-            case "$2" in
-            '%q ')
-                echo
-                ;;
-            esac
-            ;;
-        esac
-    } >&2
+    done
+
+    if (( ! $# )) || ! __bu_log_lvl_enabled "$log_lvl"
+    then
+        return 0
+    fi
+
+    local rc=0
+    # Frame of the bu_log_cmd_* caller, relative to __bu_log_cmd_exec
+    local -r frame=$((log_idx + 3))
+    if bu_env_is_in_autocomplete
+    then
+        __bu_log_cmd_exec "$color" "$log_prefix" "$frame" "$is_ignore_exit_code" "$@" &>/dev/tty || rc=$?
+    else
+        __bu_log_cmd_exec "$color" "$log_prefix" "$frame" "$is_ignore_exit_code" "$@" >&2 || rc=$?
+    fi
+
+    if (( rc )) && ! "$is_ignore_exit_code"
+    then
+        return 1
+    fi
+    return 0
 }
 
 # ```
 # *Description*:
-# Log an error command message
+# Log and run a command, with its output already redirected by the caller
+#
+# *Params*:
+# - `$1`: Color code
+# - `$2`: Log prefix
+# - `$3`: Index into the caller's `FUNCNAME` of the function to attribute the line to
+# - `$4`: Whether to ignore a non-zero exit code (`true`/`false`)
+# - `...`: Command to execute
+#
+# *Returns*:
+# - Exit code of the command
+# ```
+__bu_log_cmd_exec()
+{
+    local color=$1
+    local log_prefix=$2
+    local -r frame=$3
+    local -r is_ignore_exit_code=$4
+    shift 4
+
+    case "$1" in
+    echo|printf)
+        ;;
+    *)
+        local quoted_cmd
+        printf -v quoted_cmd '%q ' "$@"
+        __bu_log_print "$color" "$log_prefix" "$frame" "${quoted_cmd% }"
+        ;;
+    esac
+
+    local rc=0
+    printf '%s' "$color"
+    "$@" || rc=$?
+    printf '%s' "$BU_TPUT_RESET"
+    # `printf '%q ' ...` leaves the line unterminated
+    if [[ "$1" == printf && "${2-}" == '%q ' ]]
+    then
+        echo
+    fi
+    if (( rc )) && ! "$is_ignore_exit_code"
+    then
+        printf '%s\n' "${color}(cmd failed)${BU_TPUT_RESET}"
+    fi
+    return "$rc"
+}
+
+# ```
+# *Description*:
+# Log and run an informational command at the error level
 #
 # *Params*:
 # - `-i|--idx <index>` (optional): Stacktrace index offset for the logging context
+# - `--ignore-exit-code` (optional): Do not report or propagate a non-zero exit code
 # - `...`: Command to execute
+#
+# *Returns*:
+# - Exit code 1 if the command ran and failed (without `--ignore-exit-code`), 0 otherwise
+#
+# *Notes*:
+# - If the error level is suppressed, the command is not run.
 # ```
 bu_log_cmd_err()
 {
-    __bu_log_cmd "$BU_TPUT_RED" "$BU_LOG_LVL_ERR" ERR "$@"
+    __bu_log_cmd "$BU_TPUT_VSCODE_RED" "$BU_LOG_LVL_ERR" ERR "$@"
 }
 
 # ```
 # *Description*:
-# Log a warning command message
+# Log and run an informational command at the warning level
 #
 # *Params*:
 # - `-i|--idx <index>` (optional): Stacktrace index offset for the logging context
+# - `--ignore-exit-code` (optional): Do not report or propagate a non-zero exit code
 # - `...`: Command to execute
+#
+# *Returns*:
+# - Exit code 1 if the command ran and failed (without `--ignore-exit-code`), 0 otherwise
+#
+# *Notes*:
+# - If the warning level is suppressed, the command is not run.
 # ```
 bu_log_cmd_warn()
 {
-    __bu_log_cmd "$BU_TPUT_YELLOW" "$BU_LOG_LVL_WARN" WARN "$@"
+    __bu_log_cmd "$BU_TPUT_VSCODE_ORANGE" "$BU_LOG_LVL_WARN" WARN "$@"
 }
 
 # ```
 # *Description*:
-# Log an informational command message
+# Log and run an informational command (e.g. `cat` a config, `tail` a log) at the info level
 #
 # *Params*:
 # - `-i|--idx <index>` (optional): Stacktrace index offset for the logging context
+# - `--ignore-exit-code` (optional): Do not report or propagate a non-zero exit code
 # - `...`: Command to execute
+#
+# *Returns*:
+# - Exit code 1 if the command ran and failed (without `--ignore-exit-code`), 0 otherwise
+#
+# *Notes*:
+# - If the info level is suppressed, the command is not run.
+# - The command line is logged (`%q`-quoted) before running, unless the command is `echo` or `printf`.
+# - The command's stdout and stderr both go to stderr (/dev/tty while autocompleting).
+#
+# *Examples*:
+# ```bash
+# bu_log_cmd_info cat "$config_file"
+# bu_log_cmd_info --ignore-exit-code pgrep -a my-daemon
+# ```
 # ```
 bu_log_cmd_info()
 {
-    __bu_log_cmd "$BU_TPUT_BLUE" "$BU_LOG_LVL_INFO" INFO "$@"
+    __bu_log_cmd "$BU_TPUT_VSCODE_YELLOW" "$BU_LOG_LVL_INFO" INFO "$@"
 }
 
 # ```
 # *Description*:
-# Log a debug command message
+# Log and run an informational command at the debug level
 #
 # *Params*:
 # - `-i|--idx <index>` (optional): Stacktrace index offset for the logging context
+# - `--ignore-exit-code` (optional): Do not report or propagate a non-zero exit code
 # - `...`: Command to execute
+#
+# *Returns*:
+# - Exit code 1 if the command ran and failed (without `--ignore-exit-code`), 0 otherwise
+#
+# *Notes*:
+# - If the debug level is suppressed, the command is not run.
 # ```
 bu_log_cmd_debug()
 {
-    __bu_log_cmd "$BU_TPUT_VIOLET" "$BU_LOG_LVL_DEBUG" DEBUG "$@"
+    __bu_log_cmd "$BU_TPUT_VSCODE_DARK_GREEN" "$BU_LOG_LVL_DEBUG" DEBUG "$@"
 }
 
 # ```

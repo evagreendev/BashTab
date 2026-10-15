@@ -532,7 +532,9 @@ function bu_example() { ... }
 - `bu_mkdir`, `bu_realpath`, `bu_basename`, `bu_dirname`
 
 **Logging**:
-- `bu_log_info`, `bu_log_err`, `bu_log_warn`
+- `bu_log_info`, `bu_log_err`, `bu_log_warn` (also `bu_log_debug`, `bu_log_trace`, `bu_log_success`); all take an optional leading `-i|--idx N` to attribute the line to the Nth caller up
+- `bu_log_err_usage [-i N] message...` — input-validation error: logs `ERR ...` plus `hint:  <cli> <script> --help`. Always returns 0; follow it with `return 1` (the exit handler then skips the traceback)
+- `bu_log_cmd_debug|info|warn|err [-i N] [--ignore-exit-code] cmd args...` — show an informational command (`cat` a config, `tail` a log, `ldd`) as part of the log: prints the `%q`-quoted command line (skipped for `echo`/`printf`), then runs it with stdout+stderr on stderr. **If the level is suppressed the command is not run at all** (returns 0), so only use these for commands whose sole purpose is to be shown. On failure prints `(cmd failed)` and returns 1 (aborts under `set -e`); `--ignore-exit-code` returns 0 silently
 
 
 ## MacOS
