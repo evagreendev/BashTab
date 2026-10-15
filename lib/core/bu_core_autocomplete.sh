@@ -3778,7 +3778,7 @@ __bu_bind_fzf_autocomplete_impl()
             fi
             : > "$BU_PROC_TMP_DIR"/fzf_dynamic_autocomplete.txt
             printf "%s\n" "${COMPREPLY[@]}" | uniq | \
-                fzf \
+                __bu_fzf \
                     --header '' \
                     "${fzf_opts[@]}" \
                     --bind "tab:clear-query+transform-header(bash -c '__bu_fzf_print_header $BU_PROC_TMP_DIR \"{}\" ${command_line_no_last[*]}')+reload-sync(bash -c '__bu_fzf_print_autocompletion $BU_PROC_TMP_DIR \"{}\" ${command_line_no_last[*]}')" \
@@ -3798,11 +3798,11 @@ __bu_bind_fzf_autocomplete_impl()
             if (("${#COMPREPLY[@]}" > 10000))
             then
                 printf "%s\n" "${COMPREPLY[@]}" | \
-                    fzf \
+                    __bu_fzf \
                         "${fzf_opts[@]}"
             else
                 printf "%s\n" "${COMPREPLY[@]}" | sort --unique | \
-                    fzf \
+                    __bu_fzf \
                         "${fzf_opts[@]}"
             fi
         fi
@@ -4193,7 +4193,7 @@ __bu_bind_fzf_autocomplete_impl_ts()
     local selected_command
     if selected_command=$(
         printf "%s
-" "${COMPREPLY[@]}" | sort --unique | fzf "${fzf_opts[@]}"
+" "${COMPREPLY[@]}" | sort --unique | __bu_fzf "${fzf_opts[@]}"
     ) && [[ -n "$selected_command" ]]; then
         # Strip ANSI color codes from the selection
         # Strip ANSI color codes from the selection (literal ESC via $'\x1b')

@@ -530,7 +530,7 @@ __bu_bind_transform_selector()
     done
 
     local selected
-    selected=$(printf '%s\n' "${rows[@]}" | fzf \
+    selected=$(printf '%s\n' "${rows[@]}" | __bu_fzf \
         --exit-0 \
         --reverse \
         --height 20% --min-height 8 \

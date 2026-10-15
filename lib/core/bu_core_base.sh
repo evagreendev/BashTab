@@ -568,6 +568,25 @@ bu_symbol_is_file()
     [[ "$BU_RET" = file ]]
 }
 
+# ```
+# *Description*:
+# Run fzf with its child shell pinned to the current bash.
+# fzf runs --preview/--bind commands via `$SHELL -c`, and `$SHELL` is the login
+# shell (zsh by default on macOS), not the bash we are running in. Only bash can
+# see `export -f` functions, so use this instead of plain `fzf` whenever those
+# commands call a BashTab function.
+#
+# *Params*:
+# - `$@`: Arguments passed through to fzf
+#
+# *Returns*:
+# - fzf's stdout and exit code
+# ```
+__bu_fzf()
+{
+    SHELL="$BASH" command fzf "$@"
+}
+
 # MARK: Caching functions
 bu_cached_keyed_execute()
 {
