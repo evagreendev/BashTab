@@ -94,11 +94,15 @@ function test_tv_interactive_scroll_tracks_keys { #@test
     # Feed 10x "j" then "q" through the pty; the viewer reads JSONL from the
     # file (stdin redirect) and keys from /dev/tty (the pty).
     {
-        sleep 1                       # let the entrypoint load
+        # Let the entrypoint load before feeding keys: keys typed before the
+        # viewer owns the tty are swallowed by the intermediate shell, and
+        # activation time varies wildly across hosts (CI, network
+        # filesystems).  A pipe can't observe the frame, so be generous.
+        sleep 8
         for i in {1..10}; do printf 'j'; sleep 0.05; done
         sleep 0.5
         printf 'q'
-    } | timeout 20 script -q -c \
+    } | timeout 30 script -q -c \
         "bash -c 'source \"$DIR\"/../activate >/dev/null 2>&1 && bu view-table' < \"$rows_file\"" \
         "$cap" >/dev/null
 
@@ -165,13 +169,42 @@ function test_tv_read_key_trapped_signal_returns_none { #@test
 # Job control: driven through tmux
 # ===========================================================================
 
+# ```md
+# Poll a tmux pane until its capture matches a pattern (or tries run out).
+# Fixed sleeps lose on loaded hosts; callers still assert on `pane`
+# afterwards, so a timeout surfaces as the original assertion failure.
+#
+# Params:
+# - $1: tmux socket
+# - $2: target pane
+# - $3: grep -E pattern to wait for
+# - $4: max tries at 0.5s each (default 20)
+#
+# Returns:
+# - pane: last captured frame (caller's local, via dynamic scope)
+# ```
+function __tv_wait_pane {
+    local -r sock=$1 target=$2 pattern=$3
+    local -r -i tries=${4:-20}
+    local -i _w
+    for (( _w = 0; _w < tries; _w++ )); do
+        pane=$(tmux -L "$sock" capture-pane -t "$target" -p)
+        grep -qE "$pattern" <<<"$pane" && break
+        sleep 0.5
+    done
+    return 0
+}
+
 function __tv_tmux_setup { # $1=socket $2=session
     local rows=$BATS_TEST_TMPDIR/rows.$2.jsonl
     local i
+    local pane
     for i in {1..50}; do printf '{"name":"cmd-%s","version":"1.0"}\n' "$i"; done > "$rows"
     tmux -L "$1" new-session -d -s "$2" -x 100 -y 30 "bash --norc"
     tmux -L "$1" send-keys -t "$2" "source \"$DIR\"/../activate >/dev/null 2>&1; bu view-table < \"$rows\"" Enter
-    sleep 2.5
+    # Activation time varies wildly across hosts: wait (up to 60s) for the
+    # TUI status line before anyone sends keys.
+    __tv_wait_pane "$1" "$2" 'Rows [0-9]+-' 120
     printf '%s' "$rows"
 }
 
@@ -187,14 +220,14 @@ function test_tv_tmux_suspend_resume_cycle { #@test
 
     # Scroll down 3 (coalesced into one render)
     tmux -L "$sock" send-keys -t tvsus jjj
-    sleep 0.4
+    __tv_wait_pane "$sock" tvsus 'Rows 4-'
     pane=$(tmux -L "$sock" capture-pane -t tvsus -p)
     grep -q 'Rows 4-' <<<"$pane" || { echo "$pane"; tmux -L "$sock" kill-server; return 1; }
 
     # Ctrl-Z: job reports Stopped, pane shows the normal shell (not the TUI)
     tmux -L "$sock" send-keys -t tvsus C-z
-    sleep 0.5
-    pane=$(tmux -L "$sock" capture-pane -t tvsus -p)
+    # The shell prints its Stopped notice at its own pace under load
+    __tv_wait_pane "$sock" tvsus 'Stopped'
     if grep -q 'Rows 4-' <<<"$pane"; then
         echo "TUI still on screen after C-z:"; echo "$pane"
         tmux -L "$sock" kill-server; return 1
@@ -203,14 +236,12 @@ function test_tv_tmux_suspend_resume_cycle { #@test
 
     # fg: the frame repaints at the same offset
     tmux -L "$sock" send-keys -t tvsus "fg" Enter
-    sleep 0.6
-    pane=$(tmux -L "$sock" capture-pane -t tvsus -p)
+    __tv_wait_pane "$sock" tvsus 'Rows 4-'
     grep -q 'Rows 4-' <<<"$pane" || { echo "$pane"; tmux -L "$sock" kill-server; return 1; }
 
     # Scrolling still works after resume
     tmux -L "$sock" send-keys -t tvsus j
-    sleep 0.4
-    pane=$(tmux -L "$sock" capture-pane -t tvsus -p)
+    __tv_wait_pane "$sock" tvsus 'Rows 5-'
     grep -q 'Rows 5-' <<<"$pane" || { echo "$pane"; tmux -L "$sock" kill-server; return 1; }
 
     # A signal delivered during the blocking read must not exit the viewer
@@ -221,10 +252,16 @@ function test_tv_tmux_suspend_resume_cycle { #@test
 
     # q returns the prompt with rc 0
     tmux -L "$sock" send-keys -t tvsus q
-    sleep 0.5
+    # Wait for the viewer to release the screen; keys sent earlier would be
+    # read by the TUI instead of the shell
+    local -i _w
+    for (( _w = 0; _w < 20; _w++ )); do
+        pane=$(tmux -L "$sock" capture-pane -t tvsus -p)
+        grep -qE 'Rows [0-9]+-' <<<"$pane" || break
+        sleep 0.5
+    done
     tmux -L "$sock" send-keys -t tvsus "echo VIEWER_RC=\$?" Enter
-    sleep 0.4
-    pane=$(tmux -L "$sock" capture-pane -t tvsus -p)
+    __tv_wait_pane "$sock" tvsus 'VIEWER_RC=[0-9]'
     grep -q 'VIEWER_RC=0' <<<"$pane" || { echo "$pane"; tmux -L "$sock" kill-server; return 1; }
 
     tmux -L "$sock" kill-server
@@ -240,12 +277,12 @@ function test_tv_tmux_background_refusal { #@test
 
     tmux -L "$sock" new-session -d -s tvbg -x 100 -y 30 "bash --norc"
     tmux -L "$sock" send-keys -t tvbg "source \"$DIR\"/../activate >/dev/null 2>&1; bu view-table < \"$rows\" &" Enter
-    sleep 2.5
 
     # Backgrounded pipeline: not the tty's foreground group -> loud refusal,
-    # NOT a silent kernel stop of the pipeline.
+    # NOT a silent kernel stop of the pipeline.  Activation time varies
+    # wildly across hosts, so wait (up to 60s) for the refusal.
     local pane
-    pane=$(tmux -L "$sock" capture-pane -t tvbg -p)
+    __tv_wait_pane "$sock" tvbg 'foreground group|Rows [0-9]+-' 120
     grep -q "foreground group" <<<"$pane" || { echo "$pane"; tmux -L "$sock" kill-server; return 1; }
     if grep -q 'Rows 1-' <<<"$pane"; then
         echo "TUI started despite background process group:"; echo "$pane"
