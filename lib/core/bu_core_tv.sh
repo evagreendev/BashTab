@@ -55,6 +55,13 @@ declare -g    _TV_FC_TEXT=          # Out-param: formatted cell text (__bu_tv_fo
 declare -g -i _TV_FC_VIS_LEN=0      # Out-param: visible width of _TV_FC_TEXT (ANSI excluded)
 declare -g    _TV_KEY=              # Out-param: last key read (__bu_tv_read_key)
 declare -g    _TV_QUIT=false        # Event-loop exit flag
+# Signal flags: the traps only set these; __bu_tv_process_signals does the
+# work from the event loop (see __bu_tv_install_traps for why)
+declare -g    _TV_RESIZE_PENDING=false   # SIGWINCH
+declare -g    _TV_SUSPEND_PENDING=false  # SIGTSTP (Ctrl-Z)
+declare -g    _TV_RESUME_PENDING=false   # SIGCONT (fg)
+# Blocking key reads wake this often (seconds) so a deferred WINCH trap runs
+declare -g -r __BU_TV_KEY_POLL=0.1
 
 # Padding pools — slice with ${__BU_TV_SPACES:0:N} instead of per-cell append
 # loops.  Grown by doubling (__bu_tv_ensure_pools) if a column exceeds the pool.
@@ -328,9 +335,15 @@ __bu_tv_build_colors()
 
 # ```
 # *Description*:
-# Install the viewer's full trap set.  Called at setup and again from the
-# SIGCONT handler (on resume after a SIGSTOP stop).  The EXIT/INT/TERM path
-# clears all traps via terminal_restore.
+# Install the viewer's full trap set.  Called at setup and again on resume
+# after a stop.  terminal_restore clears all of them.
+#
+# Every trap only sets a flag; __bu_tv_process_signals does the work from
+# the event loop.  The key reader blocks in short `read -t` slices, and
+# bash runs a pending trap inside that read: when the slice's timer expires
+# while the trap is still running, bash abandons the trap midway (e.g.
+# during a $(stty ...) fork, which is slow under load).  A single
+# assignment leaves nothing to abandon.
 # ```
 __bu_tv_install_traps()
 {
@@ -338,11 +351,11 @@ __bu_tv_install_traps()
     # stty/tcsetattr or tty write from a transiently-backgrounded state
     # proceeds instead of default-STOPping the whole pipeline.
     trap '' SIGTTOU
-    trap '__bu_tv_terminal_restore; exit 0' SIGINT SIGTERM
+    trap '_TV_QUIT=true' SIGINT SIGTERM
     trap '__bu_tv_cleanup_exit' EXIT
-    trap '__bu_tv_on_resize' SIGWINCH
-    trap '__bu_tv_on_tstp' SIGTSTP
-    trap '__bu_tv_on_cont' SIGCONT
+    trap '_TV_RESIZE_PENDING=true' SIGWINCH
+    trap '_TV_SUSPEND_PENDING=true' SIGTSTP
+    trap '_TV_RESUME_PENDING=true' SIGCONT
 }
 
 # ```
@@ -412,36 +425,42 @@ __bu_tv_terminal_restore()
 
 # ```
 # *Description*:
-# SIGTSTP handler (Ctrl-Z): restore the terminal so the shell prompt is
-# usable while stopped, then send SIGSTOP to unconditionally stop the process.
+# Act on the flags the traps set.  Called from the event loop before each
+# render, outside any trap.  Each flag is cleared before its work so a
+# signal arriving meanwhile is handled on the next pass.
 #
-# We use SIGSTOP (not a re-raised SIGTSTP) because bash defers trap mutations
-# for the currently-handled signal: inside the SIGTSTP handler, `trap -` does
-# not take effect and the re-raised SIGTSTP stays blocked until the handler
-# returns, at which point the old handler fires again — an infinite loop.
-# SIGSTOP cannot be caught, blocked, or ignored, so it always stops the
-# process immediately.  The CONT trap (still armed) handles the fg-side resume.
+# - Suspend (Ctrl-Z): restore the terminal so the shell prompt is usable
+#   while stopped, then SIGSTOP ourselves (uncatchable, so it always stops).
+#   Execution continues here after fg, which also counts as a resume.
+# - Resume (fg, or SIGCONT after an external stop): re-arm the traps,
+#   re-enter raw mode + alternate screen, and re-read the size.
+# - Resize: re-read the size and clamp offsets.
 # ```
-__bu_tv_on_tstp()
+__bu_tv_process_signals()
 {
-    __bu_tv_terminal_leave_tui
-    kill -SIGSTOP $$
-}
-
-# ```
-# *Description*:
-# SIGCONT handler (fg): re-arm the full trap set, re-enter raw mode +
-# alternate screen, recompute dimensions, clamp offsets, redraw.
-# ```
-__bu_tv_on_cont()
-{
-    __bu_tv_install_traps
-    stty -echo -icanon 2>/dev/null || true
-    printf '%s' "$__BU_TV_ALT_SCREEN_ON"
-    printf '%s' "$__BU_TV_CURSOR_HIDE"
-    __bu_tv_update_dimensions
-    __bu_tv_clamp_offsets
-    __bu_tv_render_frame
+    if "$_TV_SUSPEND_PENDING"
+    then
+        _TV_SUSPEND_PENDING=false
+        __bu_tv_terminal_leave_tui
+        kill -SIGSTOP $$
+        _TV_RESUME_PENDING=true
+    fi
+    if "$_TV_RESUME_PENDING"
+    then
+        _TV_RESUME_PENDING=false
+        __bu_tv_install_traps
+        stty -echo -icanon 2>/dev/null || true
+        printf '%s' "$__BU_TV_ALT_SCREEN_ON"
+        printf '%s' "$__BU_TV_CURSOR_HIDE"
+        _TV_RESIZE_PENDING=true
+    fi
+    if "$_TV_RESIZE_PENDING"
+    then
+        _TV_RESIZE_PENDING=false
+        __bu_tv_update_dimensions
+        __bu_tv_clamp_offsets
+    fi
+    return 0
 }
 
 # ```
@@ -471,23 +490,15 @@ __bu_tv_update_dimensions()
     # 2>/dev/null first so a failed /dev/tty open is silenced too
     local size= rows= cols=
     size=$(stty size 2>/dev/null </dev/tty) || size=
+    # No `read` here: if this ever runs inside a trap again, a nested read
+    # builtin clears the interrupted `read -t` timer in __bu_tv_read_key,
+    # which then blocks until the next key
     rows=${size%% *}
     cols=${size##* }
     [[ "$rows" =~ ^[0-9]+$ ]] && _TV_TERM_ROWS=$rows
     [[ "$cols" =~ ^[0-9]+$ ]] && _TV_TERM_COLS=$cols
     if (( _TV_TERM_COLS < 20 )); then _TV_TERM_COLS=80; fi
     if (( _TV_TERM_ROWS < 10 )); then _TV_TERM_ROWS=24; fi
-}
-
-# ```
-# *Description*:
-# SIGWINCH handler — recompute dimensions, clamp offsets, redraw.
-# ```
-__bu_tv_on_resize()
-{
-    __bu_tv_update_dimensions
-    __bu_tv_clamp_offsets
-    __bu_tv_render_frame
 }
 
 # ── Navigation / offset clamping ─────────────────────────────────────────
@@ -832,20 +843,22 @@ __bu_tv_render_status()
 
 # ```
 # *Description*:
-# Read a single keypress into _TV_KEY.  Handles multi-byte escape sequences.
-#
-# *Params*:
-# - `$1` (optional): 1 = block until a key arrives (default);
-#                    0 = non-blocking probe (returns 1 if no input queued)
-#
-# *Returns*:
-# - `_TV_KEY`: Key name (e.g. "up", "down", "page_down", "/", "q").
-#              EOF maps to "q" so the viewer exits cleanly on closed stdin.
-# - Exit 1 only in probe mode when no input was available.
+# Succeed if a trap has set a flag the event loop must act on.
 # ```
+__bu_tv_signal_pending()
+{
+    "$_TV_QUIT" || "$_TV_RESIZE_PENDING" || "$_TV_SUSPEND_PENDING" || "$_TV_RESUME_PENDING"
+}
+
 # ```
 # *Description*:
 # Read a single keypress into _TV_KEY.  Handles multi-byte escape sequences.
+#
+# Blocking mode reads in __BU_TV_KEY_POLL slices rather than one indefinite
+# read: bash restarts a read interrupted by SIGWINCH and defers its trap
+# until a byte arrives, so a resize would otherwise not redraw until the
+# next keypress.  A slice that ends with no signal flag set just reads
+# again, so an idle viewer never renders.
 #
 # *Params*:
 # - `$1` (optional): 1 = block until a key arrives (default);
@@ -855,7 +868,8 @@ __bu_tv_render_status()
 # - `_TV_KEY`: Key name (e.g. "up", "down", "page_down", "/", "q").
 #   - real EOF (read rc=1)          -> "q" (quit)
 #   - Enter (read rc=0, empty var)  -> $'\x0a' (read -n1 consumed the delimiter)
-#   - trapped signal (read rc>128)  -> "none" (redraw-only no-op, NOT quit)
+#   - a trap set a signal flag or _TV_QUIT (read rc>128) -> "none"
+#     (no-op; the event loop processes the flags, NOT quit by itself)
 # - Exit 1 only in probe mode when no input was available.
 # ```
 __bu_tv_read_key()
@@ -865,7 +879,14 @@ __bu_tv_read_key()
     _TV_KEY=
     if (( blocking ))
     then
-        IFS= read -r -s -n 1 _TV_KEY || rc=$?
+        while :
+        do
+            rc=0
+            IFS= read -r -s -n 1 -t "$__BU_TV_KEY_POLL" _TV_KEY || rc=$?
+            # rc>128: the slice timed out or a trapped signal interrupted it
+            (( rc <= 128 )) && break
+            __bu_tv_signal_pending && break
+        done
     else
         # Probe with a hair of timeout so the byte (if any) is consumed
         IFS= read -r -s -n 1 -t 0.001 _TV_KEY || rc=$?
@@ -880,9 +901,7 @@ __bu_tv_read_key()
         fi
         if (( rc > 128 ))
         then
-            # A trapped signal (SIGWINCH, SIGCONT, ...) interrupted the
-            # blocking read.  The handler already redrew; the event loop
-            # treats "none" as redraw-only.
+            # A trap set a flag; the event loop processes it and redraws
             _TV_KEY=none
             return 0
         fi
@@ -1317,6 +1336,12 @@ bu_tv_enter()
     # event loop and cause spurious exits on false (( ... )) guards.
     set +e
 
+    # Reset before the traps exist; a Ctrl-C during setup then still quits
+    _TV_QUIT=false
+    _TV_RESIZE_PENDING=false
+    _TV_SUSPEND_PENDING=false
+    _TV_RESUME_PENDING=false
+
     __bu_tv_ensure_utf8_ctype
 
     # ── Load and index data ───────────────────────────────────────────
@@ -1352,9 +1377,10 @@ bu_tv_enter()
     # One render per drained input batch: after the first (blocking) key,
     # coalesce any already-queued keypresses and process them without
     # rendering, so a held key can't build a backlog of stale frames.
-    _TV_QUIT=false
     while ! "$_TV_QUIT"
     do
+        __bu_tv_process_signals
+        "$_TV_QUIT" && break
         __bu_tv_render_frame
         __bu_tv_read_key 1
         __bu_tv_dispatch_key

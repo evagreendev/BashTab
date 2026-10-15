@@ -327,20 +327,34 @@ function test_tv_read_key_arrow_down { #@test
 }
 
 function test_tv_read_key_trapped_signal_returns_none { #@test
-    # A trapped signal during the blocking read must yield the no-op
-    # sentinel "none", NOT "q".  (On bash 5.2, read restarts after a
-    # trapped signal, so this >128 path is exercised by stubbing read to
-    # return 142 the way non-restarting platforms behave; live signal
-    # survival is covered by the tmux WINCH test.)
+    # A trap that set a signal flag must end the blocking read with the
+    # no-op sentinel "none", NOT "q".  The stub plays the trap (sets the
+    # flag) and the interrupted read (rc>128); live signals are covered by
+    # the tmux resize and suspend tests.
     local result
     result=$(bash -c '
         source "'"$DIR"'/../bu_entrypoint.sh" >/dev/null 2>&1
         source "'"$DIR"'/../lib/core/bu_core_tv.sh"
-        read() { return 142; }   # simulate signal-interrupted read (rc>128)
+        read() { _TV_RESIZE_PENDING=true; return 142; }
         __bu_tv_read_key 1
         printf "%s" "$_TV_KEY"
     ')
     assert_equal "$result" "none"
+}
+
+function test_tv_read_key_poll_timeout_keeps_waiting { #@test
+    # A poll slice that times out with no signal flag set must read again,
+    # not return "none" (that would render every slice while idle)
+    local result
+    result=$(bash -c '
+        source "'"$DIR"'/../bu_entrypoint.sh" >/dev/null 2>&1
+        source "'"$DIR"'/../lib/core/bu_core_tv.sh"
+        declare -i n=0
+        read() { n+=1; (( n < 3 )) && return 142; _TV_KEY=j; return 0; }
+        __bu_tv_read_key 1
+        printf "%s %s" "$_TV_KEY" "$n"
+    ')
+    assert_equal "$result" "j 3"
 }
 
 # ===========================================================================
@@ -448,7 +462,9 @@ function test_tv_tmux_suspend_resume_cycle { #@test
 function test_tv_tmux_uses_real_window_size { #@test
     # tput inside $(...) 2>/dev/null sees no terminal and reports the
     # terminfo default 80x24; the viewer must ask the tty.  50 rows in a
-    # 30-line pane -> 27 data rows (status 1-27); 20 lines -> 17.
+    # 30-line pane -> 27 data rows (status 1-27); 20 lines -> 17.  The
+    # size check waits at most 10s, so a redraw deferred to the next key
+    # fails here.
     command -v tmux >/dev/null || skip "tmux not available"
 
     local sock="tvsize$$"
@@ -457,16 +473,42 @@ function test_tv_tmux_uses_real_window_size { #@test
     pane=$(tmux -L "$sock" capture-pane -t tvsize -p)
     grep -q 'Rows 1-27/50' <<<"$pane" || { echo "$pane"; tmux -L "$sock" kill-server; return 1; }
 
-    # SIGWINCH path: only the WINCH handler re-reads the size, so the frame
-    # after the next key must use it.  (The handler runs once the blocking
-    # read returns, so the key is what triggers the redraw.)
+    # SIGWINCH path: the resize alone must redraw at the new size, with no
+    # keypress (a single blocking read would defer the trap until one)
     tmux -L "$sock" resize-window -t tvsize -x 100 -y 20
-    sleep 0.5
-    tmux -L "$sock" send-keys -t tvsize j
-    __tv_wait_pane "$sock" tvsize 'Rows 2-18/50'
-    grep -q 'Rows 2-18/50' <<<"$pane" || { echo "$pane"; tmux -L "$sock" kill-server; return 1; }
+    __tv_wait_pane "$sock" tvsize 'Rows 1-17/50'
+    grep -q 'Rows 1-17/50' <<<"$pane" || { echo "$pane"; tmux -L "$sock" kill-server; return 1; }
+
+    # And grow back
+    tmux -L "$sock" resize-window -t tvsize -x 100 -y 30
+    __tv_wait_pane "$sock" tvsize 'Rows 1-27/50'
+    grep -q 'Rows 1-27/50' <<<"$pane" || { echo "$pane"; tmux -L "$sock" kill-server; return 1; }
 
     tmux -L "$sock" send-keys -t tvsize q
+    tmux -L "$sock" kill-server
+}
+
+function test_tv_tmux_ctrl_c_restores_terminal { #@test
+    # SIGINT only sets _TV_QUIT; the event loop must still exit with rc 0
+    # and hand back a cooked, echoing terminal
+    command -v tmux >/dev/null || skip "tmux not available"
+
+    local sock="tvint$$"
+    local pane
+    __tv_tmux_setup "$sock" tvint >/dev/null
+
+    tmux -L "$sock" send-keys -t tvint C-c
+    local -i _w
+    for (( _w = 0; _w < 20; _w++ )); do
+        pane=$(tmux -L "$sock" capture-pane -t tvint -p)
+        grep -qE 'Rows [0-9]+-' <<<"$pane" || break
+        sleep 0.5
+    done
+    tmux -L "$sock" send-keys -t tvint 'echo VIEWER_RC=$?; stty -a | grep -oE "[-]?(icanon|echo) " | tr -d "\n"; echo' Enter
+    __tv_wait_pane "$sock" tvint 'VIEWER_RC=[0-9]'
+    grep -q 'VIEWER_RC=0' <<<"$pane" || { echo "$pane"; tmux -L "$sock" kill-server; return 1; }
+    grep -qE '^icanon echo *$' <<<"$pane" || { echo "$pane"; tmux -L "$sock" kill-server; return 1; }
+
     tmux -L "$sock" kill-server
 }
 
