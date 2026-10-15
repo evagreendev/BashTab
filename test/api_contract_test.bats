@@ -742,3 +742,58 @@ function test_location_param_cli_completion { #@test
     bu_autocomplete_get_autocompletions bu push-location 'mr@'
     assert_equal "${COMPREPLY[*]}" 'mr@foo mr@plain'
 }
+
+# ===========================================================================
+# Default (-D) compspec fallback
+# ===========================================================================
+
+function test_default_compspec_self_does_not_loop { #@test
+    # Init state: the framework's own handler is the -D default.  A command
+    # with no compspec must fall through to the _completion_loader /
+    # _minimal / return 1 chain, not re-register the handler and return 124.
+    contract_nocomp_cmd() { :; }
+    complete -F __bu_autocomplete_completion_func_default -D
+    complete -r contract_nocomp_cmd 2>/dev/null || true
+    local COMPREPLY=() BU_COMPREPLY_METADATA=()
+    local rc=0
+    bu_autocomplete_get_autocompletions contract_nocomp_cmd '' 2>/dev/null || rc=$?
+    (( rc != 124 )) || fail "default compspec looped on itself (rc=124)"
+    local spec=
+    spec=$(complete -p contract_nocomp_cmd 2>/dev/null) || spec=
+    [[ "$spec" != *__bu_autocomplete_completion_func_default* ]] \
+        || fail "default handler registered as its own compspec: $spec"
+}
+
+function test_default_compspec_foreign_handler_honoured { #@test
+    contract_nocomp_cmd() { :; }
+    contract_foreign_default() { COMPREPLY=(from-foreign-default); return 0; }
+    complete -F contract_foreign_default -D
+    complete -r contract_nocomp_cmd 2>/dev/null || true
+    local COMPREPLY=() BU_COMPREPLY_METADATA=()
+    local rc=0
+    # The "no compspec yet" probe returns non-zero internally; keep errexit off
+    bu_autocomplete_get_autocompletions contract_nocomp_cmd '' || rc=$?
+    assert_equal "$rc" 0
+    assert_equal "${COMPREPLY[*]}" 'from-foreign-default'
+    assert_equal "$(complete -p contract_nocomp_cmd)" 'complete -F contract_foreign_default contract_nocomp_cmd'
+}
+
+# ===========================================================================
+# Test-mode activation ignores an embedder's inherited identity
+# ===========================================================================
+
+function test_activate_test_mode_pins_cli_name { #@test
+    run bash -c '
+        export BU_USER_DEFINED_CLI_COMMAND_NAME=mycli
+        source "'"$DIR"'/../activate" -t >/dev/null 2>&1
+        complete -p bu || exit 2
+        COMPREPLY=()
+        bu_autocomplete_get_autocompletions bu get-con || exit 3
+        printf "n=%s\n" "${#COMPREPLY[@]}"
+        printf "%s\n" "${COMPREPLY[@]}"
+    '
+    assert_success
+    assert_line 'complete -F __bu_autocomplete_completion_func_cli bu'
+    refute_line 'n=0'
+    assert_line 'get-config'
+}

@@ -2701,13 +2701,23 @@ __bu_autocomplete_completion_func_default()
     then
         # Parse the -F <func> from:  complete -F my_func -D
         local default_func=
+        local current_spec=
         if [[ "$default_spec" =~ [[:space:]]-F[[:space:]]+([^[:space:]]+) ]]
         then
             default_func=${BASH_REMATCH[1]}
-            # Register the default handler for this command so the
-            # retry loop re-resolves and invokes it.
-            complete -F "$default_func" -- "$completion_command"
-            return 124
+            current_spec=$(complete -p -- "$completion_command" 2>/dev/null) || current_spec=
+            # The -D handler is normally this very function (installed by
+            # __bu_init_autocomplete).  Registering it again would make the
+            # retry loop resolve straight back here, so only honour a
+            # foreign handler that isn't already the command's compspec.
+            if [[ "$default_func" != "${FUNCNAME[0]}" \
+                && ! "$current_spec" =~ [[:space:]]-F[[:space:]]+"$default_func"([[:space:]]|$) ]]
+            then
+                # Register the default handler for this command so the
+                # retry loop re-resolves and invokes it.
+                complete -F "$default_func" -- "$completion_command"
+                return 124
+            fi
         fi
     fi
 

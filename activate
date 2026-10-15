@@ -73,6 +73,30 @@ case "$*" in
     BU_SOURCE_IS_FORCE="$force" source ./bu_examples_entrypoint.sh
     ;;
 *t*)
+    # The test environment must not inherit an embedding project's identity
+    # from a parent activation (e.g. a login shell that activated a project
+    # whose CLI is `mycli`): the suite completes `bu ...` and would fail with
+    # no visible cause.  Tests that exercise embedders set these themselves.
+    local -a overridden=()
+    if [[ -n "${BU_USER_DEFINED_CLI_COMMAND_NAME:-}" && "$BU_USER_DEFINED_CLI_COMMAND_NAME" != bu ]]
+    then
+        overridden+=("BU_USER_DEFINED_CLI_COMMAND_NAME=$BU_USER_DEFINED_CLI_COMMAND_NAME")
+    fi
+    if [[ "$BU_TOP_LEVEL_MODULE" != bashtab ]]
+    then
+        overridden+=("BU_TOP_LEVEL_MODULE=$BU_TOP_LEVEL_MODULE")
+    fi
+    if [[ -n "${BU_MODULE_LIST:-}" ]]
+    then
+        overridden+=("BU_MODULE_LIST=$BU_MODULE_LIST")
+    fi
+    if ((${#overridden[@]}))
+    then
+        echo "bu: test mode ignoring inherited ${overridden[*]}" >&2
+    fi
+    export BU_USER_DEFINED_CLI_COMMAND_NAME=bu
+    export BU_TOP_LEVEL_MODULE=bashtab
+    export BU_MODULE_LIST=
     BU_SOURCE_IS_FORCE="$force" source ./bu_test_entrypoint.sh
     ;;
 *)
