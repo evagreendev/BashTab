@@ -2852,7 +2852,8 @@ __bu_env_append_generic_path()
 
 # ```
 # *Description*:
-# Prepend a path to a generic path-like environment variable if it is not already present
+# Prepend a path to a generic path-like environment variable, moving it to the
+# front if it is already present (e.g. after macOS path_helper put /bin ahead)
 #
 # *Params*:
 # - `$1`: Name of the path variable (e.g. PATH, LD_LIBRARY_PATH, etc.)
@@ -2864,10 +2865,11 @@ __bu_env_prepend_generic_path()
 {
     local -n __path_var=$1
     local path_to_prepend=$2
-    if [[ ":$__path_var:" != *":$path_to_prepend:"* ]]
+    if [[ ":$__path_var:" == *":$path_to_prepend:"* ]]
     then
-        __path_var=$path_to_prepend${__path_var:+:$__path_var}
+        __bu_env_remove_from_generic_path "$1" "$path_to_prepend"
     fi
+    __path_var=$path_to_prepend${__path_var:+:$__path_var}
 }
 
 # ```
@@ -2903,7 +2905,7 @@ bu_env_append_path()
 
 # ```
 # *Description*:
-# Prepend a path to the PATH environment variable if it is not already present
+# Prepend a path to the PATH environment variable, moving it to the front if already present
 #
 # *Params*:
 # - `$1`: Path to prepend
@@ -2945,7 +2947,7 @@ bu_env_append_ld_library_path()
 
 # ```
 # *Description*:
-# Prepend a path to the PYTHONPATH environment variable if it is not already present
+# Prepend a path to the PYTHONPATH environment variable, moving it to the front if already present
 #
 # *Params*:
 # - `$1`: Path to prepend

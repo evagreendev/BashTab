@@ -441,7 +441,20 @@ function test_bu_env_prepend_generic_path { #@test
     TEST_PATH="/usr/bin:/usr/local/bin"
     __bu_env_prepend_generic_path TEST_PATH "/usr/bin"
     assert_equal "$TEST_PATH" "/usr/bin:/usr/local/bin"
-    
+
+    # Test that an existing entry is moved to the front (middle and end)
+    TEST_PATH="/usr/bin:/opt/homebrew/bin:/bin"
+    __bu_env_prepend_generic_path TEST_PATH "/opt/homebrew/bin"
+    assert_equal "$TEST_PATH" "/opt/homebrew/bin:/usr/bin:/bin"
+    TEST_PATH="/usr/bin:/bin:/opt/homebrew/bin"
+    __bu_env_prepend_generic_path TEST_PATH "/opt/homebrew/bin"
+    assert_equal "$TEST_PATH" "/opt/homebrew/bin:/usr/bin:/bin"
+
+    # Test that the only entry stays as-is
+    TEST_PATH="/usr/bin"
+    __bu_env_prepend_generic_path TEST_PATH "/usr/bin"
+    assert_equal "$TEST_PATH" "/usr/bin"
+
     # Test prepending another new path (goes to front)
     TEST_PATH="/usr/bin:/usr/local/bin"
     __bu_env_prepend_generic_path TEST_PATH "/opt/bin"
