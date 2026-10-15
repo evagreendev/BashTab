@@ -445,6 +445,31 @@ function test_tv_tmux_suspend_resume_cycle { #@test
     tmux -L "$sock" kill-server
 }
 
+function test_tv_tmux_uses_real_window_size { #@test
+    # tput inside $(...) 2>/dev/null sees no terminal and reports the
+    # terminfo default 80x24; the viewer must ask the tty.  50 rows in a
+    # 30-line pane -> 27 data rows (status 1-27); 20 lines -> 17.
+    command -v tmux >/dev/null || skip "tmux not available"
+
+    local sock="tvsize$$"
+    local pane
+    __tv_tmux_setup "$sock" tvsize >/dev/null
+    pane=$(tmux -L "$sock" capture-pane -t tvsize -p)
+    grep -q 'Rows 1-27/50' <<<"$pane" || { echo "$pane"; tmux -L "$sock" kill-server; return 1; }
+
+    # SIGWINCH path: only the WINCH handler re-reads the size, so the frame
+    # after the next key must use it.  (The handler runs once the blocking
+    # read returns, so the key is what triggers the redraw.)
+    tmux -L "$sock" resize-window -t tvsize -x 100 -y 20
+    sleep 0.5
+    tmux -L "$sock" send-keys -t tvsize j
+    __tv_wait_pane "$sock" tvsize 'Rows 2-18/50'
+    grep -q 'Rows 2-18/50' <<<"$pane" || { echo "$pane"; tmux -L "$sock" kill-server; return 1; }
+
+    tmux -L "$sock" send-keys -t tvsize q
+    tmux -L "$sock" kill-server
+}
+
 function test_tv_tmux_background_refusal { #@test
     command -v tmux >/dev/null || skip "tmux not available"
 

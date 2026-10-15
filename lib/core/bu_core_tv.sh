@@ -456,6 +456,11 @@ __bu_tv_cleanup_exit()
 # ```
 # *Description*:
 # Update _TV_TERM_ROWS and _TV_TERM_COLS from current terminal size.
+#
+# Asks the tty itself (stty size).  Not tput: inside $(...) with stderr
+# discarded, tput sees no terminal on stdout or stderr and silently reports
+# the terminfo default (80x24 for xterm) with exit status 0.  COLUMNS/LINES
+# are unexported shell variables, so the cmdlet process rarely has them.
 # ```
 __bu_tv_update_dimensions()
 {
@@ -463,9 +468,13 @@ __bu_tv_update_dimensions()
     _TV_TERM_ROWS=24
     [[ -n "${COLUMNS:-}" ]] && _TV_TERM_COLS=$COLUMNS
     [[ -n "${LINES:-}" ]] && _TV_TERM_ROWS=$LINES
-    local tc tl
-    tc=$(tput cols 2>/dev/null) && [[ -n "$tc" ]] && _TV_TERM_COLS=$tc
-    tl=$(tput lines 2>/dev/null) && [[ -n "$tl" ]] && _TV_TERM_ROWS=$tl
+    # 2>/dev/null first so a failed /dev/tty open is silenced too
+    local size= rows= cols=
+    size=$(stty size 2>/dev/null </dev/tty) || size=
+    rows=${size%% *}
+    cols=${size##* }
+    [[ "$rows" =~ ^[0-9]+$ ]] && _TV_TERM_ROWS=$rows
+    [[ "$cols" =~ ^[0-9]+$ ]] && _TV_TERM_COLS=$cols
     if (( _TV_TERM_COLS < 20 )); then _TV_TERM_COLS=80; fi
     if (( _TV_TERM_ROWS < 10 )); then _TV_TERM_ROWS=24; fi
 }
@@ -749,8 +758,10 @@ __bu_tv_render_status()
     local -n __rs_out=$1
     local -a parts=()
 
-    # Row position
-    local -i last_visible=$((_TV_ROW_OFFSET + _TV_TERM_ROWS - 3))
+    # Row position (TERM_ROWS - 3 data rows, as in render_frame)
+    local -i data_rows=$((_TV_TERM_ROWS - 3))
+    (( data_rows < 1 )) && data_rows=1
+    local -i last_visible=$((_TV_ROW_OFFSET + data_rows - 1))
     (( last_visible >= _TV_NUM_ROWS )) && last_visible=$((_TV_NUM_ROWS - 1))
     if (( _TV_NUM_ROWS > 0 ))
     then
