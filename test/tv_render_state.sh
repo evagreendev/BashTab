@@ -24,6 +24,11 @@
 #   overflow         - 14 columns in a 12-row terminal: the sidebar list scrolls
 #   paged            - overflow data after one page right (Shift-→) from column 0
 #   scrollbar        - 40 rows for 17 data rows: cursor on row 26, thumb 7 rows
+#   filter           - rows filtered to "source" (3 of 5)
+#   numeric          - numeric columns right-aligned, nulls as ∅, cursor row 2
+#   frozen           - overflow data, col01 frozen, one page right
+#   markers          - frozen, sidebar hidden: "◂ N" / "N ▸" on the separator row
+#   hidden           - the verb column hidden
 
 set -u
 
@@ -50,7 +55,7 @@ _TV_TERM_ROWS=20
 _TV_TERM_COLS=60
 
 case $state in
-overflow|paged)
+overflow|paged|frozen|markers)
     _TV_ROWS=()
     for i in 1 2 3
     do
@@ -73,6 +78,16 @@ detail)
     ;;
 scrolled)
     _TV_TERM_ROWS=7
+    ;;
+numeric)
+    _TV_ROWS=(
+        '{"name":"alpha","size":1200,"ratio":0.5,"tag":null}'
+        '{"name":"beta","size":7,"ratio":null,"tag":"x"}'
+        '{"name":"gamma","size":null,"ratio":12.25,"tag":""}'
+    )
+    ;;
+markers)
+    _TV_TERM_COLS=70
     ;;
 scrollbar)
     _TV_ROWS=()
@@ -161,6 +176,33 @@ paged)
 scrollbar)
     # Row 26/40: offset 9
     _TV_CUR_ROW=25
+    ;;
+filter)
+    _TV_FILTER_QUERY=source
+    __bu_tv_apply_filter
+    ;;
+numeric)
+    _TV_CUR_ROW=1
+    ;;
+frozen)
+    __bu_tv_clamp_offsets
+    for key in f shift_right
+    do
+        _TV_KEY=$key
+        __bu_tv_dispatch_key
+    done
+    ;;
+markers)
+    _TV_SIDEBAR=false
+    __bu_tv_clamp_offsets
+    _TV_KEY=f
+    __bu_tv_dispatch_key
+    _TV_CUR_COL=10
+    ;;
+hidden)
+    _TV_CUR_COL=1
+    _TV_KEY=-
+    __bu_tv_dispatch_key
     ;;
 *)
     echo "unknown state: $state" >&2

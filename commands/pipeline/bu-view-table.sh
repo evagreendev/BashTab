@@ -29,7 +29,8 @@ bu_scope_add_cleanup bu_popd_silent
 bu_run_log_command "$@"
 
 local columns=
-local colors=auto
+# Empty: "auto", or "none" when NO_COLOR is set (resolved by the viewer)
+local colors=
 local is_sidebar=true
 local max_width=40
 local is_help=false
@@ -47,7 +48,8 @@ do
         ;;
     --colors)# COLORS
         # Colorize column cells: comma-separated key=color pairs, "auto" for
-        # rainbow (the default) or "none" for no colors
+        # rainbow (the default) or "none" for no colors.  A non-empty
+        # NO_COLOR makes "none" the default.
         bu_parse_positional $# --hint "Comma-separated key=color pairs (e.g. name=green,version=yellow), auto or none"
         colors=${!shift_by}
         ;;
@@ -104,9 +106,11 @@ toggle it.  Press H or F1 for all keys, q to quit.
 Keys: j/k/h/l or arrows move the cursor, g/G first/last row, 0/\$/Home/End
 first/last column, Space/b/PgDn/PgUp/Shift-Down/Shift-Up page rows,
 Shift-Right/Shift-Left (or Ctrl) page columns, Ctrl-D/Ctrl-U half page,
-s/S sort the cursor column, w/W widen columns, / and ? search (n/N next and
-previous match, Esc clears), Enter shows the record, m toggles the mouse,
-q quits.
+s/S sort the cursor column, w/W widen columns, f freezes the cursor column
+at the left, - hides it and + brings hidden columns back, </> move it,
+/ and ? search (n/N next and previous match), & filters rows, Esc clears
+the search then the filter, Enter shows the record, m toggles the mouse,
+q quits.  Numeric columns are right-aligned and null shows as ∅.
 
 Mouse: click a cell to move the cursor, double-click a row for its record,
 click a header or sidebar entry to select that column, scroll with the

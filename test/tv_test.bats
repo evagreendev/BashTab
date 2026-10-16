@@ -11,7 +11,7 @@
 #
 #     for s in plain scrolled cursor search search_truncated search_expanded \
 #              regex prompt detail help nosidebar sorted overflow paged \
-#              scrollbar; do
+#              scrollbar filter numeric frozen markers hidden; do
 #         bash test/tv_render_state.sh "$s" > test/fixtures/tv_frame_$s.expected
 #     done
 #
@@ -139,7 +139,8 @@ function test_tv_frame_detail_matches_golden { #@test
         $'            "k": "a\\"b\\\\c",' \
         $'flag      false\e[K' \
         $'lines     \e[43;30mline\e[0m1\e[K' \
-        $'\e[15;1H          \e[43;30mline\e[0m2\e[K'
+        $'\e[15;1H          \e[43;30mline\e[0m2\e[K' \
+        $'\e[16;1Hnone      \e[2m∅\e[0m\e[K'
 }
 
 function test_tv_frame_help_matches_golden { #@test
@@ -151,7 +152,9 @@ function test_tv_frame_help_matches_golden { #@test
 }
 
 function test_tv_frame_nosidebar_matches_golden { #@test
-    __tv_check_golden nosidebar $'\e[3;1H\e[7mget-command'
+    # The columns cut off on the right are counted on the separator row
+    __tv_check_golden nosidebar $'\e[3;1H\e[7mget-command' \
+        $'\e[2;58H\e[1m2 ▸\e[0m'
     if grep -qF 'Columns' "$BATS_TEST_TMPDIR/nosidebar.actual"; then
         echo "sidebar drawn while hidden"
         return 1
@@ -162,6 +165,7 @@ function test_tv_frame_sorted_sidebar_matches_golden { #@test
     # The cursor followed get-command through the sort; the sidebar shows
     # the sort arrow and ▸ on the cursor column
     __tv_check_golden sorted \
+        $'\e[1;1H\e[1mverb ↓\e[0m' \
         $'\e[5;1H\e[7mget ' \
         $'\e[7m▸namespace' \
         'Sorted: verb ↓'
@@ -196,6 +200,47 @@ function test_tv_frame_scrollbar_matches_golden { #@test
     local -i thumb
     thumb=$(grep -o '█' "$BATS_TEST_TMPDIR/scrollbar.actual" | wc -l)
     (( thumb == 7 ))
+}
+
+function test_tv_frame_filter_matches_golden { #@test
+    __tv_check_golden filter \
+        $'\e[3;1H\e[7mget-command' \
+        $'\e[4;1Hformat-table' \
+        $'\e[5;1Hquery-object' \
+        $'\e[6;1H\e[K' \
+        'Row 1/3 | Col name (1/5) | &source 3/5'
+}
+
+function test_tv_frame_numeric_and_null_matches_golden { #@test
+    # Numeric columns (and their headers) right-aligned; null is a dim ∅,
+    # also inside the cursor row
+    __tv_check_golden numeric \
+        $'\e[3;1Halpha  1200    0.5  \e[2m∅\e[0m\e[K' \
+        $'\e[4;1H\e[7mbeta      7      \e[2m∅\e[0m\e[7m  x' \
+        $'\e[5;1Hgamma     \e[2m∅\e[0m  12.25\e[K'
+}
+
+function test_tv_frame_frozen_matches_golden { #@test
+    # col01 stays on the left, behind a dim divider, while the rest page
+    __tv_check_golden frozen \
+        $'\e[1;1H\e[1mcol01\e[0m  \e[2m│\e[22m \e[1;4mcol07\e[0m' \
+        $'\e[3;1H\e[7mvalue-1\e[2m│\e[22m value-1' \
+        'Col col07 (7/14)'
+}
+
+function test_tv_frame_markers_matches_golden { #@test
+    # Sidebar hidden: 4 columns off the left (after the frozen one), 3 off
+    # the right
+    __tv_check_golden markers \
+        $'\e[2;10H\e[1m◂ 4\e[0m' \
+        $'\e[2;68H\e[1m3 ▸\e[0m' \
+        $'\e[1;1H\e[1mcol01\e[0m  \e[2m│\e[22m \e[1mcol06'
+}
+
+function test_tv_frame_hidden_matches_golden { #@test
+    __tv_check_golden hidden \
+        $'\e[1;1H\e[1mname\e[0m                     \e[1;4mnoun\e[0m' \
+        'Col noun (2/4) | 1 hidden'
 }
 
 function test_tv_frame_independent_of_term { #@test
@@ -268,9 +313,8 @@ function test_tv_cache_empty_cells_stay_aligned { #@test
 {"id":2,"name":"b\tc","note":""}
 {"id":"","name":null,"note":""}' \
         '__bu_tv_rebuild_cache; echo "rc=$?"; printf "%s|" "${#_TV_CELLS[@]}" "${_TV_CELLS[@]}"; echo; echo "${_TV_COL_WIDTHS[*]}"')
-    assert_equal "$result" 'rc=0
-9|1||x|2|b\tc|||||
-4 4 4'
+    # null is the lone-U+0002 marker, "" stays empty
+    assert_equal "$result" $'rc=0\n9|1||x|2|b\\tc|||\x02||\n4 4 4'
 }
 
 function test_tv_cache_single_column_empty_value { #@test
@@ -293,11 +337,24 @@ function test_tv_cache_literal_u0001_is_escaped { #@test
 }
 
 function test_tv_cache_false_and_zero_render { #@test
-    # `. // ""` treats false like null; only null may be blank
+    # `. // ""` treats false like null; only null is the null marker
     local result
     result=$(__tv_in_child '{"b":false,"t":true,"z":0,"n":null,"s":""}' \
         '__bu_tv_rebuild_cache; printf "%s|" "${_TV_CELLS[@]}"')
-    assert_equal "$result" 'false|true|0|||'
+    assert_equal "$result" $'false|true|0|\x02||'
+}
+
+function test_tv_cache_numeric_columns_and_null_marker { #@test
+    # A column is numeric when every non-null value is a number; a literal
+    # U+0002 is escaped so it can't pass for null
+    local result
+    result=$(__tv_in_child '{"n":1,"m":"1","x":null,"y":2.5,"s":"a\u0002b"}
+{"n":null,"m":2,"x":null,"y":-3,"s":""}' \
+        '__bu_tv_rebuild_cache; echo "${_TV_COL_NUMERIC[*]}"; printf "%q " "${_TV_CELLS[@]}"; echo
+        printf "%q " "${_TV_ROW_TEXT[@]}"')
+    assert_equal "$result" "1 0 0 1 0
+1 1 \$'\\002' 2.5 a\\\\u0002b \$'\\002' 2 \$'\\002' -3 '' 
+\$'1\\0011\\001\\0012.5\\001a\\\\u0002b' \$'\\0012\\001\\001-3\\001' "
 }
 
 function test_tv_cache_row_text_is_ansi_stripped { #@test
@@ -322,7 +379,8 @@ function test_tv_truncated_header_not_over_padded { #@test
     # A truncated header is exactly col_w characters: the ellipsis occupies
     # the last cell, no padding follows
     local result
-    result=$(__tv_in_child '{"abcdefghij":1,"b":2}' \
+    # String values: numeric columns would right-align the headers
+    result=$(__tv_in_child '{"abcdefghij":"x","b":"y"}' \
         '__bu_tv_rebuild_cache
         _TV_COL_WIDTHS=(6 4)
         __bu_tv_compute_visible_cols
@@ -824,7 +882,7 @@ function test_tv_detail_values_from_raw_record { #@test
 <line1
 line2>
 <false>
-<>
+<>
 <x	y>'
 }
 
@@ -1061,6 +1119,228 @@ wheel_down/0: help d3 h3
 press/0: table d3 h3'
 }
 
+# ── Filter ───────────────────────────────────────────────────────────────
+
+function test_tv_filter_view_smart_case { #@test
+    local result
+    result=$(__tv_in_child "$(__tv_rows 12 3 7 11)" '
+        __bu_tv_rebuild_cache
+        for q in hit HIT Hit "cmd-1" ""; do
+            _TV_FILTER_QUERY=$q; __bu_tv_apply_filter
+            echo "[$q] $_TV_NUM_VIEW:" "${_TV_VIEW[@]}"
+        done')
+    assert_equal "$result" '[hit] 3: 2 6 10
+[HIT] 0:
+[Hit] 0:
+[cmd-1] 3: 0 9 11
+[] 12: 0 1 2 3 4 5 6 7 8 9 10 11'
+}
+
+# Snippet prefix for the filter prompt: like __TV_PROMPT_STUBS, but each
+# render records "prompt|filter|view size|cursor|offset|cursor's data row"
+__TV_FILTER_STUBS='
+    __tv_keys=(); __tv_ki=0; __tv_frames=()
+    __bu_tv_read_key() {
+        _TV_KEY=${__tv_keys[__tv_ki]:-EOF}
+        __tv_ki=$((__tv_ki + 1))
+        if [[ $_TV_KEY == EOF ]]; then _TV_EOF=true; _TV_KEY=q; fi
+        return 0
+    }
+    __tv_state() { __bu_tv_cursor_data
+        echo "$_TV_PROMPT_TEXT|$_TV_FILTER_QUERY|$_TV_NUM_VIEW|$_TV_CUR_ROW|$_TV_ROW_OFFSET|$_TV_FOUND_IDX"; }
+    __bu_tv_render() { __tv_frames+=("$(__tv_state)"); }
+    __tv_report() { printf "%s\n" "${__tv_frames[@]}"; echo "end:$(__tv_state)"; }
+    __bu_tv_rebuild_cache
+    _TV_TERM_ROWS=13
+    _TV_CUR_ROW=11; _TV_ROW_OFFSET=6; __bu_tv_clamp_offsets
+'
+
+function test_tv_filter_prompt_keeps_cursor_record { #@test
+    # Cursor on cmd-12 (data 11).  "2": 12 rows, cmd-12 is view row 1;
+    # "25": cmd-12 is out, the cursor takes the next row (cmd-25);
+    # Backspace brings cmd-12 back under the cursor
+    local result
+    result=$(__tv_in_child "$(__tv_rows 30)" "$__TV_FILTER_STUBS"'
+        __tv_keys=(2 5 "$TV_BS" "$TV_ENTER")
+        __bu_tv_prompt "&"
+        __tv_report
+        _TV_KEY=escape; __bu_tv_dispatch_key; echo "esc:$(__tv_state)"')
+    assert_equal "$result" '&||30|11|6|11
+&2|2|12|1|0|11
+&25|25|1|0|0|24
+&2|2|12|1|0|11
+end:|2|12|1|0|11
+esc:||30|11|10|11'
+}
+
+function test_tv_filter_prompt_refine_cancel_and_clear { #@test
+    # The prompt starts from the current filter; Esc restores it; Ctrl-U
+    # then Enter clears it (every row).  "cmd-10" leaves cmd-12 (data 11)
+    # out, so the cursor falls back to the last row before the end
+    local result
+    result=$(__tv_in_child "$(__tv_rows 30)" "$__TV_FILTER_STUBS"'
+        __bu_tv_filter_to cmd-1 11 5
+        __tv_keys=(0 escape)
+        __bu_tv_prompt "&"; __tv_report
+        __tv_frames=(); __tv_keys=("$TV_CTRL_U" "$TV_ENTER"); __tv_ki=0
+        __bu_tv_prompt "&"; __tv_report')
+    assert_equal "$result" '&cmd-1|cmd-1|11|3|0|11
+&cmd-10|cmd-10|1|0|0|9
+end:|cmd-1|11|3|0|11
+&cmd-1|cmd-1|11|3|0|11
+&||30|11|8|11
+end:||30|11|8|11'
+}
+
+function test_tv_filter_with_search_sort_and_status { #@test
+    # Search runs over the filtered view; a sort keeps the cursor's record
+    # and re-applies the filter in the new order
+    local result
+    result=$(__tv_in_child "$(__tv_rows 30)" '
+        __bu_tv_rebuild_cache; _TV_TERM_ROWS=13; __bu_tv_clamp_offsets
+        __bu_tv_filter_to 2 -1 0
+        _TV_SEARCH_QUERY=cmd-2; __bu_tv_update_search_matches
+        echo "matches=${_TV_MATCHED_ROWS[*]}"
+        _TV_KEY=n; __bu_tv_dispatch_key; __bu_tv_cursor_data; echo "n: view $_TV_CUR_ROW data $_TV_FOUND_IDX"
+        __bu_tv_render_status; s=$_TV_STATUS; __bu_tv_strip_ansi s; echo "${s%% | H:help}"
+        _TV_KEY=S; __bu_tv_dispatch_key; __bu_tv_cursor_data
+        echo "sorted: view $_TV_CUR_ROW ${_TV_ROWS[_TV_FOUND_IDX]} first ${_TV_ROWS[_TV_VIEW[0]]} n=$_TV_NUM_VIEW"')
+    assert_equal "$result" 'matches=0 2 3 4 5 6 7 8 9 10 11
+n: view 2 data 19
+Row 3/12 | Col name (1/2) | &2 12/30 | /cmd-2 2/11 [name]
+sorted: view 9 {"name":"cmd-20","version":"1.0"} first {"name":"cmd-29","version":"1.0"} n=12'
+}
+
+# ── Header arrow and NO_COLOR ────────────────────────────────────────────
+
+function test_tv_sorted_header_gets_arrow_room { #@test
+    # The sorted column's full width counts " ↑"; a capped header keeps
+    # the arrow and truncates the label instead
+    local result
+    result=$(__tv_in_child '{"abcd":"x","efghijkl":"y"}' '
+        __bu_tv_rebuild_cache; echo "${_TV_COL_FULL_WIDTHS[*]}"
+        __bu_tv_sort_by_column abcd; echo "${_TV_COL_FULL_WIDTHS[*]}"
+        _TV_MAX_WIDTH=4; __bu_tv_sort_by_column efghijkl desc; __bu_tv_clamp_offsets
+        __bu_tv_compute_visible_cols; __bu_tv_render_line -1 "" line
+        __bu_tv_strip_ansi line; echo "[$line]"')
+    assert_equal "$result" '4 8
+6 8
+[abcd  e… ↓]'
+}
+
+function test_tv_no_color_resolution { #@test
+    local result
+    result=$(__tv_in_child '{"a":1}' '
+        show() { __bu_tv_resolve_colors "$1"; printf "%s %q\n" "$BU_RET" "$_TV_HIT_ATTR"; }
+        unset NO_COLOR; show ""; show none
+        NO_COLOR=1; show ""; show auto; show "a=red"
+        NO_COLOR=; show ""')
+    assert_equal "$result" "auto \$'\\E[43;30m'
+none \$'\\E[43;30m'
+none \$'\\E[1;4m'
+auto \$'\\E[1;4m'
+a=red \$'\\E[1;4m'
+auto \$'\\E[43;30m'"
+}
+
+# ── Freeze, hide, move ───────────────────────────────────────────────────
+
+function test_tv_freeze_pins_column_while_paging { #@test
+    # 14 columns of 7 in a 60-column table area: frozen col01 takes 9,
+    # leaving 51 (5 columns) to scroll
+    local result
+    result=$(__tv_in_child "$(__tv_wide_row)" '
+        _TV_TERM_COLS=70; __bu_tv_rebuild_cache; __bu_tv_clamp_offsets
+        show() { __bu_tv_compute_visible_cols; echo "$1: cur $_TV_CUR_COL off $_TV_COL_OFFSET vis ${_TV_VIS_COLS[*]}"; }
+        _TV_KEY=f; __bu_tv_dispatch_key; show freeze
+        __bu_tv_page_cols_right; show right
+        __bu_tv_page_cols_right; show right
+        __bu_tv_page_cols_left; show left
+        __bu_tv_page_cols_left; show left
+        __bu_tv_page_cols_left; show left
+        _TV_CUR_COL=0; __bu_tv_clamp_offsets; show on-frozen
+        __bu_tv_render_status; [[ $_TV_STATUS == *"Col col01 (1/14) frozen"* ]] && echo status-frozen')
+    assert_equal "$result" 'freeze: cur 0 off 1 vis 0 1 2 3 4 5
+right: cur 6 off 6 vis 0 6 7 8 9 10
+right: cur 11 off 9 vis 0 9 10 11 12 13
+left: cur 5 off 5 vis 0 5 6 7 8 9
+left: cur 1 off 1 vis 0 1 2 3 4 5
+left: cur 1 off 1 vis 0 1 2 3 4 5
+on-frozen: cur 0 off 1 vis 0 1 2 3 4 5
+status-frozen'
+}
+
+function test_tv_freeze_moves_columns_and_unfreezes { #@test
+    local result
+    result=$(__tv_in_child "$(__tv_wide_row)" '
+        _TV_TERM_COLS=70; __bu_tv_rebuild_cache; __bu_tv_clamp_offsets
+        show() { echo "$1: n=$_TV_FROZEN_N cur=$_TV_CUR_COL ${_TV_COLUMNS[*]:0:4}"; }
+        _TV_KEY=f; __bu_tv_dispatch_key; show f
+        _TV_CUR_COL=5; _TV_KEY=f; __bu_tv_dispatch_key; show f
+        _TV_CUR_COL=0; _TV_KEY=f; __bu_tv_dispatch_key; show unfreeze
+        __bu_tv_compute_visible_cols; echo "vis ${_TV_VIS_COLS[*]}"')
+    assert_equal "$result" 'f: n=1 cur=0 col01 col02 col03 col04
+f: n=2 cur=1 col01 col06 col02 col03
+unfreeze: n=1 cur=1 col06 col01 col02 col03
+vis 0 1 2 3 4 5'
+}
+
+function test_tv_freeze_suspended_without_room { #@test
+    # Two 40-wide columns can't share a 50-column screen: the freeze waits
+    local x
+    x=$(printf 'x%.0s' {1..50})
+    local result
+    result=$(__tv_in_child '{"a":"'"$x"'","b":"'"$x"'","c":"'"$x"'"}' '
+        _TV_TERM_COLS=50; __bu_tv_rebuild_cache; __bu_tv_clamp_offsets
+        _TV_KEY=f; __bu_tv_dispatch_key
+        _TV_CUR_COL=2; __bu_tv_clamp_offsets; __bu_tv_compute_visible_cols
+        echo "n=$_TV_FROZEN_N eff=$_TV_FROZEN_EFF vis ${_TV_VIS_COLS[*]}"
+        _TV_TERM_COLS=100; __bu_tv_compute_widths; __bu_tv_clamp_offsets; __bu_tv_compute_visible_cols
+        echo "n=$_TV_FROZEN_N eff=$_TV_FROZEN_EFF vis ${_TV_VIS_COLS[*]}"')
+    assert_equal "$result" 'n=1 eff=0 vis 2
+n=1 eff=1 vis 0 2'
+}
+
+function test_tv_hide_restore_and_move_columns { #@test
+    local result
+    result=$(__tv_in_child '{"a":"1","b":"2","c":"3","d":"4","e":"5"}' '
+        __bu_tv_rebuild_cache; __bu_tv_clamp_offsets
+        k() { _TV_KEY=$1; __bu_tv_dispatch_key; echo "$1: ${_TV_COLUMNS[*]} cur=$_TV_CUR_COL n=$_TV_FROZEN_N hidden=${#_TV_HIDDEN[@]} cells=${_TV_CELLS[*]}"; }
+        _TV_CUR_COL=2; k -; k -
+        k +
+        k "<"; k ">"; k ">"
+        _TV_CUR_COL=0; k f; k ">"
+        _TV_CUR_COL=1; k "<"
+        _TV_CUR_COL=0; k -; k +
+        # Down to one column: it stops being frozen and cannot be hidden
+        for i in 1 2 3 4; do _TV_KEY=-; __bu_tv_dispatch_key; done; k -')
+    assert_equal "$result" '-: a b d e cur=2 n=0 hidden=1 cells=1 2 4 5
+-: a b e cur=2 n=0 hidden=2 cells=1 2 5
++: a b c d e cur=4 n=0 hidden=0 cells=1 2 3 4 5
+<: a b c e d cur=3 n=0 hidden=0 cells=1 2 3 5 4
+>: a b c d e cur=4 n=0 hidden=0 cells=1 2 3 4 5
+>: a b c d e cur=4 n=0 hidden=0 cells=1 2 3 4 5
+f: a b c d e cur=0 n=1 hidden=0 cells=1 2 3 4 5
+>: a b c d e cur=0 n=1 hidden=0 cells=1 2 3 4 5
+<: a b c d e cur=1 n=1 hidden=0 cells=1 2 3 4 5
+-: b c d e cur=0 n=0 hidden=1 cells=2 3 4 5
++: a b c d e cur=1 n=1 hidden=0 cells=1 2 3 4 5
+-: a cur=0 n=0 hidden=4 cells=1'
+}
+
+function test_tv_hidden_column_leaves_search { #@test
+    local result
+    result=$(__tv_in_child '{"a":"x","b":"needle"}
+{"a":"needle","b":"y"}' '
+        __bu_tv_rebuild_cache; __bu_tv_clamp_offsets
+        _TV_SEARCH_QUERY=needle; __bu_tv_update_search_matches
+        echo "rows=${_TV_MATCHED_ROWS[*]} cols=${_TV_MATCHED_COLS[*]}"
+        _TV_CUR_COL=1; _TV_KEY=-; __bu_tv_dispatch_key
+        echo "rows=${_TV_MATCHED_ROWS[*]} cols=${_TV_MATCHED_COLS[*]}"')
+    assert_equal "$result" 'rows=0 1 cols=1 0
+rows=1 cols=0'
+}
+
 # ── Sort ─────────────────────────────────────────────────────────────────
 
 function test_tv_sort_orders_raw_values { #@test
@@ -1078,10 +1358,7 @@ function test_tv_sort_orders_raw_values { #@test
         echo "rc=$? rows=${#_TV_ROWS[@]} cells=${#_TV_CELLS[@]} $_TV_SORT_DIR perm=${_TV_SORT_PERM[*]} cur=$_TV_CUR_ROW"
         printf "%s|" "${_TV_CELLS[@]}"')
     # The cursor follows record 0 ({"k":2}) through both sorts
-    assert_equal "$result" 'rc=0 rows=4 cells=8 asc perm=2 3 0 1 cur=2
-|n|1|a|2|b|10|c|
-rc=0 rows=4 cells=8 desc perm=3 2 1 0 cur=1
-10|c|2|b|1|a||n|'
+    assert_equal "$result" $'rc=0 rows=4 cells=8 asc perm=2 3 0 1 cur=2\n\x02|n|1|a|2|b|10|c|\nrc=0 rows=4 cells=8 desc perm=3 2 1 0 cur=1\n10|c|2|b|1|a|\x02|n|'
 }
 
 function test_tv_sort_bad_jq_output_leaves_rows_untouched { #@test
