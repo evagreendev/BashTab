@@ -166,6 +166,17 @@ function test_tv_truncated_header_not_over_padded { #@test
     assert_equal "$result" '[abcde…  b]'
 }
 
+function test_tv_colors_auto_none_and_empty { #@test
+    local result
+    result=$(__tv_in_child '{"name":1,"version":2}' \
+        '__bu_tv_build_colors auto; echo "auto=${#_TV_COLORS[@]}"
+        __bu_tv_build_colors none; echo "none=${#_TV_COLORS[@]}"
+        __bu_tv_build_colors ""; echo "empty=${#_TV_COLORS[@]}"')
+    assert_equal "$result" 'auto=2
+none=0
+empty=0'
+}
+
 function test_tv_sidebar_layout_reserves_width { #@test
     local result
     result=$(__tv_in_child '{"name":1,"version":2}' \

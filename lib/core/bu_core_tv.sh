@@ -302,7 +302,8 @@ __bu_tv_highlight_text()
 # Build a colors map from a --colors spec or "auto" rainbow.
 #
 # *Params*:
-# - `$1`: Color spec string (same as bu_format_table --colors)
+# - `$1`: Color spec string (same as bu_format_table --colors), "auto"
+#         for rainbow, or empty / "none" for no colors
 #
 # *Returns*:
 # - Sets _TV_COLORS assoc array.
@@ -311,7 +312,7 @@ __bu_tv_build_colors()
 {
     local spec=$1
     _TV_COLORS=()
-    [[ -z "$spec" ]] && return 0
+    [[ -z "$spec" || "$spec" == none ]] && return 0
 
     if [[ "$spec" == auto ]]
     then
@@ -1485,7 +1486,7 @@ __bu_tv_ensure_utf8_ctype()
 #
 # *Params*:
 # - `$1`: Column spec (comma-separated key:Label,...) — optional
-# - `$2`: Color spec (key=color,... or "auto") — optional
+# - `$2`: Color spec (key=color,..., "auto" or "none") — optional, default none
 # - `$3`: "false" to start with the column sidebar hidden — optional
 #
 # *Notes*:

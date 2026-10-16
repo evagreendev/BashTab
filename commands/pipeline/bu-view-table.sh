@@ -29,7 +29,7 @@ bu_scope_add_cleanup bu_popd_silent
 bu_run_log_command "$@"
 
 local columns=
-local colors=
+local colors=auto
 local is_sidebar=true
 local is_help=false
 local error_msg=
@@ -45,8 +45,9 @@ do
         columns=${!shift_by}
         ;;
     --colors)# COLORS
-        # Colorize column cells (comma-separated key=color pairs, or "auto" for rainbow)
-        bu_parse_positional $# --hint "Comma-separated key=color pairs (e.g. name=green,version=yellow) or auto"
+        # Colorize column cells: comma-separated key=color pairs, "auto" for
+        # rainbow (the default) or "none" for no colors
+        bu_parse_positional $# --hint "Comma-separated key=color pairs (e.g. name=green,version=yellow), auto or none"
         colors=${!shift_by}
         ;;
     --no-sidebar)# _FLAG
@@ -94,7 +95,8 @@ toggle it.  Press q to quit.
 " \
         --example "View all commands" "" \
         --example "Select columns" "--columns name,type,namespace" \
-        --example "With rainbow colors" "--colors auto"
+        --example "Without colors" "--colors none" \
+        --example "Color only some columns" "--colors name=green,type=yellow"
     return 0
 fi
 
