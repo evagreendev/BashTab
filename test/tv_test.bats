@@ -10,7 +10,8 @@
 # fixtures after intentional renderer changes with:
 #
 #     for s in plain scrolled cursor search search_truncated search_expanded \
-#              regex prompt detail help nosidebar sorted overflow paged; do
+#              regex prompt detail help nosidebar sorted overflow paged \
+#              scrollbar; do
 #         bash test/tv_render_state.sh "$s" > test/fixtures/tv_frame_$s.expected
 #     done
 #
@@ -67,12 +68,14 @@ function test_tv_frame_plain_matches_golden { #@test
 }
 
 function test_tv_frame_scrolled_matches_golden { #@test
-    # Cursor on the last row/column: the viewport scrolled the minimum
+    # Cursor on the last row/column: the viewport scrolled the minimum.
+    # 5 rows overflow the 4 data rows, so a scrollbar narrows the table
     __tv_check_golden scrolled \
-        $'\e[1;1H\e[1mverb\e[0m' \
+        $'\e[1;1H\e[1mnoun\e[0m' \
         $'\e[1;4mtype\e[0m' \
-        $'\e[3;1Hformat ' \
-        $'\e[6;1H\e[7mselect' \
+        $'\e[3;1Htable ' \
+        $'\e[6;1H\e[7mstring' \
+        $'\e[3;46H\e[2m░\e[0m\e[4;46H█' \
         'Row 5/5 | Col type (5/5)'
 }
 
@@ -179,6 +182,20 @@ function test_tv_frame_paged_matches_golden { #@test
     __tv_check_golden paged \
         $'\e[1;1H\e[1;4mcol07\e[0m' \
         'Col col07 (7/14)'
+}
+
+function test_tv_frame_scrollbar_matches_golden { #@test
+    # 40 rows, 17 data rows, offset 9: a 7-row thumb at screen rows 7-13,
+    # in the column just left of the sidebar border
+    __tv_check_golden scrollbar \
+        $'\e[6;46H\e[2m░\e[0m\e[7;46H█' \
+        $'\e[13;46H█\e[14;46H\e[2m░\e[0m' \
+        $'\e[1;47H│ \e[1mColumns' \
+        $'\e[19;1H\e[7mcmd-26' \
+        'Row 26/40'
+    local -i thumb
+    thumb=$(grep -o '█' "$BATS_TEST_TMPDIR/scrollbar.actual" | wc -l)
+    (( thumb == 7 ))
 }
 
 function test_tv_frame_independent_of_term { #@test
@@ -849,6 +866,201 @@ function test_tv_help_lines_fit_60_columns { #@test
     [[ "$result" =~ ^[0-9]+\ lines$ ]] || { echo "$result"; return 1; }
 }
 
+# ── Mouse ────────────────────────────────────────────────────────────────
+
+function test_tv_read_key_sgr_mouse_reports { #@test
+    local -a seqs=('\e[<0;5;7M' '\e[<0;5;7m' '\e[<32;3;4M' '\e[<64;1;1M'
+        '\e[<65;1;1M' '\e[<4;5;7M' '\e[<2;120;30M')
+    local -a want=('press 0 5 7' 'release 0 5 7' 'drag 0 3 4' 'wheel_up 0 1 1'
+        'wheel_down 1 1 1' 'press 0 5 7' 'press 2 120 30')
+    local -i i
+    local result
+    for i in "${!seqs[@]}"; do
+        result=$(printf "${seqs[i]}" | bash -c '
+            source "'"$DIR"'/../bu_entrypoint.sh" >/dev/null 2>&1
+            source "'"$DIR"'/../lib/core/bu_core_tv.sh"
+            __bu_tv_read_key 1
+            printf "%s %s %s %s %s" "$_TV_KEY" "$_TV_MOUSE_EVENT" "$_TV_MOUSE_BUTTON" "$_TV_MOUSE_X" "$_TV_MOUSE_Y"
+        ')
+        assert_equal "$result" "mouse ${want[i]}"
+    done
+}
+
+function test_tv_read_key_malformed_mouse_is_noop { #@test
+    # A body without x;y (final byte consumed), and one past the 24-byte cap
+    local result
+    result=$(printf '\e[<0;5Mj\e[<1111111111111111111111111111;1;1M' | bash -c '
+        source "'"$DIR"'/../bu_entrypoint.sh" >/dev/null 2>&1
+        source "'"$DIR"'/../lib/core/bu_core_tv.sh"
+        for n in 1 2 3; do __bu_tv_read_key 1; printf "%s " "$_TV_KEY"; done
+    ')
+    assert_equal "$result" "none j none "
+}
+
+function test_tv_mouse_reporting_on_off_sequences { #@test
+    # Leaving the TUI always turns reporting off, even when toggled off;
+    # m toggles it; resume re-enables it only when on
+    local f=$BATS_TEST_TMPDIR/out
+    local result
+    result=$(__tv_in_child '{"a":1}' '
+        __bu_tv_rebuild_cache
+        _TV_MOUSE=false; __bu_tv_terminal_leave_tui >'"$f"'; printf "leave %q\n" "$(<'"$f"')"
+        _TV_MOUSE=true
+        __bu_tv_toggle_mouse >'"$f"'; printf "m %s %q\n" "$_TV_MOUSE" "$(<'"$f"')"
+        __bu_tv_toggle_mouse >'"$f"'; printf "m %s %q\n" "$_TV_MOUSE" "$(<'"$f"')"
+        _TV_RESUME_PENDING=true; __bu_tv_process_signals >'"$f"'
+        [[ $(<'"$f"') == *$'"'"'\e[?1000h\e[?1002h\e[?1006h'"'"'* ]] && echo resume-on
+        _TV_MOUSE=false; _TV_RESUME_PENDING=true; __bu_tv_process_signals >'"$f"'
+        [[ $(<'"$f"') == *$'"'"'\e[?1000h'"'"'* ]] || echo resume-off
+        __bu_tv_terminal_restore >/dev/null')
+    assert_equal "$result" "leave \$'\\E[?1006l\\E[?1002l\\E[?1000l\\E[?25h\\E[?1049l'
+m false \$'\\E[?1006l\\E[?1002l\\E[?1000l'
+m true \$'\\E[?1000h\\E[?1002h\\E[?1006h'
+resume-on
+resume-off"
+}
+
+# Snippet prefix for 50 name/version rows in a 20x80 terminal (17 data
+# rows), one frame rendered; mouse() dispatches an event and prints state.
+# The millisecond clock is __now.
+__TV_MOUSE_STUBS='
+    __bu_tv_rebuild_cache
+    _TV_TERM_ROWS=20; _TV_TERM_COLS=80
+    __bu_tv_compute_widths; __bu_tv_clamp_offsets
+    __bu_tv_render >/dev/null
+    __now=0
+    __bu_tv_now_ms() { _TV_NOW_MS=$__now; }
+    mouse() { # event x y [button]
+        _TV_KEY=mouse _TV_MOUSE_EVENT=$1 _TV_MOUSE_X=$2 _TV_MOUSE_Y=$3 _TV_MOUSE_BUTTON=${4:-0}
+        __bu_tv_dispatch
+    }
+'
+
+function test_tv_scrollbar_layout_and_thumb { #@test
+    local result
+    result=$(__tv_in_child "$(__tv_rows 50)" "$__TV_MOUSE_STUBS"'
+        echo "bar=$_TV_SCROLLBAR_W at $((_TV_TABLE_COLS + 2)) table=$_TV_TABLE_COLS sidebar=$_TV_SIDEBAR_W"
+        _TV_SIDEBAR=false; __bu_tv_update_layout
+        echo "bar=$_TV_SCROLLBAR_W at $((_TV_TABLE_COLS + 2)) table=$_TV_TABLE_COLS sidebar=$_TV_SIDEBAR_W"
+        _TV_SIDEBAR=true
+        for off in 0 33 17; do
+            _TV_ROW_OFFSET=$off; __bu_tv_scrollbar_thumb
+            echo "off=$off height=$_TV_SB_HEIGHT top=$_TV_SB_TOP"
+        done
+        _TV_ROWS=("${_TV_ROWS[@]:0:17}"); _TV_NUM_ROWS=17
+        __bu_tv_rebuild_cache; __bu_tv_update_layout
+        echo "bar=$_TV_SCROLLBAR_W table=$_TV_TABLE_COLS sidebar=$_TV_SIDEBAR_W"')
+    assert_equal "$result" 'bar=2 at 68 table=66 sidebar=12
+bar=2 at 80 table=78 sidebar=0
+off=0 height=5 top=0
+off=33 height=5 top=12
+off=17 height=5 top=6
+bar=0 table=68 sidebar=12'
+}
+
+function test_tv_mouse_clicks_on_cells_header_and_sidebar { #@test
+    # Double-click: a second left press on the same row within 400 ms
+    local result
+    result=$(__tv_in_child "$(__tv_rows 50)" "$__TV_MOUSE_STUBS"'
+        show() { echo "$1: $_TV_MODE r$_TV_CUR_ROW c$_TV_CUR_COL"; }
+        __now=1000; mouse press 3 6; show click
+        __now=1300; mouse press 3 6; show double
+        _TV_MODE=table
+        __now=2000; mouse press 3 6; show click
+        __now=2700; mouse press 3 6; show "700ms"
+        __now=2800; mouse press 3 9; show other-row
+        __now=2900; mouse press 3 10 2; show right
+        mouse press 10 1; show header
+        mouse press 70 3; show sidebar
+        mouse press 3 20; show status
+        __now=5000; mouse press 30 9; show past-last-col')
+    assert_equal "$result" 'click: table r3 c0
+double: detail r3 c0
+click: table r3 c0
+700ms: table r3 c0
+other-row: table r6 c0
+right: table r6 c0
+header: table r6 c1
+sidebar: table r6 c0
+status: table r6 c0
+past-last-col: table r6 c0'
+}
+
+function test_tv_mouse_sidebar_scrolls_minimally { #@test
+    # 14 columns of 7 in a 70x12 terminal: 6 per screen, 9 data rows
+    local result
+    result=$(__tv_in_child "$(__tv_wide_row)
+$(__tv_wide_row)
+$(__tv_wide_row)" '
+        __bu_tv_rebuild_cache
+        _TV_TERM_ROWS=12; _TV_TERM_COLS=70
+        __bu_tv_compute_widths; __bu_tv_clamp_offsets
+        press() { _TV_KEY=mouse _TV_MOUSE_EVENT=press _TV_MOUSE_X=65 _TV_MOUSE_Y=$1 _TV_MOUSE_BUTTON=0
+            __bu_tv_dispatch; echo "c$_TV_CUR_COL off$_TV_COL_OFFSET"; }
+        frame() { __bu_tv_render >/dev/null; echo "window $_TV_SIDEBAR_START..$_TV_SIDEBAR_END"; }
+        frame; press 10
+        frame; press 11
+        frame; press 3')
+    assert_equal "$result" 'window 0..8
+c7 off2
+window 1..8
+c8 off3
+window 2..9
+c1 off1'
+}
+
+function test_tv_mouse_scrollbar_page_drag_and_wheel { #@test
+    # Bar at column 68, thumb 5 rows; data rows start at screen row 3
+    local result
+    result=$(__tv_in_child "$(__tv_rows 50)" "$__TV_MOUSE_STUBS"'
+        show() { echo "$1: off$_TV_ROW_OFFSET cur$_TV_CUR_ROW $_TV_SB_GRABBED"; }
+        mouse press 68 13; show below
+        mouse press 68 3; show above
+        mouse press 68 5; show thumb
+        mouse drag 68 11; show drag
+        mouse drag 68 30; show drag-past
+        mouse release 68 30; show release
+        mouse drag 68 5; show drag-free
+        mouse wheel_up 10 10; show wheel-up
+        mouse wheel_down 10 10; show wheel-down
+        mouse press 67 3; show gap')
+    assert_equal "$result" 'below: off17 cur17 false
+above: off0 cur0 false
+thumb: off0 cur0 true
+drag: off17 cur17 true
+drag-past: off33 cur33 true
+release: off33 cur33 false
+drag-free: off33 cur33 false
+wheel-up: off30 cur33 false
+wheel-down: off33 cur33 false
+gap: off33 cur33 false'
+}
+
+function test_tv_mouse_in_overlays { #@test
+    local rows= r c sep row
+    for r in 1 2 3; do
+        sep=; row='{'
+        for c in {01..20}; do row+="$sep\"c$c\":\"r$r-$c\""; sep=,; done
+        rows+="$row}"$'\n'
+    done
+    local result
+    result=$(__tv_in_child "${rows%$'\n'}" '
+        __bu_tv_rebuild_cache; _TV_TERM_ROWS=13; __bu_tv_clamp_offsets
+        mouse() { _TV_KEY=mouse _TV_MOUSE_EVENT=$1 _TV_MOUSE_X=5 _TV_MOUSE_Y=5 _TV_MOUSE_BUTTON=${2:-0}
+            __bu_tv_dispatch; echo "$1/${2:-0}: $_TV_MODE d$_TV_DETAIL_OFFSET h$_TV_HELP_OFFSET"; }
+        _TV_KEY=$TV_ENTER; __bu_tv_dispatch
+        mouse wheel_down; mouse wheel_down; mouse wheel_up; mouse press 2; mouse press 0
+        _TV_KEY=H; __bu_tv_dispatch
+        mouse wheel_down; mouse press 0')
+    assert_equal "$result" 'wheel_down/0: detail d3 h0
+wheel_down/0: detail d6 h0
+wheel_up/0: detail d3 h0
+press/2: detail d3 h0
+press/0: table d3 h0
+wheel_down/0: help d3 h3
+press/0: table d3 h3'
+}
+
 # ── Sort ─────────────────────────────────────────────────────────────────
 
 function test_tv_sort_orders_raw_values { #@test
@@ -1078,6 +1290,9 @@ function test_tv_interactive_search_detail_and_quit { #@test
     grep -qF '/alpha 2/5 [name]' "$cap" || { cat -v "$cap" | tail -c 2000; return 1; }
     grep -qF 'Record 20/50' "$cap"
     grep -qF $'\e[?1049l' "$cap"
+    # Mouse reporting on while the TUI is up, off when it leaves
+    grep -qF $'\e[?1000h\e[?1002h\e[?1006h' "$cap"
+    grep -qF $'\e[?1006l\e[?1002l\e[?1000l\e[?25h\e[?1049l' "$cap"
 }
 
 # ===========================================================================

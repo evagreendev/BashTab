@@ -23,9 +23,16 @@
 #     / ? n N Esc        search forward / backward, next / previous, clear
 #     Enter              record detail      H F1             help
 #     c                  column sidebar     Ctrl-L           re-measure terminal
-#     q Q                quit
+#     m                  mouse reporting    q Q              quit
 # Keys (detail overlay): j k ↑ ↓ and the page keys scroll, g G top / bottom,
 # J K next / previous record, n N next / previous match, q Q Esc Enter back.
+#
+# Mouse (SGR reporting, on while the TUI is up; m toggles it so the
+# terminal can select text): click a cell to move the cursor, double-click
+# a row for its detail, click a header or sidebar entry to select the
+# column, wheel scrolls three rows, the scrollbar right of the table (shown
+# while the rows overflow) pages on a click and scrolls by its thumb.  In
+# an overlay the wheel scrolls and a click goes back.
 
 # ── Terminal escape sequences (computed once at source time) ─────────────
 declare -g -r __BU_TV_ESC=$'\e'
@@ -46,6 +53,17 @@ declare -g -r __BU_TV_BOLD="${__BU_TV_ESC}[1m"
 declare -g -r __BU_TV_BOLD_UNDERLINE="${__BU_TV_ESC}[1;4m"
 # Search hit: black on yellow
 declare -g -r __BU_TV_HIT="${__BU_TV_ESC}[43;30m"
+# Mouse reporting: presses (1000), motion while a button is held (1002), SGR
+# encoding (1006); disabled in reverse order
+declare -g -r __BU_TV_MOUSE_ON="${__BU_TV_ESC}[?1000h${__BU_TV_ESC}[?1002h${__BU_TV_ESC}[?1006h"
+declare -g -r __BU_TV_MOUSE_OFF="${__BU_TV_ESC}[?1006l${__BU_TV_ESC}[?1002l${__BU_TV_ESC}[?1000l"
+# SGR mouse report body (between "\e[<" and the final M/m): btn;x;y
+declare -g -r __BU_TV_MOUSE_RE='^([0-9]{1,6});([0-9]{1,6});([0-9]{1,6})$'
+# Scrollbar glyphs: a dim track and a solid thumb
+declare -g -r __BU_TV_SB_TRACK="${__BU_TV_DIM}░${__BU_TV_RESET}"
+declare -g -r __BU_TV_SB_THUMB='█'
+# Two presses on the same row within this many ms open the detail overlay
+declare -g -r -i __BU_TV_DOUBLE_CLICK_MS=400
 
 # ── State ────────────────────────────────────────────────────────────────
 declare -g -a _TV_ROWS=()           # Raw JSON strings, one per record
@@ -102,6 +120,23 @@ declare -g    _TV_PROMPT_TEXT=      # Prompt shown while open ("/" or "?" + quer
 declare -g    _TV_KEY=              # Out-param: last key read (__bu_tv_read_key)
 declare -g    _TV_EOF=false         # The tty hit EOF (read_key reports it as "q")
 declare -g    _TV_QUIT=false        # Event-loop exit flag
+declare -g    _TV_MOUSE=true        # Mouse reporting on (toggled with m)
+declare -g    _TV_MOUSE_EVENT=      # Out-param (key "mouse"): press release drag wheel_up wheel_down
+declare -g -i _TV_MOUSE_BUTTON=0    # Out-param: 0 left, 1 middle, 2 right
+declare -g -i _TV_MOUSE_X=0         # Out-param: 1-based screen column
+declare -g -i _TV_MOUSE_Y=0         # Out-param: 1-based screen row
+declare -g -i _TV_NOW_MS=0          # Out-param: __bu_tv_now_ms
+declare -g -i _TV_CLICK_ROW=-1      # Row of the last left press (double-click), -1 = none
+declare -g -i _TV_CLICK_MS=0        # Time of the last left press
+declare -g -i _TV_SCROLLBAR_W=0     # 2 (gap + bar) while rows overflow, else 0
+declare -g -i _TV_SB_TOP=0          # Out-param: thumb top in the track (__bu_tv_scrollbar_thumb)
+declare -g -i _TV_SB_HEIGHT=0       # Out-param: thumb height
+declare -g -i _TV_SB_ROOM=0         # Out-param: track rows the thumb top can move over
+declare -g -i _TV_SB_MAX_OFF=0      # Out-param: largest row offset
+declare -g    _TV_SB_GRABBED=false  # The thumb is being dragged
+declare -g -i _TV_SB_GRAB_DY=0      # Pointer row minus thumb top when grabbed
+declare -g -i _TV_SIDEBAR_START=0   # Sidebar entry window [start, end) drawn last frame
+declare -g -i _TV_SIDEBAR_END=0
 # Signal flags: the traps only set these; __bu_tv_process_signals does the
 # work from the event loop (see __bu_tv_install_traps for why)
 declare -g    _TV_RESIZE_PENDING=false   # SIGWINCH
@@ -131,8 +166,18 @@ declare -g -r -a __BU_TV_HELP_LINES=(
     '  c                  toggle the column sidebar'
     '  Enter              record detail'
     '  Ctrl-L             re-measure the terminal'
+    '  m                  toggle mouse reporting'
     '  H F1               this help'
     '  q Q                quit'
+    ''
+    'Mouse (m off allows the terminal to select text)'
+    '  click              move the cursor to the cell'
+    '  double-click       record detail'
+    '  header click       select the column'
+    '  sidebar click      select the column (or scroll the list)'
+    '  wheel              scroll three rows'
+    '  scrollbar          click to page, drag the thumb'
+    '  in an overlay      wheel scrolls, click goes back'
     ''
     'Search (literal; an uppercase letter makes it match case)'
     '  / ?                search forward / backward'
@@ -380,9 +425,9 @@ __bu_tv_rebuild_cache()
 # ```
 # *Description*:
 # Derive the effective column widths: min(full, cap) with a floor of 4.
-# The cap is _TV_MAX_WIDTH, or the terminal width minus 2 for an expanded
-# column, and never more than the terminal width minus 2 (with its 2-column
-# gap a column must always fit alone, or nothing renders).  Call it again
+# The cap is _TV_MAX_WIDTH, or the width left beside the scrollbar minus 2
+# for an expanded column, and never more than that (with its 2-column gap a
+# column must always fit alone, or nothing renders).  Call it again
 # whenever the terminal size changes.
 #
 # *Returns*:
@@ -392,7 +437,8 @@ __bu_tv_compute_widths()
 {
     _TV_COL_WIDTHS=()
     _TV_MAX_EFF_W=0
-    local -r -i term_cap=$((_TV_TERM_COLS - 2))
+    __bu_tv_scrollbar_width
+    local -r -i term_cap=$((_TV_TERM_COLS - _TV_SCROLLBAR_W - 2))
     local -i j w cap
     for (( j = 0; j < _TV_NUM_COLS; j++ ))
     do
@@ -568,9 +614,10 @@ __bu_tv_install_traps()
 
 # ```
 # *Description*:
-# Enter raw terminal mode: alternate screen, hide cursor, non-canonical
-# input, install signal traps.  Measures the terminal and derives the
-# column widths (the cache is built before the size is known).
+# Enter raw terminal mode: alternate screen, hide cursor, mouse reporting
+# (unless toggled off), non-canonical input, install signal traps.
+# Measures the terminal and derives the column widths (the cache is built
+# before the size is known).
 #
 # *Returns*:
 # - 1 without touching the terminal if our process group is not the tty's
@@ -596,6 +643,7 @@ __bu_tv_terminal_setup()
 
     printf '%s' "$__BU_TV_ALT_SCREEN_ON"
     printf '%s' "$__BU_TV_CURSOR_HIDE"
+    "$_TV_MOUSE" && printf '%s' "$__BU_TV_MOUSE_ON"
     printf '%s%s' "$__BU_TV_CURSOR_HOME" "$__BU_TV_CLEAR_SCREEN"
 
     __bu_tv_update_dimensions
@@ -607,12 +655,15 @@ __bu_tv_terminal_setup()
 
 # ```
 # *Description*:
-# Leave the TUI terminal state: show cursor, exit alternate screen, restore
-# saved stty settings.  Does NOT clear traps — used by both the final
-# restore and the SIGTSTP suspend path (which must keep SIGCONT armed).
+# Leave the TUI terminal state: mouse reporting off, show cursor, exit
+# alternate screen, restore saved stty settings.  Does NOT clear traps —
+# used by both the final restore (EXIT trap) and the SIGTSTP suspend path
+# (which must keep SIGCONT armed).  Mouse reporting is switched off even
+# when toggled off already, so a shell is never left in mouse mode.
 # ```
 __bu_tv_terminal_leave_tui()
 {
+    printf '%s' "$__BU_TV_MOUSE_OFF"
     printf '%s' "$__BU_TV_CURSOR_SHOW"
     printf '%s' "$__BU_TV_ALT_SCREEN_OFF"
 
@@ -644,7 +695,7 @@ __bu_tv_terminal_restore()
 #   while stopped, then SIGSTOP ourselves (uncatchable, so it always stops).
 #   Execution continues here after fg, which also counts as a resume.
 # - Resume (fg, or SIGCONT after an external stop): re-arm the traps,
-#   re-enter raw mode + alternate screen, and re-measure.
+#   re-enter raw mode, alternate screen and mouse reporting, and re-measure.
 # - Resize: re-measure (size, widths, offsets, detail wrapping).
 # ```
 __bu_tv_process_signals()
@@ -663,6 +714,7 @@ __bu_tv_process_signals()
         stty -echo -icanon 2>/dev/null || true
         printf '%s' "$__BU_TV_ALT_SCREEN_ON"
         printf '%s' "$__BU_TV_CURSOR_HIDE"
+        "$_TV_MOUSE" && printf '%s' "$__BU_TV_MOUSE_ON"
         _TV_RESIZE_PENDING=true
     fi
     if "$_TV_RESIZE_PENDING"
@@ -732,19 +784,22 @@ __bu_tv_remeasure()
 
 # ```
 # *Description*:
-# Split the screen width between the table and the column sidebar.  The
-# sidebar is as wide as the longest column label (capped) plus border,
-# cursor marker and sort arrow, and is hidden when the table would be left
-# too narrow for its widest column plus gap (so every column still fits on
-# screen alone).
+# Split the screen width between the table, the scrollbar and the column
+# sidebar, left to right.  The scrollbar (a gap and the bar) is reserved
+# only while the rows overflow the data area.  The sidebar is as wide as
+# the longest column label (capped) plus border, cursor marker and sort
+# arrow, and is hidden when the table would be left too narrow for its
+# widest column plus gap (so every column still fits on screen alone).
 #
 # *Returns*:
-# - Sets _TV_TABLE_COLS, _TV_SIDEBAR_W (0 = hidden) and _TV_SIDEBAR_NAME_W.
+# - Sets _TV_TABLE_COLS, _TV_SCROLLBAR_W, _TV_SIDEBAR_W (0 = hidden) and
+#   _TV_SIDEBAR_NAME_W.
 # ```
 declare -g -r -i __BU_TV_SIDEBAR_MAX_NAME=20
 __bu_tv_update_layout()
 {
-    _TV_TABLE_COLS=$_TV_TERM_COLS
+    __bu_tv_scrollbar_width
+    _TV_TABLE_COLS=$((_TV_TERM_COLS - _TV_SCROLLBAR_W))
     _TV_SIDEBAR_W=0
     _TV_SIDEBAR_NAME_W=0
     if ! "$_TV_SIDEBAR" || (( _TV_NUM_COLS == 0 ))
@@ -762,10 +817,55 @@ __bu_tv_update_layout()
 
     # "│ " + marker + name + " ↑"
     local -i width=$((2 + 1 + name_w + 2))
-    (( _TV_TERM_COLS - width < _TV_MAX_EFF_W + 2 )) && return 0
+    (( _TV_TABLE_COLS - width < _TV_MAX_EFF_W + 2 )) && return 0
     _TV_SIDEBAR_NAME_W=$name_w
     _TV_SIDEBAR_W=$width
-    _TV_TABLE_COLS=$((_TV_TERM_COLS - width))
+    _TV_TABLE_COLS=$((_TV_TABLE_COLS - width))
+    return 0
+}
+
+# ```
+# *Description*:
+# Reserve two screen columns (a gap and the bar) for the scrollbar while
+# the rows overflow the data area; nothing otherwise.
+#
+# *Returns*:
+# - `_TV_SCROLLBAR_W`: 2 or 0
+# ```
+__bu_tv_scrollbar_width()
+{
+    __bu_tv_data_rows
+    _TV_SCROLLBAR_W=0
+    (( _TV_NUM_ROWS > _TV_DATA_ROWS )) && _TV_SCROLLBAR_W=2
+    return 0
+}
+
+# ```
+# *Description*:
+# Scrollbar thumb geometry on a track of the data rows.  Height is
+# data_rows^2 / total_rows, at least 1 and never the whole track; the top
+# maps the row offset onto the rest of the track, rounded.
+#
+# *Returns*:
+# - `_TV_SB_TOP`, `_TV_SB_HEIGHT`, `_TV_SB_ROOM` (track rows the top can
+#   move over) and `_TV_SB_MAX_OFF` (largest row offset)
+# ```
+__bu_tv_scrollbar_thumb()
+{
+    __bu_tv_data_rows
+    local -r -i track=$_TV_DATA_ROWS
+    _TV_SB_MAX_OFF=$((_TV_NUM_ROWS - track))
+    (( _TV_SB_MAX_OFF < 0 )) && _TV_SB_MAX_OFF=0
+    _TV_SB_HEIGHT=0
+    (( _TV_NUM_ROWS > 0 )) && _TV_SB_HEIGHT=$((track * track / _TV_NUM_ROWS))
+    (( _TV_SB_HEIGHT >= track )) && _TV_SB_HEIGHT=$((track - 1))
+    (( _TV_SB_HEIGHT < 1 )) && _TV_SB_HEIGHT=1
+    _TV_SB_ROOM=$((track - _TV_SB_HEIGHT))
+    _TV_SB_TOP=0
+    if (( _TV_SB_MAX_OFF > 0 ))
+    then
+        _TV_SB_TOP=$(((_TV_ROW_OFFSET * _TV_SB_ROOM + _TV_SB_MAX_OFF / 2) / _TV_SB_MAX_OFF))
+    fi
     return 0
 }
 
@@ -857,6 +957,28 @@ __bu_tv_page_rows()
 {
     _TV_CUR_ROW=$((_TV_CUR_ROW + $1))
     _TV_ROW_OFFSET=$((_TV_ROW_OFFSET + $1))
+    __bu_tv_clamp_offsets
+}
+
+# ```
+# *Description*:
+# Offset-driven scrolling (wheel, scrollbar): clamp the row offset to its
+# range first, then drag the cursor into the visible window — the reverse
+# of the keys, where the window follows the cursor.
+#
+# *Params*:
+# - `$1`: New row offset (clamped)
+# ```
+__bu_tv_scroll_to()
+{
+    __bu_tv_data_rows
+    local -i off=$1
+    local -r -i max_off=$((_TV_NUM_ROWS - _TV_DATA_ROWS))
+    (( off > max_off )) && off=$max_off
+    (( off < 0 )) && off=0
+    _TV_ROW_OFFSET=$off
+    (( _TV_CUR_ROW < off )) && _TV_CUR_ROW=$off
+    (( _TV_CUR_ROW >= off + _TV_DATA_ROWS )) && _TV_CUR_ROW=$((off + _TV_DATA_ROWS - 1))
     __bu_tv_clamp_offsets
 }
 
@@ -1156,12 +1278,16 @@ __bu_tv_render_line()
 # *Params*:
 # - `$1`: Nameref to the frame variable (appended to)
 # - `$2`: Number of data rows
+#
+# *Returns*:
+# - `_TV_SIDEBAR_START`, `_TV_SIDEBAR_END`: the entry window [start, end)
+#   drawn, for mouse hit-testing
 # ```
 __bu_tv_render_sidebar()
 {
     local -n __sb_frame=$1
     local -i avail=$2
-    local -i col=$((_TV_TABLE_COLS + 1))
+    local -i col=$((_TV_TABLE_COLS + _TV_SCROLLBAR_W + 1))
     local -i name_w=$_TV_SIDEBAR_NAME_W
     local -i inner_w=$((_TV_SIDEBAR_W - 2))
     (( inner_w > ${#__BU_TV_SPACES} )) && __bu_tv_ensure_pools $inner_w
@@ -1198,6 +1324,9 @@ __bu_tv_render_sidebar()
         fi
     fi
     local -i end=$((start + cap))
+    (( end > _TV_NUM_COLS )) && end=$_TV_NUM_COLS
+    _TV_SIDEBAR_START=$start
+    _TV_SIDEBAR_END=$end
 
     local -i i j=$start screen_row
     local entry name marker suffix style
@@ -1243,6 +1372,31 @@ __bu_tv_render_sidebar()
             j=$((j + 1))
         fi
         __sb_frame+=$'\e['$screen_row';'$col'H│ '$entry$__BU_TV_CLEAR_LINE
+    done
+}
+
+# ```
+# *Description*:
+# Append the scrollbar to a frame: on each data row, in the column after
+# the table's gap, a dim track or the solid thumb.
+#
+# *Params*:
+# - `$1`: Nameref to the frame variable (appended to)
+# ```
+__bu_tv_render_scrollbar()
+{
+    local -n __sbar_frame=$1
+    __bu_tv_scrollbar_thumb
+    local -r -i col=$((_TV_TABLE_COLS + 2))
+    local -i i
+    for (( i = 0; i < _TV_DATA_ROWS; i++ ))
+    do
+        if (( i >= _TV_SB_TOP && i < _TV_SB_TOP + _TV_SB_HEIGHT ))
+        then
+            __sbar_frame+=$'\e['$((i + 3))';'$col'H'$__BU_TV_SB_THUMB
+        else
+            __sbar_frame+=$'\e['$((i + 3))';'$col'H'$__BU_TV_SB_TRACK
+        fi
     done
 }
 
@@ -1369,6 +1523,8 @@ __bu_tv_render_frame()
     #   row 2          = separator
     #   rows 3..N-1    = data (TERM_ROWS - 3 rows)
     #   row N (bottom) = status line, or the search prompt while it is open
+    #   right of table = scrollbar (a gap and the bar) on the data rows,
+    #                    while the rows overflow them
     #   right edge     = column sidebar on rows 1..N-1, unless hidden
     #
     # Each row is drawn with absolute cursor positioning and \e[K
@@ -1402,7 +1558,12 @@ __bu_tv_render_frame()
         frame+=$'\e['$((i + 3))$';1H'$line$__BU_TV_CLEAR_LINE
     done
 
-    # Sidebar — drawn after the table so each row's \e[K ran first
+    # Scrollbar and sidebar — drawn after the table rows so each row's \e[K
+    # ran first
+    if (( _TV_SCROLLBAR_W > 0 ))
+    then
+        __bu_tv_render_scrollbar frame
+    fi
     if (( _TV_SIDEBAR_W > 0 ))
     then
         __bu_tv_render_sidebar frame "$data_rows"
@@ -2137,6 +2298,7 @@ __bu_tv_read_escape()
         _TV_KEY=none
         IFS= read -r -s -n 1 -t 0.01 seq
         case "$seq" in
+            '<') __bu_tv_read_mouse ;;
             A) _TV_KEY=up ;;
             B) _TV_KEY=down ;;
             C) _TV_KEY=right ;;
@@ -2189,6 +2351,59 @@ __bu_tv_read_escape()
 
 # ```
 # *Description*:
+# Decode an SGR mouse report after `\e[<`: `btn;x;y` then M (press, drag,
+# wheel) or m (release), each byte read with the parser's short timeout and
+# the body capped at 24 bytes.  Button bits: the low two are the button
+# (0 left, 1 middle, 2 right), 4/8/16 are Shift/Alt/Ctrl (masked out), 32
+# is motion with a button held, 64 is the wheel (64 up, 65 down).  A
+# malformed report is the no-op key "none".
+#
+# *Returns*:
+# - `_TV_KEY`: "mouse" (or "none")
+# - `_TV_MOUSE_EVENT`, `_TV_MOUSE_BUTTON`, `_TV_MOUSE_X`, `_TV_MOUSE_Y`
+#   (1-based screen coordinates)
+# ```
+__bu_tv_read_mouse()
+{
+    _TV_KEY=none
+    local body= c=
+    while (( ${#body} < 24 ))
+    do
+        c=
+        IFS= read -r -s -n 1 -t 0.01 c
+        [[ -z "$c" || "$c" == [Mm] ]] && break
+        body+=$c
+    done
+    [[ "$c" == [Mm] ]] || return 0
+    # A variable: a literal pattern with ";" is awkward inside [[ =~ ]]
+    [[ "$body" =~ $__BU_TV_MOUSE_RE ]] || return 0
+
+    local -i -r btn=$((10#${BASH_REMATCH[1]}))
+    _TV_MOUSE_X=$((10#${BASH_REMATCH[2]}))
+    _TV_MOUSE_Y=$((10#${BASH_REMATCH[3]}))
+    _TV_MOUSE_BUTTON=$((btn & 3))
+    if (( btn & 64 ))
+    then
+        case "$_TV_MOUSE_BUTTON" in
+        0) _TV_MOUSE_EVENT=wheel_up ;;
+        1) _TV_MOUSE_EVENT=wheel_down ;;
+        *) return 0 ;;
+        esac
+    elif [[ "$c" == m ]]
+    then
+        _TV_MOUSE_EVENT=release
+    elif (( btn & 32 ))
+    then
+        _TV_MOUSE_EVENT=drag
+    else
+        _TV_MOUSE_EVENT=press
+    fi
+    _TV_KEY=mouse
+    return 0
+}
+
+# ```
+# *Description*:
 # Parse `<mod><final>` after `\e[1;`.  Modifier 2 (Shift), 5 (Ctrl) and 6
 # (Ctrl+Shift) on an arrow give shift_<dir> (terminals and multiplexers
 # differ in which modifier they pass through); any other modifier falls
@@ -2228,6 +2443,219 @@ __bu_tv_read_modified()
 # ═══════════════════════════════════════════════════════════════════════════
 # Actions
 # ═══════════════════════════════════════════════════════════════════════════
+
+# ── Mouse ────────────────────────────────────────────────────────────────
+
+# ```
+# *Description*:
+# Current time in milliseconds: EPOCHREALTIME when available, else
+# `date +%s%N` when it prints digits (GNU), else whole seconds.
+#
+# *Returns*:
+# - `_TV_NOW_MS`
+# ```
+__bu_tv_now_ms()
+{
+    local t=
+    if [[ -n "${EPOCHREALTIME:-}" ]]
+    then
+        t=${EPOCHREALTIME//[.,]/}
+        _TV_NOW_MS=$((10#$t / 1000))
+        return 0
+    fi
+    t=$(date +%s%N 2>/dev/null) || t=
+    if [[ "$t" =~ ^[0-9]+$ ]]
+    then
+        _TV_NOW_MS=$((10#$t / 1000000))
+    else
+        printf -v t '%(%s)T' -1
+        _TV_NOW_MS=$((10#$t * 1000))
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
+# m: toggle mouse reporting.  The terminal's own click-drag text selection
+# only works while it is off.
+# ```
+__bu_tv_toggle_mouse()
+{
+    if "$_TV_MOUSE"
+    then
+        _TV_MOUSE=false
+        printf '%s' "$__BU_TV_MOUSE_OFF"
+    else
+        _TV_MOUSE=true
+        printf '%s' "$__BU_TV_MOUSE_ON"
+    fi
+    _TV_SB_GRABBED=false
+    return 0
+}
+
+# ```
+# *Description*:
+# Column under a screen x in the last frame's visible columns.  The gap
+# after a column counts as that column.
+#
+# *Params*:
+# - `$1`: 1-based screen column
+#
+# *Returns*:
+# - `_TV_FOUND_IDX`: Column index, or -1 right of the last visible column
+# ```
+__bu_tv_col_at()
+{
+    local -r -i x=$1
+    local -i p=1 j
+    _TV_FOUND_IDX=-1
+    for j in "${_TV_VIS_COLS[@]}"
+    do
+        p=$((p + _TV_COL_WIDTHS[j] + 2))
+        if (( x < p ))
+        then
+            _TV_FOUND_IDX=$j
+            break
+        fi
+    done
+    return 0
+}
+
+# ```
+# *Description*:
+# Left press in the column sidebar: select the entry's column (the clamp
+# scrolls the viewport by the minimum).  Uses the window the last frame
+# drew: "↑ N more" selects the column before it, "↓ N more" the one after.
+#
+# *Params*:
+# - `$1`: 1-based screen row
+# ```
+__bu_tv_sidebar_press()
+{
+    local -i i=$(($1 - 3)) j
+    (( i < 0 )) && return 0
+    if (( _TV_SIDEBAR_START > 0 ))
+    then
+        j=$((_TV_SIDEBAR_START + i - 1))
+    else
+        j=$((_TV_SIDEBAR_START + i))
+    fi
+    # Past the "↓ N more" row: blank rows
+    (( j > _TV_SIDEBAR_END || j >= _TV_NUM_COLS )) && return 0
+    _TV_CUR_COL=$j
+    __bu_tv_clamp_offsets
+}
+
+# ```
+# *Description*:
+# Left press on the scrollbar: above the thumb pages up, below pages down,
+# on it grabs the thumb (remembering the pointer's distance from its top).
+#
+# *Params*:
+# - `$1`: 1-based screen row
+# ```
+__bu_tv_scrollbar_press()
+{
+    local -r -i r=$(($1 - 3))
+    __bu_tv_scrollbar_thumb
+    (( r < 0 || r >= _TV_DATA_ROWS )) && return 0
+    if (( r < _TV_SB_TOP ))
+    then
+        __bu_tv_page_rows "-$_TV_DATA_ROWS"
+    elif (( r >= _TV_SB_TOP + _TV_SB_HEIGHT ))
+    then
+        __bu_tv_page_rows "$_TV_DATA_ROWS"
+    else
+        _TV_SB_GRABBED=true
+        _TV_SB_GRAB_DY=$((r - _TV_SB_TOP))
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
+# Drag of the grabbed thumb: its top follows the pointer (clamped to the
+# track) and the row offset is the inverse of the thumb mapping.
+# ```
+__bu_tv_scrollbar_drag()
+{
+    __bu_tv_scrollbar_thumb
+    (( _TV_SB_ROOM < 1 )) && return 0
+    local -i top=$((_TV_MOUSE_Y - 3 - _TV_SB_GRAB_DY))
+    (( top < 0 )) && top=0
+    (( top > _TV_SB_ROOM )) && top=$_TV_SB_ROOM
+    __bu_tv_scroll_to $(((top * _TV_SB_MAX_OFF + _TV_SB_ROOM / 2) / _TV_SB_ROOM))
+}
+
+# ```
+# *Description*:
+# Left press in table mode, by screen region: status row ignored; sidebar
+# and scrollbar as above; header or separator selects the column under x;
+# a data cell moves the cursor there (right of the last visible column the
+# cursor column stays), and a second press on the same row within
+# __BU_TV_DOUBLE_CLICK_MS opens the record-detail overlay.
+# ```
+__bu_tv_mouse_press()
+{
+    local -r -i x=$_TV_MOUSE_X y=$_TV_MOUSE_Y
+    (( y >= _TV_TERM_ROWS || y < 1 )) && return 0
+    if (( _TV_SIDEBAR_W > 0 && x > _TV_TABLE_COLS + _TV_SCROLLBAR_W ))
+    then
+        __bu_tv_sidebar_press "$y"
+        return 0
+    fi
+    if (( _TV_SCROLLBAR_W > 0 && x == _TV_TABLE_COLS + 2 ))
+    then
+        __bu_tv_scrollbar_press "$y"
+        return 0
+    fi
+
+    __bu_tv_col_at "$x"
+    if (( y <= 2 ))
+    then
+        if (( _TV_FOUND_IDX >= 0 ))
+        then
+            _TV_CUR_COL=$_TV_FOUND_IDX
+            __bu_tv_clamp_offsets
+        fi
+        return 0
+    fi
+
+    local -r -i row=$((_TV_ROW_OFFSET + y - 3))
+    (( row >= _TV_NUM_ROWS )) && return 0
+    _TV_CUR_ROW=$row
+    (( _TV_FOUND_IDX >= 0 )) && _TV_CUR_COL=$_TV_FOUND_IDX
+    __bu_tv_clamp_offsets
+
+    __bu_tv_now_ms
+    if (( row == _TV_CLICK_ROW && _TV_NOW_MS - _TV_CLICK_MS <= __BU_TV_DOUBLE_CLICK_MS ))
+    then
+        _TV_CLICK_ROW=-1
+        __bu_tv_open_detail
+    else
+        _TV_CLICK_ROW=$row
+        _TV_CLICK_MS=$_TV_NOW_MS
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
+# A mouse event (key "mouse") in table mode: the wheel scrolls three rows
+# (offset-driven), a left press acts by region, drags move a grabbed
+# scrollbar thumb, a release ends the grab.  Other buttons are ignored.
+# ```
+__bu_tv_mouse_table()
+{
+    case "$_TV_MOUSE_EVENT" in
+    wheel_up)   __bu_tv_scroll_to $((_TV_ROW_OFFSET - 3)) ;;
+    wheel_down) __bu_tv_scroll_to $((_TV_ROW_OFFSET + 3)) ;;
+    release)    _TV_SB_GRABBED=false ;;
+    drag)       "$_TV_SB_GRABBED" && __bu_tv_scrollbar_drag ;;
+    press)      (( _TV_MOUSE_BUTTON == 0 )) && __bu_tv_mouse_press ;;
+    esac
+    return 0
+}
 
 # ── Sort ─────────────────────────────────────────────────────────────────
 
@@ -2403,6 +2831,10 @@ __bu_tv_dispatch_key()
     $'\x0a')         __bu_tv_open_detail ;;
     H|f1)            __bu_tv_open_help ;;
 
+    # Mouse
+    mouse)           __bu_tv_mouse_table ;;
+    m)               __bu_tv_toggle_mouse ;;
+
     ctrl_l)          __bu_tv_remeasure ;;
     esac
     return 0
@@ -2410,9 +2842,26 @@ __bu_tv_dispatch_key()
 
 # ```
 # *Description*:
-# Dispatch one keypress in the detail or help overlay.  Both scroll; the
-# detail overlay also steps through records (J / K) and matches (n / N)
-# without closing.  q, Q, Esc and Enter go back.
+# Close the open overlay: help returns to where it was opened from, detail
+# to the table.
+# ```
+__bu_tv_overlay_close()
+{
+    if [[ "$_TV_MODE" == help ]]
+    then
+        _TV_MODE=$_TV_HELP_RETURN
+    else
+        _TV_MODE=table
+    fi
+    _TV_HELP_RETURN=table
+}
+
+# ```
+# *Description*:
+# Dispatch one keypress in the detail or help overlay.  Both scroll (also
+# with the wheel); the detail overlay also steps through records (J / K)
+# and matches (n / N) without closing.  q, Q, Esc, Enter and a left click
+# go back.
 # ```
 __bu_tv_dispatch_overlay()
 {
@@ -2434,14 +2883,18 @@ __bu_tv_dispatch_overlay()
     g)               __do_off=0 ;;
     G)               __do_off=$((${#_TV_DETAIL_LINES[@]} + ${#__BU_TV_HELP_LINES[@]})) ;;
     q|Q|escape|$'\e'|$'\x0a')
-        if [[ "$_TV_MODE" == help ]]
-        then
-            _TV_MODE=$_TV_HELP_RETURN
-        else
-            _TV_MODE=table
-        fi
-        _TV_HELP_RETURN=table
+        __bu_tv_overlay_close
         ;;
+    mouse)
+        # The wheel scrolls three lines, a left press closes
+        case "$_TV_MOUSE_EVENT" in
+        wheel_up)   __do_off=$((__do_off - 3)) ;;
+        wheel_down) __do_off=$((__do_off + 3)) ;;
+        release)    _TV_SB_GRABBED=false ;;
+        press)      (( _TV_MOUSE_BUTTON == 0 )) && __bu_tv_overlay_close ;;
+        esac
+        ;;
+    m)               __bu_tv_toggle_mouse ;;
     H|f1)
         if [[ "$_TV_MODE" == help ]]
         then

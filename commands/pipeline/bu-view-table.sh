@@ -105,7 +105,13 @@ Keys: j/k/h/l or arrows move the cursor, g/G first/last row, 0/\$/Home/End
 first/last column, Space/b/PgDn/PgUp/Shift-Down/Shift-Up page rows,
 Shift-Right/Shift-Left (or Ctrl) page columns, Ctrl-D/Ctrl-U half page,
 s/S sort the cursor column, w/W widen columns, / and ? search (n/N next and
-previous match, Esc clears), Enter shows the record, q quits.
+previous match, Esc clears), Enter shows the record, m toggles the mouse,
+q quits.
+
+Mouse: click a cell to move the cursor, double-click a row for its record,
+click a header or sidebar entry to select that column, scroll with the
+wheel, and click or drag the scrollbar (shown while the rows overflow the
+screen).  Press m to turn mouse reporting off and select text.
 " \
         --example "View all commands" "" \
         --example "Select columns" "--columns name,type,namespace" \

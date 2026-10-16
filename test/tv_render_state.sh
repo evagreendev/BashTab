@@ -23,6 +23,7 @@
 #   sorted           - sorted by verb descending, cursor on namespace
 #   overflow         - 14 columns in a 12-row terminal: the sidebar list scrolls
 #   paged            - overflow data after one page right (Shift-→) from column 0
+#   scrollbar        - 40 rows for 17 data rows: cursor on row 26, thumb 7 rows
 
 set -u
 
@@ -72,6 +73,13 @@ detail)
     ;;
 scrolled)
     _TV_TERM_ROWS=7
+    ;;
+scrollbar)
+    _TV_ROWS=()
+    for i in {1..40}
+    do
+        _TV_ROWS+=("{\"name\":\"cmd-$i\",\"verb\":\"get\",\"noun\":\"item-$i\",\"namespace\":\"bu\",\"type\":\"source\"}")
+    done
     ;;
 search_truncated|search_expanded)
     _TV_MAX_WIDTH=10
@@ -149,6 +157,10 @@ paged)
     __bu_tv_clamp_offsets
     _TV_KEY=shift_right
     __bu_tv_dispatch_key
+    ;;
+scrollbar)
+    # Row 26/40: offset 9
+    _TV_CUR_ROW=25
     ;;
 *)
     echo "unknown state: $state" >&2
