@@ -57,12 +57,14 @@ function __tv_check_golden {
 }
 
 function test_tv_frame_plain_matches_golden { #@test
-    # Cursor row reversed end to end (padding inside the attribute), cursor
-    # column header bold+underline, other headers bold, plain rows trimmed
+    # Cursor row reversed end to end (padding inside the attribute) except
+    # its cursor cell (un-reversed, bold, underlined across its width),
+    # cursor column header bold+underline, other headers bold, plain rows
+    # trimmed
     __tv_check_golden plain \
         $'\e[1;1H\e[1;4mname\e[0m' \
         $'\e[1mverb\e[0m' \
-        $'\e[3;1H\e[7mget-command              get                  \e[0m\e[K' \
+        $'\e[3;1H\e[1;4mget-command            \e[0m\e[7m  get                  \e[0m\e[K' \
         $'\e[4;1Hformat-table             format\e[K' \
         $'\e[20;1H\e[2mRow 1/5 | Col name (1/5) | H:help\e[0m\e[K\e[?25l'
 }
@@ -82,14 +84,15 @@ function test_tv_frame_scrolled_matches_golden { #@test
 function test_tv_frame_cursor_matches_golden { #@test
     __tv_check_golden cursor \
         $'\e[1;4mverb\e[0m' \
-        $'\e[5;1H\e[7mconvert-from-asciitable  convert-from         \e[0m\e[K' \
+        $'\e[5;1H\e[7mconvert-from-asciitable  \e[0m\e[1;4mconvert-from\e[0m\e[7m         \e[0m\e[K' \
         'Row 3/5 | Col verb (2/5)'
 }
 
 function test_tv_frame_search_matches_golden { #@test
-    # A hit inside the reversed cursor row re-applies the row attribute
+    # A hit re-applies the attribute it sits in: the cursor cell's, or the
+    # reversed cursor row's
     __tv_check_golden search \
-        $'\e[43;30mget\e[0m\e[7m-command' \
+        $'\e[3;1H\e[1;4m\e[43;30mget\e[0m\e[1;4m-command' \
         $'\e[43;30mget\e[0m\e[7m ' \
         '/get 1/1 [name]'
 }
@@ -98,7 +101,7 @@ function test_tv_frame_search_truncated_matches_golden { #@test
     # Hits hidden by truncation highlight the ellipsis, in and out of the
     # cursor row
     __tv_check_golden search_truncated \
-        $'format-\e[43;30mta\e[0m\e[7m\e[43;30m…\e[0m\e[7m' \
+        $'format-\e[43;30mta\e[0m\e[1;4m\e[43;30m…\e[0m\e[1;4m' \
         $'convert-f\e[43;30m…\e[0m  ' \
         $'ascii\e[43;30mtable\e[0m' \
         '/table 1/2 [name]'
@@ -106,7 +109,7 @@ function test_tv_frame_search_truncated_matches_golden { #@test
 
 function test_tv_frame_search_expanded_matches_golden { #@test
     __tv_check_golden search_expanded \
-        $'format-\e[43;30mtable\e[0m\e[7m' \
+        $'format-\e[43;30mtable\e[0m\e[1;4m' \
         $'convert-from-ascii\e[43;30mtable\e[0m' \
         'Col name (1/5) wide'
 }
@@ -125,7 +128,7 @@ function test_tv_frame_prompt_matches_golden { #@test
     # Prompt on the status row, terminal cursor shown right after it
     __tv_check_golden prompt \
         $'\e[20;1H/ge\e[K\e[20;4H\e[?25h' \
-        $'\e[7m\e[43;30mge\e[0m\e[7mt-command'
+        $'\e[3;1H\e[1;4m\e[43;30mge\e[0m\e[1;4mt-command'
 }
 
 function test_tv_frame_detail_matches_golden { #@test
@@ -153,7 +156,7 @@ function test_tv_frame_help_matches_golden { #@test
 
 function test_tv_frame_nosidebar_matches_golden { #@test
     # The columns cut off on the right are counted on the separator row
-    __tv_check_golden nosidebar $'\e[3;1H\e[7mget-command' \
+    __tv_check_golden nosidebar $'\e[3;1H\e[1;4mget-command' \
         $'\e[2;58H\e[1m2 ▸\e[0m'
     if grep -qF 'Columns' "$BATS_TEST_TMPDIR/nosidebar.actual"; then
         echo "sidebar drawn while hidden"
@@ -195,7 +198,7 @@ function test_tv_frame_scrollbar_matches_golden { #@test
         $'\e[6;46H\e[2m░\e[0m\e[7;46H█' \
         $'\e[13;46H█\e[14;46H\e[2m░\e[0m' \
         $'\e[1;47H│ \e[1mColumns' \
-        $'\e[19;1H\e[7mcmd-26' \
+        $'\e[19;1H\e[1;4mcmd-26' \
         'Row 26/40'
     local -i thumb
     thumb=$(grep -o '█' "$BATS_TEST_TMPDIR/scrollbar.actual" | wc -l)
@@ -204,7 +207,7 @@ function test_tv_frame_scrollbar_matches_golden { #@test
 
 function test_tv_frame_filter_matches_golden { #@test
     __tv_check_golden filter \
-        $'\e[3;1H\e[7mget-command' \
+        $'\e[3;1H\e[1;4mget-command' \
         $'\e[4;1Hformat-table' \
         $'\e[5;1Hquery-object' \
         $'\e[6;1H\e[K' \
@@ -216,7 +219,7 @@ function test_tv_frame_numeric_and_null_matches_golden { #@test
     # also inside the cursor row
     __tv_check_golden numeric \
         $'\e[3;1Halpha  1200    0.5  \e[2m∅\e[0m\e[K' \
-        $'\e[4;1H\e[7mbeta      7      \e[2m∅\e[0m\e[7m  x' \
+        $'\e[4;1H\e[1;4mbeta \e[0m\e[7m     7      \e[2m∅\e[0m\e[7m  x' \
         $'\e[5;1Hgamma     \e[2m∅\e[0m  12.25\e[K'
 }
 
@@ -224,7 +227,7 @@ function test_tv_frame_frozen_matches_golden { #@test
     # col01 stays on the left, behind a dim divider, while the rest page
     __tv_check_golden frozen \
         $'\e[1;1H\e[1mcol01\e[0m  \e[2m│\e[22m \e[1;4mcol07\e[0m' \
-        $'\e[3;1H\e[7mvalue-1\e[2m│\e[22m value-1' \
+        $'\e[3;1H\e[7mvalue-1\e[2m│\e[22m \e[0m\e[1;4mvalue-1\e[0m\e[7m  value-1' \
         'Col col07 (7/14)'
 }
 
@@ -399,6 +402,23 @@ function test_tv_colors_auto_none_and_empty { #@test
     assert_equal "$result" 'auto=2
 none=0
 empty=0'
+}
+
+function test_tv_cursor_cell_drawn_in_its_own_attribute { #@test
+    # The cursor cell leaves the reversed row with explicit resets, its
+    # underline spans its padding (also for an empty cell), and a coloured
+    # cell re-applies the cell attribute after its colour
+    local result
+    result=$(__tv_in_child '{"a":"x","b":"","c":"zz"}' '
+        __bu_tv_rebuild_cache; _TV_SIDEBAR=false; _TV_TERM_COLS=20; __bu_tv_compute_widths
+        _TV_COLORS[c]=$'"'"'\e[32m'"'"'
+        for c in 0 1 2; do
+            _TV_CUR_COL=$c; __bu_tv_clamp_offsets; __bu_tv_compute_visible_cols
+            __bu_tv_render_line 0 $'"'"'\e[7m'"'"' line; printf "%q\n" "$line"
+        done')
+    assert_equal "$result" "\$'\\E[1;4mx   \\E[0m\\E[7m        \\E[32mzz\\E[0m\\E[7m      \\E[0m'
+\$'\\E[7mx     \\E[0m\\E[1;4m    \\E[0m\\E[7m  \\E[32mzz\\E[0m\\E[7m      \\E[0m'
+\$'\\E[7mx           \\E[0m\\E[1;4m\\E[32mzz\\E[0m\\E[1;4m  \\E[0m\\E[7m    \\E[0m'"
 }
 
 function test_tv_cursor_row_reapplies_attr_after_color { #@test
@@ -1237,9 +1257,9 @@ function test_tv_no_color_resolution { #@test
         NO_COLOR=; show ""')
     assert_equal "$result" "auto \$'\\E[43;30m'
 none \$'\\E[43;30m'
-none \$'\\E[1;4m'
-auto \$'\\E[1;4m'
-a=red \$'\\E[1;4m'
+none \$'\\E[1;4;7m'
+auto \$'\\E[1;4;7m'
+a=red \$'\\E[1;4;7m'
 auto \$'\\E[43;30m'"
 }
 

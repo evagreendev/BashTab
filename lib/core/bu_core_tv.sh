@@ -28,7 +28,9 @@
 #     Enter              record detail      H F1             help
 #     c                  column sidebar     Ctrl-L           re-measure terminal
 #     m                  mouse reporting    q Q              quit
-# Numeric columns are right-aligned and null shows as a dim ∅.  With the
+# The cursor row is reversed; its cursor cell is drawn un-reversed, bold
+# and underlined.  Numeric columns are right-aligned and null shows as a
+# dim ∅.  With the
 # sidebar hidden, "◂ N" / "N ▸" on the separator row count the columns
 # scrolled off each side.  NO_COLOR turns colours off by default.
 #
@@ -59,9 +61,13 @@ declare -g -r __BU_TV_RESET="${__BU_TV_ESC}[0m"
 declare -g -r __BU_TV_RESET_SHORT="${__BU_TV_ESC}[m"
 declare -g -r __BU_TV_BOLD="${__BU_TV_ESC}[1m"
 declare -g -r __BU_TV_BOLD_UNDERLINE="${__BU_TV_ESC}[1;4m"
-# Search hit: black on yellow, or bold underline under NO_COLOR
+# Search hit: black on yellow, or under NO_COLOR bold underlined reverse
+# (it shows in plain rows, the reversed cursor row and the cursor cell)
 declare -g -r __BU_TV_HIT="${__BU_TV_ESC}[43;30m"
-declare -g -r __BU_TV_HIT_NO_COLOR="${__BU_TV_ESC}[1;4m"
+declare -g -r __BU_TV_HIT_NO_COLOR="${__BU_TV_ESC}[1;4;7m"
+# The cursor cell inside the reversed cursor row: un-reversed, bold and
+# underlined across its width, like the cursor column's header
+declare -g -r __BU_TV_CURSOR_CELL="${__BU_TV_ESC}[1;4m"
 # Cell cache marker for null (a lone U+0002; a literal one is escaped)
 declare -g -r __BU_TV_NULL=$'\x02'
 declare -g -r __BU_TV_NULL_CELL="${__BU_TV_DIM}∅${__BU_TV_RESET}"
@@ -720,7 +726,8 @@ __bu_tv_paint()
 # *Description*:
 # Resolve the colour settings, honouring NO_COLOR (no-color.org): when it
 # is set and not empty, the default colour spec is "none" and search hits
-# are bold underlined instead of black on yellow.  An explicit spec wins.
+# are bold underlined reverse instead of black on yellow.  An explicit spec
+# wins.
 #
 # *Params*:
 # - `$1`: Colour spec, or empty for the default ("auto")
@@ -1463,7 +1470,9 @@ __bu_tv_format_cell()
 # are right-aligned.  A dim divider replaces the gap after the frozen
 # columns.  A data row with a row attribute (the cursor row) starts with
 # it, keeps its padding inside it out to the table width and ends with a
-# reset; plain rows are right-trimmed.
+# reset; its cursor cell (padding included) is drawn in
+# __BU_TV_CURSOR_CELL instead, switched in and out with explicit resets.
+# Plain rows are right-trimmed.
 #
 # *Params*:
 # - `$1`: Data row index (-1 = header, -2 = separator)
@@ -1479,7 +1488,7 @@ __bu_tv_render_line()
     local -r row_attr=$2
     local -n __rl_out=$3
     __rl_out=
-    local sep= j hdr hattr arrow pad
+    local sep= j hdr hattr arrow pad lead_cell=false
     local -i col_w hdr_len width=-2 k=0
     for j in "${_TV_VIS_COLS[@]}"
     do
@@ -1516,6 +1525,25 @@ __bu_tv_render_line()
         elif (( row_idx == -2 ))
         then
             __rl_out+=$sep${__BU_TV_DASHES:0:col_w}
+        elif [[ -n "$row_attr" ]] && (( j == _TV_CUR_COL ))
+        then
+            # The cursor cell: its own attribute instead of the row's
+            __bu_tv_format_cell "$row_idx" "$j" "$__BU_TV_CURSOR_CELL"
+            pad=${__BU_TV_SPACES:0:col_w-_TV_FC_VIS_LEN}
+            if (( k == 1 ))
+            then
+                lead_cell=true
+                __rl_out+=$__BU_TV_CURSOR_CELL
+            else
+                __rl_out+=$sep$__BU_TV_RESET$__BU_TV_CURSOR_CELL
+            fi
+            if [[ "${_TV_COL_NUMERIC[j]:-0}" == 1 ]]
+            then
+                __rl_out+=$pad$_TV_FC_TEXT
+            else
+                __rl_out+=$_TV_FC_TEXT$pad
+            fi
+            __rl_out+=$__BU_TV_RESET$row_attr
         else
             __bu_tv_format_cell "$row_idx" "$j" "$row_attr"
             pad=${__BU_TV_SPACES:0:col_w-_TV_FC_VIS_LEN}
@@ -1533,7 +1561,9 @@ __bu_tv_render_line()
         local -i pad_w=$((_TV_TABLE_COLS - width))
         (( pad_w < 0 )) && pad_w=0
         (( pad_w > ${#__BU_TV_SPACES} )) && __bu_tv_ensure_pools $pad_w
-        __rl_out=$row_attr$__rl_out${__BU_TV_SPACES:0:pad_w}$__BU_TV_RESET
+        # A leading cursor cell carries its own attribute
+        "$lead_cell" || __rl_out=$row_attr$__rl_out
+        __rl_out+=${__BU_TV_SPACES:0:pad_w}$__BU_TV_RESET
     else
         __rl_out=${__rl_out%"${__rl_out##*[! ]}"}
     fi
