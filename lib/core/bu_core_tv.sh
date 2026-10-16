@@ -3,14 +3,29 @@
 
 # MARK: Interactive table viewer (bu tv)
 #
-# A pure-Bash TUI table viewer for JSONL streams.  Provides fixed headers,
-# column-aware horizontal scrolling, interactive sort, search, and terminal
-# resize handling — all with vim/less keybindings.
+# A pure-Bash TUI table viewer for JSONL streams.  Provides fixed headers, a
+# cell cursor, interactive sort, incremental search, a record-detail overlay
+# and terminal resize handling — all with vim/less keybindings.
 #
 # Pipe any JSONL stream into it:
-#     bu get-command | bu tv
-#     bu get-command | bu tv --colors auto
-#     bu get-command | bu tv --columns name,type
+#     bu get-command | bu view-table
+#     bu get-command | bu view-table --colors none
+#     bu get-command | bu view-table --columns name,type --max-width 30
+#
+# Keys (table):
+#     j k ↑ ↓            cursor row         h l ← →          cursor column
+#     g G                first / last row   0 $ Home End     first / last column
+#     Space b PgDn PgUp Shift-↓ Shift-↑     page rows (cursor and viewport)
+#     Shift-→ Shift-← Ctrl-→ Ctrl-←         page columns
+#     Ctrl-D Ctrl-U      half page down / up (cursor only)
+#     s S                sort the cursor column (toggle / descending)
+#     w W                widen the cursor column / all columns
+#     / ? n N Esc        search forward / backward, next / previous, clear
+#     Enter              record detail      H F1             help
+#     c                  column sidebar     Ctrl-L           re-measure terminal
+#     q Q                quit
+# Keys (detail overlay): j k ↑ ↓ and the page keys scroll, g G top / bottom,
+# J K next / previous record, n N next / previous match, q Q Esc Enter back.
 
 # ── Terminal escape sequences (computed once at source time) ─────────────
 declare -g -r __BU_TV_ESC=$'\e'
@@ -22,12 +37,15 @@ declare -g -r __BU_TV_CURSOR_SHOW="${__BU_TV_ESC}[?25h"
 declare -g -r __BU_TV_CLEAR_SCREEN="${__BU_TV_ESC}[2J"
 declare -g -r __BU_TV_CLEAR_LINE="${__BU_TV_ESC}[K"
 declare -g -r __BU_TV_REVERSE="${__BU_TV_ESC}[7m"
-declare -g -r __BU_TV_REVERSE_OFF="${__BU_TV_ESC}[27m"
 declare -g -r __BU_TV_DIM="${__BU_TV_ESC}[2m"
 # Raw CSI only — never tput-derived: sgr0 is \e(B\e[m under xterm, \e[m\017
 # under screen and empty under dumb, so frames would depend on TERM.
 declare -g -r __BU_TV_RESET="${__BU_TV_ESC}[0m"
+declare -g -r __BU_TV_RESET_SHORT="${__BU_TV_ESC}[m"
 declare -g -r __BU_TV_BOLD="${__BU_TV_ESC}[1m"
+declare -g -r __BU_TV_BOLD_UNDERLINE="${__BU_TV_ESC}[1;4m"
+# Search hit: black on yellow
+declare -g -r __BU_TV_HIT="${__BU_TV_ESC}[43;30m"
 
 # ── State ────────────────────────────────────────────────────────────────
 declare -g -a _TV_ROWS=()           # Raw JSON strings, one per record
@@ -35,20 +53,35 @@ declare -g -a _TV_COLUMNS=()        # Column keys (e.g. name, version)
 declare -g -a _TV_HEADERS=()        # Display labels (parsed from key:Label)
 declare -g -A _TV_COLORS=()         # key → ANSI escape code (or empty)
 declare -g -a _TV_CELLS=()          # Flat cell cache: [row * ncols + col] → string value
+declare -g -a _TV_ROW_TEXT=()       # Per row: ANSI-stripped cells joined by U+0001 (search)
 declare -g -i _TV_NUM_ROWS=0
 declare -g -i _TV_NUM_COLS=0
-declare -g -a _TV_COL_WIDTHS=()     # Content-based width per column (capped)
-declare -g -i _TV_ROW_OFFSET=0      # First visible row (0-indexed)
-declare -g -i _TV_COL_OFFSET=0      # First visible column (0-indexed)
+declare -g -a _TV_COL_FULL_WIDTHS=()  # Untruncated width per column (max of header, cells)
+declare -g -a _TV_COL_EXPANDED=()   # Per column: "true" when widened with w/W
+declare -g -a _TV_COL_WIDTHS=()     # Effective width per column (__bu_tv_compute_widths)
+declare -g -i _TV_MAX_EFF_W=0       # Widest effective column
+declare -g -i _TV_MAX_WIDTH=40      # Column width cap unless expanded (--max-width)
+declare -g -i _TV_CUR_ROW=0         # Cursor row (0-indexed)
+declare -g -i _TV_CUR_COL=0         # Cursor column (0-indexed)
+declare -g -i _TV_ROW_OFFSET=0      # First visible row, derived from the cursor
+declare -g -i _TV_COL_OFFSET=0      # First visible column, derived from the cursor
 declare -g    _TV_SORT_COL=         # Column key for sort, empty = unsorted
 declare -g    _TV_SORT_DIR=         # "asc" or "desc"
 declare -g -a _TV_SORT_PERM=()      # Last sort: new row index → old row index
-declare -g    _TV_SEARCH_QUERY=     # Current search string
-declare -g -a _TV_MATCHED_ROWS=()   # Indices of rows matching _TV_SEARCH_QUERY
-declare -g -i _TV_MATCH_IDX=-1      # Current position in _TV_MATCHED_ROWS
+declare -g    _TV_SEARCH_QUERY=     # Current search string (literal, smart case)
+declare -g    _TV_SEARCH_NEEDLE=    # Query as matched: lowercased unless case-sensitive
+declare -g    _TV_SEARCH_FOLD=true  # false when the query has an uppercase character
+declare -g -a _TV_MATCHED_ROWS=()   # Ascending indices of rows matching the query
+declare -g -a _TV_MATCHED_COLS=()   # Parallel: first matching column of each row
+declare -g -i _TV_MATCH_IDX=-1      # Match last moved to by __bu_tv_goto_match
+declare -g -i _TV_FOUND_IDX=-1      # Out-param: __bu_tv_search_from
+declare -g -a _TV_HITS=()           # Out-param: hit start offsets (__bu_tv_find_hits)
+declare -g    _TV_PAINT=            # Out-param: highlighted text (__bu_tv_paint)
+declare -g -a _TV_SEGS=()           # Out-param: (start len)... pairs (__bu_tv_wrap)
+declare -g    _TV_STATUS=           # Out-param: status line (__bu_tv_compose_status)
+declare -g    _TV_SEARCH_STATUS=    # Out-param: search part (__bu_tv_search_status)
 declare -g -i _TV_TERM_ROWS=24
 declare -g -i _TV_TERM_COLS=80
-declare -g -i _TV_HIGHLIGHT_COL=0   # Leftmost visible column index (for sort hint)
 declare -g    _TV_SAVED_STTY=       # Saved stty settings for cleanup
 declare -g -a _TV_VIS_COLS=()       # Visible column indices, computed once per frame
 declare -g    _TV_SIDEBAR=true      # Show the column sidebar (toggled with c)
@@ -57,7 +90,17 @@ declare -g -i _TV_SIDEBAR_W=0       # Sidebar width incl. border, 0 = hidden
 declare -g -i _TV_SIDEBAR_NAME_W=0  # Column-name width inside the sidebar
 declare -g    _TV_FC_TEXT=          # Out-param: formatted cell text (__bu_tv_format_cell)
 declare -g -i _TV_FC_VIS_LEN=0      # Out-param: visible width of _TV_FC_TEXT (ANSI excluded)
+declare -g    _TV_MODE=table        # table, detail or help
+declare -g    _TV_HELP_RETURN=table # Mode the help overlay returns to
+declare -g -a _TV_DETAIL_VALUES=()  # Detail overlay: untruncated value per column
+declare -g -a _TV_DETAIL_LINES=()   # Detail overlay: rendered, wrapped lines
+declare -g -a _TV_DETAIL_COL_LINE=()  # Detail overlay: first line index of each column
+declare -g -i _TV_DETAIL_OFFSET=0   # Detail overlay: first visible line
+declare -g -i _TV_HELP_OFFSET=0     # Help overlay: first visible line
+declare -g    _TV_PROMPT_ACTIVE=false  # Search prompt open on the status row
+declare -g    _TV_PROMPT_TEXT=      # Prompt shown while open ("/" or "?" + query)
 declare -g    _TV_KEY=              # Out-param: last key read (__bu_tv_read_key)
+declare -g    _TV_EOF=false         # The tty hit EOF (read_key reports it as "q")
 declare -g    _TV_QUIT=false        # Event-loop exit flag
 # Signal flags: the traps only set these; __bu_tv_process_signals does the
 # work from the event loop (see __bu_tv_install_traps for why)
@@ -66,6 +109,45 @@ declare -g    _TV_SUSPEND_PENDING=false  # SIGTSTP (Ctrl-Z)
 declare -g    _TV_RESUME_PENDING=false   # SIGCONT (fg)
 # Blocking key reads wake this often (seconds) so a deferred WINCH trap runs
 declare -g -r __BU_TV_KEY_POLL=0.1
+
+declare -g -r __BU_TV_HINTS_TABLE='q:quit /:search s:sort w:wide Enter:detail H:help'
+declare -g -r __BU_TV_HINTS_DETAIL='j/k:scroll J/K:record n/N:match q:back H:help'
+declare -g -r __BU_TV_HINTS_HELP='j/k:scroll q:back'
+
+# Help overlay text: at most 60 characters per line
+declare -g -r -a __BU_TV_HELP_LINES=(
+    'Table'
+    '  j k ↑ ↓            cursor down / up'
+    '  h l ← →            cursor left / right'
+    '  g G                first / last row'
+    '  0 $ Home End       first / last column'
+    '  Space b            page down / up (also PgDn PgUp)'
+    '  Shift-↓ Shift-↑    page down / up'
+    '  Shift-→ Shift-←    page columns right / left'
+    '  Ctrl-→ Ctrl-←      page columns right / left'
+    '  Ctrl-D Ctrl-U      half page down / up'
+    '  s S                sort column (toggle / descending)'
+    '  w W                widen column / all columns'
+    '  c                  toggle the column sidebar'
+    '  Enter              record detail'
+    '  Ctrl-L             re-measure the terminal'
+    '  H F1               this help'
+    '  q Q                quit'
+    ''
+    'Search (literal; an uppercase letter makes it match case)'
+    '  / ?                search forward / backward'
+    '  n N                next / previous match'
+    '  Esc                clear the search'
+    '  Backspace Ctrl-U   delete a character / clear (prompt)'
+    '  Enter Esc          accept / cancel (prompt)'
+    ''
+    'Detail'
+    '  j k ↑ ↓            scroll'
+    '  Space b g G        page down / up, top / bottom'
+    '  J K                next / previous record'
+    '  n N                next / previous match'
+    '  q Esc Enter        back to the table'
+)
 
 # Padding pools — slice with ${__BU_TV_SPACES:0:N} instead of per-cell append
 # loops.  Grown by doubling (__bu_tv_ensure_pools) if a column exceeds the pool.
@@ -114,6 +196,22 @@ __bu_tv_strip_ansi()
     do
         __bu_tv_strip_ref=${__bu_tv_strip_ref//"${BASH_REMATCH[0]}"/}
     done
+}
+
+# ```
+# *Description*:
+# Number of data rows on screen: everything but the header, separator and
+# status rows.
+#
+# *Returns*:
+# - `_TV_DATA_ROWS`
+# ```
+declare -g -i _TV_DATA_ROWS=1
+__bu_tv_data_rows()
+{
+    _TV_DATA_ROWS=$((_TV_TERM_ROWS - 3))
+    (( _TV_DATA_ROWS < 1 )) && _TV_DATA_ROWS=1
+    return 0
 }
 
 # ```
@@ -182,23 +280,29 @@ __bu_tv_extract_columns()
 #
 # Each cell is escaped individually (`[.] | @tsv`: tab, newline, CR and
 # backslash become two-character escapes) and a literal U+0001 becomes the
-# six characters `\u0001`, so U+0001 can delimit cells.  jq emits two lines:
-# the per-column maximum visible width (ANSI stripped, escaped text
-# measured), then every cell of every row joined by U+0001 plus a trailing
-# sentinel.  U+0001 is non-whitespace IFS, so `read -a` keeps interior
-# empty cells; the sentinel protects a trailing empty one.
+# six characters `\u0001`, so U+0001 can delimit cells.  jq emits the
+# per-column maximum visible width (ANSI stripped, escaped text measured),
+# then every cell of every row joined by U+0001 plus a trailing sentinel,
+# then one line per row with that row's ANSI-stripped cells joined by
+# U+0001 (the search haystack) and a final sentinel line.  U+0001 is
+# non-whitespace IFS, so `read -a` keeps interior empty cells; the
+# sentinels protect a trailing empty cell and a trailing empty row line
+# (which $(...) would strip).
 #
 # *Params*:
 # - None.  Reads _TV_ROWS[], _TV_COLUMNS[], _TV_NUM_ROWS, _TV_NUM_COLS.
 #
 # *Returns*:
-# - Sets _TV_CELLS[] and _TV_COL_WIDTHS[].
-# - 1 with both cleared if the parsed cell count is not rows x cols (a
-#   shifted table must never be rendered).
+# - Sets _TV_CELLS[], _TV_ROW_TEXT[], _TV_COL_FULL_WIDTHS[] and (via
+#   __bu_tv_compute_widths) _TV_COL_WIDTHS[].
+# - 1 with all of them cleared if the parsed cell count is not rows x cols
+#   (a shifted table must never be rendered).
 # ```
 __bu_tv_rebuild_cache()
 {
     _TV_CELLS=()
+    _TV_ROW_TEXT=()
+    _TV_COL_FULL_WIDTHS=()
     _TV_COL_WIDTHS=()
     if (( _TV_NUM_ROWS == 0 || _TV_NUM_COLS == 0 ))
     then
@@ -216,16 +320,19 @@ __bu_tv_rebuild_cache()
         sep=,
     done
 
-    # `// ""` would blank `false` too; only null is empty
+    # `// ""` would blank `false` too; only null is empty.  Only cells that
+    # contain ESC go through the (slow) regex strip.
     local jq_expr
     printf -v jq_expr '%s' \
         'map([' "$jq_keys" ']' \
         ' | map(if . == null then "" else tostring end | [.] | @tsv' \
         ' | gsub("\u0001"; "\\u0001"))) as $rows' \
-        ' | ([range(' "$_TV_NUM_COLS" ') as $j | [$rows[][$j]' \
-        ' | gsub("\u001b\\[[0-9;]*[A-Za-z]|\u001b[()]."; "") | length]' \
+        ' | ($rows | map(map(if contains("\u001b")' \
+        ' then gsub("\u001b\\[[0-9;]*[A-Za-z]|\u001b[()]."; "") else . end))) as $plain' \
+        ' | ([range(' "$_TV_NUM_COLS" ') as $j | [$plain[][$j] | length]' \
         ' | max] | map(tostring) | join(" ")),' \
-        ' ([$rows[][]] + ["."] | join("\u0001"))'
+        ' ([$rows[][]] + ["."] | join("\u0001")),' \
+        ' ($plain[] | join("\u0001")), "."'
 
     local out
     out=$(printf '%s\n' "${_TV_ROWS[@]}" | "$BU_OUT_JQ" -r -s "${jq_args[@]}" "$jq_expr")
@@ -236,65 +343,161 @@ __bu_tv_rebuild_cache()
     {
         read -r -a widths
         IFS=$'\x01' read -r -a _TV_CELLS
+        mapfile -t _TV_ROW_TEXT
     } <<<"$out"
-    # Drop the sentinel
+    # Drop the sentinels
     (( ${#_TV_CELLS[@]} )) && unset '_TV_CELLS[-1]'
+    if (( ${#_TV_ROW_TEXT[@]} )) && [[ "${_TV_ROW_TEXT[-1]}" == . ]]
+    then
+        unset '_TV_ROW_TEXT[-1]'
+    else
+        _TV_ROW_TEXT=()
+    fi
 
     local -i expected=$((_TV_NUM_ROWS * _TV_NUM_COLS))
-    if (( ${#_TV_CELLS[@]} != expected || ${#widths[@]} != _TV_NUM_COLS ))
+    if (( ${#_TV_CELLS[@]} != expected || ${#widths[@]} != _TV_NUM_COLS \
+        || ${#_TV_ROW_TEXT[@]} != _TV_NUM_ROWS ))
     then
-        bu_log_err "bu view-table: parsed ${#_TV_CELLS[@]} cells and ${#widths[@]} widths, expected $expected cells ($_TV_NUM_ROWS rows x $_TV_NUM_COLS cols) and $_TV_NUM_COLS widths"
+        bu_log_err "bu view-table: parsed ${#_TV_CELLS[@]} cells, ${#widths[@]} widths and ${#_TV_ROW_TEXT[@]} rows, expected $expected cells ($_TV_NUM_ROWS rows x $_TV_NUM_COLS cols) and $_TV_NUM_COLS widths"
         _TV_CELLS=()
+        _TV_ROW_TEXT=()
         _TV_COL_WIDTHS=()
         return 1
     fi
 
-    # ── Widths: max of header and content, clamped to [4, 40] ────────
-    local -i wid max_width=40
+    # ── Full widths: max of header and content ────────────────────────
+    local -i wid
     for (( j = 0; j < _TV_NUM_COLS; j++ ))
     do
         wid=${widths[$j]}
         if (( ${#_TV_HEADERS[$j]} > wid )); then wid=${#_TV_HEADERS[$j]}; fi
-        if (( wid < 4 )); then wid=4; fi
-        if (( wid > max_width )); then wid=$max_width; fi
-        _TV_COL_WIDTHS+=($wid)
+        _TV_COL_FULL_WIDTHS+=("$wid")
+    done
+    __bu_tv_compute_widths
+    return 0
+}
+
+# ```
+# *Description*:
+# Derive the effective column widths: min(full, cap) with a floor of 4.
+# The cap is _TV_MAX_WIDTH, or the terminal width minus 2 for an expanded
+# column, and never more than the terminal width minus 2 (with its 2-column
+# gap a column must always fit alone, or nothing renders).  Call it again
+# whenever the terminal size changes.
+#
+# *Returns*:
+# - Sets _TV_COL_WIDTHS[] and _TV_MAX_EFF_W.
+# ```
+__bu_tv_compute_widths()
+{
+    _TV_COL_WIDTHS=()
+    _TV_MAX_EFF_W=0
+    local -r -i term_cap=$((_TV_TERM_COLS - 2))
+    local -i j w cap
+    for (( j = 0; j < _TV_NUM_COLS; j++ ))
+    do
+        w=${_TV_COL_FULL_WIDTHS[j]:-0}
+        cap=$_TV_MAX_WIDTH
+        [[ "${_TV_COL_EXPANDED[j]:-false}" == true ]] && cap=$term_cap
+        (( cap > term_cap )) && cap=$term_cap
+        (( w > cap )) && w=$cap
+        (( w < 4 )) && w=4
+        _TV_COL_WIDTHS+=("$w")
+        (( w > _TV_MAX_EFF_W )) && _TV_MAX_EFF_W=$w
     done
     return 0
 }
 
 # ```
 # *Description*:
-# Highlight ALL occurrences of a query string within a text variable by
-# wrapping them in reverse video.  Case-insensitive, pure bash (no forks).
-# Replaces the old printf|sed pipeline which forked twice per cell.
+# Prepare the search needle from _TV_SEARCH_QUERY.  Smart case: a query
+# with an uppercase character matches case-sensitively, otherwise both the
+# needle and the haystack are lowercased.
+#
+# *Returns*:
+# - Sets _TV_SEARCH_NEEDLE and _TV_SEARCH_FOLD.
+# ```
+__bu_tv_query_prepare()
+{
+    if [[ "$_TV_SEARCH_QUERY" == *[[:upper:]]* ]]
+    then
+        _TV_SEARCH_FOLD=false
+        _TV_SEARCH_NEEDLE=$_TV_SEARCH_QUERY
+    else
+        _TV_SEARCH_FOLD=true
+        _TV_SEARCH_NEEDLE=${_TV_SEARCH_QUERY,,}
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
+# Find every non-overlapping occurrence of the search needle in a string,
+# left to right.  Literal match (no glob or regex), smart case.  Pure bash.
 #
 # *Params*:
-# - `$1`: Nameref to the text variable (modified in place)
-# - `$2`: Query string (matched literally, case-insensitively)
+# - `$1`: Text to search (no ANSI escapes)
+#
+# *Returns*:
+# - `_TV_HITS`: Ascending start offsets (empty without a query)
 # ```
-__bu_tv_highlight_text()
+__bu_tv_find_hits()
 {
-    local -n __ht_ref=$1
-    local query=$2
-    if [[ -z "$query" || -z "$__ht_ref" ]]
-    then
-        return 0
-    fi
-    local lower_query=${query,,}
-    local -i qlen=${#lower_query}
-    local result= rest=$__ht_ref
-    local lower_rest=${rest,,}
-    while [[ $lower_rest == *"$lower_query"* ]]
+    _TV_HITS=()
+    local -r needle=$_TV_SEARCH_NEEDLE
+    [[ -z "$needle" ]] && return 0
+    local rest=$1
+    [[ "$_TV_SEARCH_FOLD" == true ]] && rest=${rest,,}
+    local -i -r qlen=${#needle}
+    local -i pos=0 idx
+    local prefix
+    while [[ $rest == *"$needle"* ]]
     do
-        # Index of the first match: %% strips the longest suffix starting
-        # at the query, leaving the literal prefix.
-        local prefix=${lower_rest%%"$lower_query"*}
-        local -i idx=${#prefix}
-        result+=${rest:0:idx}${__BU_TV_REVERSE}${rest:idx:qlen}${__BU_TV_REVERSE_OFF}
+        # %% strips the longest suffix starting at the needle, leaving the
+        # literal prefix before the first occurrence
+        prefix=${rest%%"$needle"*}
+        idx=${#prefix}
+        _TV_HITS+=($((pos + idx)))
+        pos=$((pos + idx + qlen))
         rest=${rest:idx+qlen}
-        lower_rest=${rest,,}
     done
-    __ht_ref=$result$rest
+    return 0
+}
+
+# ```
+# *Description*:
+# Slice [from, to) of a string, drawing the parts covered by _TV_HITS in
+# black on yellow.  Hits are clipped to the slice.  After each hit the
+# caller's base attributes are re-applied explicitly (never reverse-off),
+# so a hit stays visible inside a reversed or coloured span.
+#
+# *Params*:
+# - `$1`: Text (no ANSI escapes)
+# - `$2`: Slice start
+# - `$3`: Slice end (exclusive)
+# - `$4`: Attributes to re-apply after a hit, starting with a reset
+#
+# *Returns*:
+# - `_TV_PAINT`
+# ```
+__bu_tv_paint()
+{
+    local -r text=$1 base=$4
+    local -i -r from=$2 to=$3 qlen=${#_TV_SEARCH_NEEDLE}
+    local -i p=$from s e
+    _TV_PAINT=
+    for s in "${_TV_HITS[@]}"
+    do
+        e=$((s + qlen))
+        (( e <= from )) && continue
+        (( s >= to )) && break
+        (( s < from )) && s=$from
+        (( e > to )) && e=$to
+        _TV_PAINT+=${text:p:s-p}$__BU_TV_HIT${text:s:e-s}$base
+        p=$e
+    done
+    _TV_PAINT+=${text:p:to-p}
+    return 0
 }
 
 # ```
@@ -366,7 +569,8 @@ __bu_tv_install_traps()
 # ```
 # *Description*:
 # Enter raw terminal mode: alternate screen, hide cursor, non-canonical
-# input, install signal traps.
+# input, install signal traps.  Measures the terminal and derives the
+# column widths (the cache is built before the size is known).
 #
 # *Returns*:
 # - 1 without touching the terminal if our process group is not the tty's
@@ -395,6 +599,7 @@ __bu_tv_terminal_setup()
     printf '%s%s' "$__BU_TV_CURSOR_HOME" "$__BU_TV_CLEAR_SCREEN"
 
     __bu_tv_update_dimensions
+    __bu_tv_compute_widths
 
     __bu_tv_install_traps
     return 0
@@ -430,16 +635,17 @@ __bu_tv_terminal_restore()
 
 # ```
 # *Description*:
-# Act on the flags the traps set.  Called from the event loop before each
-# render, outside any trap.  Each flag is cleared before its work so a
-# signal arriving meanwhile is handled on the next pass.
+# Act on the flags the traps set.  Called from the event loop (and the
+# search prompt) before each render, outside any trap.  Each flag is
+# cleared before its work so a signal arriving meanwhile is handled on the
+# next pass.
 #
 # - Suspend (Ctrl-Z): restore the terminal so the shell prompt is usable
 #   while stopped, then SIGSTOP ourselves (uncatchable, so it always stops).
 #   Execution continues here after fg, which also counts as a resume.
 # - Resume (fg, or SIGCONT after an external stop): re-arm the traps,
-#   re-enter raw mode + alternate screen, and re-read the size.
-# - Resize: re-read the size and clamp offsets.
+#   re-enter raw mode + alternate screen, and re-measure.
+# - Resize: re-measure (size, widths, offsets, detail wrapping).
 # ```
 __bu_tv_process_signals()
 {
@@ -462,8 +668,7 @@ __bu_tv_process_signals()
     if "$_TV_RESIZE_PENDING"
     then
         _TV_RESIZE_PENDING=false
-        __bu_tv_update_dimensions
-        __bu_tv_clamp_offsets
+        __bu_tv_remeasure
     fi
     return 0
 }
@@ -508,17 +713,35 @@ __bu_tv_update_dimensions()
 
 # ```
 # *Description*:
+# Re-read the terminal size and re-derive everything that depends on it:
+# column widths, offsets and, when the detail overlay is (or will be
+# returned to) on screen, its wrapping.  Used on resize, resume and Ctrl-L.
+# ```
+__bu_tv_remeasure()
+{
+    __bu_tv_update_dimensions
+    __bu_tv_compute_widths
+    __bu_tv_clamp_offsets
+    if [[ "$_TV_MODE" == detail || ( "$_TV_MODE" == help && "$_TV_HELP_RETURN" == detail ) ]]
+    then
+        __bu_tv_build_detail
+    fi
+    __bu_tv_overlay_clamp
+    return 0
+}
+
+# ```
+# *Description*:
 # Split the screen width between the table and the column sidebar.  The
 # sidebar is as wide as the longest column label (capped) plus border,
 # cursor marker and sort arrow, and is hidden when the table would be left
-# with fewer than __BU_TV_SIDEBAR_MIN_TABLE columns.
+# too narrow for its widest column plus gap (so every column still fits on
+# screen alone).
 #
 # *Returns*:
 # - Sets _TV_TABLE_COLS, _TV_SIDEBAR_W (0 = hidden) and _TV_SIDEBAR_NAME_W.
 # ```
 declare -g -r -i __BU_TV_SIDEBAR_MAX_NAME=20
-# 40 = widest column (see __bu_tv_rebuild_cache) + its 2-space gap
-declare -g -r -i __BU_TV_SIDEBAR_MIN_TABLE=42
 __bu_tv_update_layout()
 {
     _TV_TABLE_COLS=$_TV_TERM_COLS
@@ -539,60 +762,196 @@ __bu_tv_update_layout()
 
     # "│ " + marker + name + " ↑"
     local -i width=$((2 + 1 + name_w + 2))
-    (( _TV_TERM_COLS - width < __BU_TV_SIDEBAR_MIN_TABLE )) && return 0
+    (( _TV_TERM_COLS - width < _TV_MAX_EFF_W + 2 )) && return 0
     _TV_SIDEBAR_NAME_W=$name_w
     _TV_SIDEBAR_W=$width
     _TV_TABLE_COLS=$((_TV_TERM_COLS - width))
     return 0
 }
 
-# ── Navigation / offset clamping ─────────────────────────────────────────
+# ── Cursor and viewport ──────────────────────────────────────────────────
 
 # ```
 # *Description*:
-# Clamp _TV_ROW_OFFSET and _TV_COL_OFFSET to valid ranges.
+# Clamp the cursor into the data, then derive _TV_ROW_OFFSET and
+# _TV_COL_OFFSET so the cursor cell is on screen, scrolling the minimum
+# amount.  Rows: bring the cursor row into view, then pull the offset back
+# so no blank rows are left under the last record.  Columns: walk the
+# offset right until the cursor column fits (each column takes its width
+# plus a 2-column gap, as in the renderer), then left while everything
+# from the new left edge to the last column still fits.
 # ```
 __bu_tv_clamp_offsets()
 {
-    local -i data_rows=$((_TV_TERM_ROWS - 3))
-    (( data_rows < 1 )) && data_rows=1
+    __bu_tv_data_rows
+    local -r -i data_rows=$_TV_DATA_ROWS
 
+    (( _TV_CUR_ROW >= _TV_NUM_ROWS )) && _TV_CUR_ROW=$((_TV_NUM_ROWS - 1))
+    (( _TV_CUR_ROW < 0 )) && _TV_CUR_ROW=0
+    (( _TV_CUR_COL >= _TV_NUM_COLS )) && _TV_CUR_COL=$((_TV_NUM_COLS - 1))
+    (( _TV_CUR_COL < 0 )) && _TV_CUR_COL=0
+
+    (( _TV_CUR_ROW < _TV_ROW_OFFSET )) && _TV_ROW_OFFSET=$_TV_CUR_ROW
+    (( _TV_CUR_ROW >= _TV_ROW_OFFSET + data_rows )) && _TV_ROW_OFFSET=$((_TV_CUR_ROW - data_rows + 1))
     local -i max_row=$((_TV_NUM_ROWS - data_rows))
-    (( max_row < 0 )) && max_row=0
     (( _TV_ROW_OFFSET > max_row )) && _TV_ROW_OFFSET=$max_row
     (( _TV_ROW_OFFSET < 0 )) && _TV_ROW_OFFSET=0
 
     __bu_tv_update_layout
 
-    # Walk column offset rightward until at least one column is visible
-    if (( _TV_NUM_COLS > 0 ))
+    if (( _TV_NUM_COLS == 0 ))
     then
-        local -i j used
-        while (( _TV_COL_OFFSET < _TV_NUM_COLS ))
-        do
-            used=0
-            for (( j = _TV_COL_OFFSET; j < _TV_NUM_COLS; j++ ))
-            do
-                used=$((used + _TV_COL_WIDTHS[$j] + 2))
-            done
-            (( used > 0 )) && break
-            _TV_COL_OFFSET=$((_TV_COL_OFFSET + 1))
-        done
-        # Walk left if there's unused space
-        while (( _TV_COL_OFFSET > 0 ))
-        do
-            used=0
-            local try_start=$((_TV_COL_OFFSET - 1))
-            for (( j = try_start; j < _TV_NUM_COLS; j++ ))
-            do
-                used=$((used + _TV_COL_WIDTHS[$j] + 2))
-            done
-            (( used > _TV_TABLE_COLS )) && break
-            _TV_COL_OFFSET=$try_start
-        done
+        _TV_COL_OFFSET=0
+        return 0
     fi
+    (( _TV_COL_OFFSET > _TV_CUR_COL )) && _TV_COL_OFFSET=$_TV_CUR_COL
     (( _TV_COL_OFFSET < 0 )) && _TV_COL_OFFSET=0
+
+    local -i j used=0
+    for (( j = _TV_COL_OFFSET; j <= _TV_CUR_COL; j++ ))
+    do
+        used=$((used + _TV_COL_WIDTHS[j] + 2))
+    done
+    while (( used > _TV_TABLE_COLS && _TV_COL_OFFSET < _TV_CUR_COL ))
+    do
+        used=$((used - _TV_COL_WIDTHS[_TV_COL_OFFSET] - 2))
+        _TV_COL_OFFSET=$((_TV_COL_OFFSET + 1))
+    done
+
+    used=0
+    for (( j = _TV_COL_OFFSET; j < _TV_NUM_COLS; j++ ))
+    do
+        used=$((used + _TV_COL_WIDTHS[j] + 2))
+    done
+    while (( _TV_COL_OFFSET > 0 && used + _TV_COL_WIDTHS[_TV_COL_OFFSET - 1] + 2 <= _TV_TABLE_COLS ))
+    do
+        _TV_COL_OFFSET=$((_TV_COL_OFFSET - 1))
+        used=$((used + _TV_COL_WIDTHS[_TV_COL_OFFSET] + 2))
+    done
     return 0
+}
+
+# ```
+# *Description*:
+# Move the cursor by a row and column delta, then re-clamp.
+#
+# *Params*:
+# - `$1`: Row delta
+# - `$2`: Column delta
+# ```
+__bu_tv_move()
+{
+    _TV_CUR_ROW=$((_TV_CUR_ROW + $1))
+    _TV_CUR_COL=$((_TV_CUR_COL + $2))
+    __bu_tv_clamp_offsets
+}
+
+# ```
+# *Description*:
+# Page rows: move the cursor and the viewport together by a delta.
+#
+# *Params*:
+# - `$1`: Row delta (a page is ±_TV_DATA_ROWS)
+# ```
+__bu_tv_page_rows()
+{
+    _TV_CUR_ROW=$((_TV_CUR_ROW + $1))
+    _TV_ROW_OFFSET=$((_TV_ROW_OFFSET + $1))
+    __bu_tv_clamp_offsets
+}
+
+# ```
+# *Description*:
+# Page the columns right: the first column cut off on the right becomes the
+# new left edge and the cursor lands on it.  With nothing cut off this is
+# End (cursor on the last column, minimum scroll).  The clamp may pull the
+# offset back near the end so the tail fills the screen.
+# ```
+__bu_tv_page_cols_right()
+{
+    # _TV_VIS_COLS is only refreshed per frame
+    __bu_tv_compute_visible_cols
+    (( ${#_TV_VIS_COLS[@]} == 0 )) && return 0
+    local -r -i last=${_TV_VIS_COLS[-1]}
+    if (( last < _TV_NUM_COLS - 1 ))
+    then
+        _TV_COL_OFFSET=$((last + 1))
+        _TV_CUR_COL=$_TV_COL_OFFSET
+    else
+        _TV_CUR_COL=$((_TV_NUM_COLS - 1))
+    fi
+    __bu_tv_clamp_offsets
+}
+
+# ```
+# *Description*:
+# Page the columns left: the current first visible column becomes the
+# rightmost visible one and the cursor lands on the new left edge.  An
+# over-wide first column that cannot share the screen with its left
+# neighbour still moves one column left.  At column 0 the cursor goes to
+# column 0.
+# ```
+__bu_tv_page_cols_left()
+{
+    (( _TV_NUM_COLS == 0 )) && return 0
+    __bu_tv_update_layout
+    local -r -i first=$_TV_COL_OFFSET
+    local -i start=$first used
+    if (( first > 0 ))
+    then
+        used=$((_TV_COL_WIDTHS[first] + 2))
+        while (( start > 0 && used + _TV_COL_WIDTHS[start - 1] + 2 <= _TV_TABLE_COLS ))
+        do
+            start=$((start - 1))
+            used=$((used + _TV_COL_WIDTHS[start] + 2))
+        done
+        (( start == first )) && start=$((first - 1))
+    fi
+    _TV_COL_OFFSET=$start
+    _TV_CUR_COL=$start
+    __bu_tv_clamp_offsets
+}
+
+# ```
+# *Description*:
+# Widen (or restore) the cursor column: an expanded column is capped at the
+# terminal width minus 2 instead of _TV_MAX_WIDTH.
+# ```
+__bu_tv_toggle_wide()
+{
+    (( _TV_NUM_COLS == 0 )) && return 0
+    if [[ "${_TV_COL_EXPANDED[_TV_CUR_COL]:-false}" == true ]]
+    then
+        _TV_COL_EXPANDED[_TV_CUR_COL]=false
+    else
+        _TV_COL_EXPANDED[_TV_CUR_COL]=true
+    fi
+    __bu_tv_compute_widths
+    __bu_tv_clamp_offsets
+}
+
+# ```
+# *Description*:
+# Expand every column, or collapse them all if all are already expanded.
+# ```
+__bu_tv_toggle_wide_all()
+{
+    local value=false
+    local -i j
+    for (( j = 0; j < _TV_NUM_COLS; j++ ))
+    do
+        if [[ "${_TV_COL_EXPANDED[j]:-false}" != true ]]
+        then
+            value=true
+            break
+        fi
+    done
+    for (( j = 0; j < _TV_NUM_COLS; j++ ))
+    do
+        _TV_COL_EXPANDED[j]=$value
+    done
+    __bu_tv_compute_widths
+    __bu_tv_clamp_offsets
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -625,9 +984,17 @@ __bu_tv_compute_visible_cols()
 # Build the formatted text and visible width for a single data cell.
 # Pure bash, no forks: reads _TV_CELLS[] directly.
 #
+# A cell carrying producer ANSI escapes is matched, highlighted and
+# truncated on its stripped text whenever a query is active or it must be
+# truncated (a query could otherwise match inside `\e[31m` and splice the
+# highlight into the escape); otherwise its escapes are kept, with each
+# reset re-applying the row and cell attributes.  A hit hidden by
+# truncation highlights the ellipsis.
+#
 # *Params*:
 # - `$1`: Row index
 # - `$2`: Column index
+# - `$3`: Row attribute (e.g. reverse video for the cursor row) or empty
 #
 # *Returns*:
 # - `_TV_FC_TEXT`: Cell text with ANSI styling (color, search highlight)
@@ -636,105 +1003,144 @@ __bu_tv_compute_visible_cols()
 # ```
 __bu_tv_format_cell()
 {
-    local -i row_idx=$1 col_idx=$2
-    local -i col_w=${_TV_COL_WIDTHS[$col_idx]}
-    local key=${_TV_COLUMNS[$col_idx]}
+    local -i -r row_idx=$1 col_idx=$2
+    local -r row_attr=$3
+    local -i -r col_w=${_TV_COL_WIDTHS[col_idx]}
+    local -r color=${_TV_COLORS[${_TV_COLUMNS[col_idx]}]:-}
+    local text=${_TV_CELLS[row_idx * _TV_NUM_COLS + col_idx]:-}
+    local -i len
+    local kept_esc=false
 
-    _TV_FC_TEXT=${_TV_CELLS[$((row_idx * _TV_NUM_COLS + col_idx))]:-}
-
-    # Visible width — strip embedded ANSI only when present (cheap check)
-    local -i raw_len
-    if [[ $_TV_FC_TEXT == *$'\e'* ]]
+    if [[ $text == *$'\e'* ]]
     then
-        local __vis=$_TV_FC_TEXT
-        __bu_tv_strip_ansi __vis
-        raw_len=${#__vis}
+        local plain=$text
+        __bu_tv_strip_ansi plain
+        len=${#plain}
+        if [[ -n "$_TV_SEARCH_NEEDLE" ]] || (( len > col_w ))
+        then
+            text=$plain
+        else
+            kept_esc=true
+        fi
     else
-        raw_len=${#_TV_FC_TEXT}
+        len=${#text}
     fi
 
-    # Truncate with ellipsis if needed
-    if (( raw_len > col_w ))
+    # Common path: fits, no query
+    if [[ -z "$_TV_SEARCH_NEEDLE" ]] && (( len <= col_w ))
     then
-        _TV_FC_TEXT="${_TV_FC_TEXT:0:$((col_w - 1))}…"
+        if "$kept_esc" && [[ -n "$row_attr$color" ]]
+        then
+            local -r rep=$__BU_TV_RESET$row_attr$color
+            text=${text//"$__BU_TV_RESET"/"$rep"}
+            text=${text//"$__BU_TV_RESET_SHORT"/"$rep"}
+        fi
+        _TV_FC_VIS_LEN=$len
+        if [[ -n "$color" ]]
+        then
+            _TV_FC_TEXT=$color$text$__BU_TV_RESET$row_attr
+        else
+            _TV_FC_TEXT=$text
+        fi
+        return 0
+    fi
+
+    local -i vis=$len
+    local ellipsis=
+    if (( len > col_w ))
+    then
+        vis=$((col_w - 1))
+        ellipsis='…'
         _TV_FC_VIS_LEN=$col_w
     else
-        _TV_FC_VIS_LEN=$raw_len
+        _TV_FC_VIS_LEN=$len
     fi
 
-    # Search highlighting (inserts ANSI only; visible length unchanged)
-    if [[ -n "$_TV_SEARCH_QUERY" ]]
+    if [[ -n "$_TV_SEARCH_NEEDLE" ]]
     then
-        __bu_tv_highlight_text _TV_FC_TEXT "$_TV_SEARCH_QUERY"
+        local -r base=$__BU_TV_RESET$row_attr$color
+        __bu_tv_find_hits "$text"
+        __bu_tv_paint "$text" 0 "$vis" "$base"
+        text=$_TV_PAINT
+        if [[ -n "$ellipsis" ]] && (( ${#_TV_HITS[@]} )) \
+            && (( ${_TV_HITS[-1]} + ${#_TV_SEARCH_NEEDLE} > vis ))
+        then
+            ellipsis=$__BU_TV_HIT$ellipsis$base
+        fi
+    else
+        text=${text:0:vis}
     fi
 
-    # Color prefix
-    local color=${_TV_COLORS[$key]:-}
     if [[ -n "$color" ]]
     then
-        _TV_FC_TEXT="${color}${_TV_FC_TEXT}${__BU_TV_RESET}"
+        _TV_FC_TEXT=$color$text$ellipsis$__BU_TV_RESET$row_attr
+    else
+        _TV_FC_TEXT=$text$ellipsis
     fi
+    return 0
 }
 
 # ```
 # *Description*:
 # Render a single table line (header, separator, or data row).
 #
+# The header draws the cursor column bold and underlined, the others bold.
+# A data row with a row attribute (the cursor row) starts with it, keeps
+# its padding inside it out to the table width and ends with a reset;
+# plain rows are right-trimmed.
+#
 # *Params*:
 # - `$1`: Row index (-1 = header, -2 = separator, >= 0 = data row)
-# - `$2`: "true" if this row should be highlighted as the current search match
+# - `$2`: Row attribute (reverse video for the cursor row) or empty
 # - `$3`: Nameref to the output variable
 #
 # *Returns*:
-# - `$3`: Formatted row string, right-trimmed
+# - `$3`: Formatted row string
 # ```
 __bu_tv_render_line()
 {
-    local -i row_idx=$1
-    local is_current_match=$2
+    local -i -r row_idx=$1
+    local -r row_attr=$2
     local -n __rl_out=$3
     __rl_out=
-    local sep=
-    local j
+    local sep= j hdr hattr
+    local -i col_w hdr_len width=-2
     for j in "${_TV_VIS_COLS[@]}"
     do
-        local -i col_w=${_TV_COL_WIDTHS[$j]}
+        col_w=${_TV_COL_WIDTHS[$j]}
         (( col_w > ${#__BU_TV_SPACES} )) && __bu_tv_ensure_pools $col_w
+        width=$((width + col_w + 2))
         if (( row_idx == -1 ))
         then
-            # Header (raw CSI bold — never tput-derived; sgr0 varies by TERM)
-            local hdr=${_TV_HEADERS[$j]}
-            local -i hdr_len=${#hdr}
+            hdr=${_TV_HEADERS[$j]}
+            hdr_len=${#hdr}
             if (( hdr_len > col_w ))
             then
                 # The ellipsis occupies the last cell: no padding left
-                hdr="${hdr:0:$((col_w - 1))}…"
+                hdr="${hdr:0:col_w-1}…"
                 hdr_len=$col_w
             fi
-            __rl_out+="$sep${__BU_TV_ESC}[1m${hdr}${__BU_TV_ESC}[0m${__BU_TV_SPACES:0:col_w-hdr_len}"
+            hattr=$__BU_TV_BOLD
+            (( j == _TV_CUR_COL )) && hattr=$__BU_TV_BOLD_UNDERLINE
+            __rl_out+=$sep$hattr$hdr$__BU_TV_RESET${__BU_TV_SPACES:0:col_w-hdr_len}
         elif (( row_idx == -2 ))
         then
-            # Separator
-            __rl_out+="$sep${__BU_TV_DASHES:0:col_w}"
+            __rl_out+=$sep${__BU_TV_DASHES:0:col_w}
         else
-            # Data row — cell text and visible width come from format_cell;
-            # no ANSI re-stripping needed here.
-            __bu_tv_format_cell "$row_idx" "$j"
-            local cell=$_TV_FC_TEXT
-            local padstr=
-            local -i padw=$((col_w - _TV_FC_VIS_LEN))
-            (( padw > 0 )) && padstr=${__BU_TV_SPACES:0:padw}
-            if "$is_current_match" && (( _TV_MATCH_IDX >= 0 ))
-            then
-                __rl_out+="$sep${__BU_TV_REVERSE}${cell}${padstr}${__BU_TV_REVERSE_OFF}"
-            else
-                __rl_out+="$sep${cell}${padstr}"
-            fi
+            __bu_tv_format_cell "$row_idx" "$j" "$row_attr"
+            __rl_out+=$sep$_TV_FC_TEXT${__BU_TV_SPACES:0:col_w-_TV_FC_VIS_LEN}
         fi
         sep='  '
     done
-    # Right-trim trailing spaces
-    __rl_out=${__rl_out%"${__rl_out##*[! ]}"}
+    if [[ -n "$row_attr" ]]
+    then
+        local -i pad=$((_TV_TABLE_COLS - width))
+        (( pad < 0 )) && pad=0
+        (( pad > ${#__BU_TV_SPACES} )) && __bu_tv_ensure_pools $pad
+        __rl_out=$row_attr$__rl_out${__BU_TV_SPACES:0:pad}$__BU_TV_RESET
+    else
+        __rl_out=${__rl_out%"${__rl_out##*[! ]}"}
+    fi
 }
 
 # ```
@@ -742,10 +1148,10 @@ __bu_tv_render_line()
 # Append the column sidebar to a frame: a "Columns" title and separator on
 # screen rows 1-2, then one entry per column on the data rows.  Columns in
 # the viewport are drawn in reverse video (in their --colors color), the
-# rest dimmed; ▸ marks the leftmost visible column (the one s/S sort) and
-# ↑/↓ the sorted column.  When the list is taller than the data rows it
-# scrolls to keep the viewport's columns on screen, with "↑ N more" /
-# "↓ N more" rows standing in for the hidden ends.
+# rest dimmed; ▸ marks the cursor column (the one s/S sort) and ↑/↓ the
+# sorted column.  When the list is taller than the data rows it scrolls to
+# keep the viewport's columns and the cursor column on screen, with
+# "↑ N more" / "↓ N more" rows standing in for the hidden ends.
 #
 # *Params*:
 # - `$1`: Nameref to the frame variable (appended to)
@@ -760,10 +1166,8 @@ __bu_tv_render_sidebar()
     local -i inner_w=$((_TV_SIDEBAR_W - 2))
     (( inner_w > ${#__BU_TV_SPACES} )) && __bu_tv_ensure_pools $inner_w
 
-    printf -v __sb_frame '%s\e[1;%dH│ %s%s%s\e[K' "$__sb_frame" "$col" \
-        "$__BU_TV_BOLD" "Columns" "$__BU_TV_RESET"
-    printf -v __sb_frame '%s\e[2;%dH│ %s\e[K' "$__sb_frame" "$col" \
-        "${__BU_TV_DASHES:0:inner_w}"
+    __sb_frame+=$'\e[1;'$col'H│ '$__BU_TV_BOLD'Columns'$__BU_TV_RESET$__BU_TV_CLEAR_LINE
+    __sb_frame+=$'\e[2;'$col'H│ '${__BU_TV_DASHES:0:inner_w}$__BU_TV_CLEAR_LINE
 
     local -i first_vis=-1 last_vis=-1
     if (( ${#_TV_VIS_COLS[@]} ))
@@ -778,7 +1182,9 @@ __bu_tv_render_sidebar()
     if (( _TV_NUM_COLS > avail ))
     then
         cap=$((avail - 2))
+        (( cap < 1 )) && cap=1
         start=$((first_vis - 1))
+        (( _TV_CUR_COL >= start + cap )) && start=$((_TV_CUR_COL - cap + 1))
         (( start > _TV_NUM_COLS - cap )) && start=$((_TV_NUM_COLS - cap))
         (( start < 0 )) && start=0
         # Reclaim an indicator row the window doesn't need
@@ -820,7 +1226,7 @@ __bu_tv_render_sidebar()
                 name_len=$name_w
             fi
             marker=' '
-            (( j == first_vis )) && marker='▸'
+            (( j == _TV_CUR_COL )) && marker='▸'
             suffix='  '
             if [[ "${_TV_COLUMNS[j]}" == "$_TV_SORT_COL" ]]
             then
@@ -836,26 +1242,125 @@ __bu_tv_render_sidebar()
             entry="${style}${marker}${name}${__BU_TV_SPACES:0:name_w-name_len}${suffix}${__BU_TV_RESET}"
             j=$((j + 1))
         fi
-        printf -v __sb_frame '%s\e[%d;%dH│ %s\e[K' "$__sb_frame" "$screen_row" "$col" "$entry"
+        __sb_frame+=$'\e['$screen_row';'$col'H│ '$entry$__BU_TV_CLEAR_LINE
     done
 }
 
 # ```
 # *Description*:
-# Check if a row index is the current search match.
+# Join informational status parts with " | " and append the key hints that
+# fit: the full set, else the short set, else none.  Hints are dropped last
+# and never cut mid-word; only the informational text is ever truncated.
+#
+# *Params*:
+# - `$1`: Full hint set
+# - `$2`: Short hint set
+# - `$3...`: Informational parts
+#
+# *Returns*:
+# - `_TV_STATUS`: Dimmed status line
 # ```
-__bu_tv_is_current_match()
+__bu_tv_compose_status()
 {
-    local -i row_idx=$1
-    (( _TV_MATCH_IDX < 0 )) && return 1
-    (( _TV_MATCH_IDX >= ${#_TV_MATCHED_ROWS[@]} )) && return 1
-    local -i match_row=${_TV_MATCHED_ROWS[$_TV_MATCH_IDX]}
-    (( match_row == row_idx ))
+    local -r full=$1 short=$2
+    shift 2
+    local info= part
+    for part in "$@"
+    do
+        if [[ -z "$info" ]]; then info=$part; else info+=" | $part"; fi
+    done
+
+    # Never write the bottom-right cell
+    local -r -i room=$((_TV_TERM_COLS - 1))
+    local result=$info
+    if [[ -z "$info" ]]
+    then
+        result=$full
+        (( ${#result} > room )) && result=$short
+    elif (( ${#info} + 3 + ${#full} <= room ))
+    then
+        result+=" | $full"
+    elif (( ${#info} + 3 + ${#short} <= room ))
+    then
+        result+=" | $short"
+    elif (( ${#info} > room ))
+    then
+        result=${info:0:room}
+    fi
+    _TV_STATUS=$__BU_TV_DIM$result$__BU_TV_RESET
 }
 
 # ```
 # *Description*:
-# Full frame render: header, separator, data rows, status line.
+# Build the search part of the status line: `/q k/n [col]` when the cursor
+# is on the match last moved to, `/q n matches` otherwise, `/q no match`.
+#
+# *Returns*:
+# - `_TV_SEARCH_STATUS`: Empty without a query
+# ```
+__bu_tv_search_status()
+{
+    _TV_SEARCH_STATUS=
+    [[ -z "$_TV_SEARCH_QUERY" ]] && return 0
+    local -r -i n=${#_TV_MATCHED_ROWS[@]}
+    if (( n == 0 ))
+    then
+        _TV_SEARCH_STATUS="/$_TV_SEARCH_QUERY no match"
+    elif (( _TV_MATCH_IDX >= 0 && _TV_MATCH_IDX < n )) \
+        && (( _TV_MATCHED_ROWS[_TV_MATCH_IDX] == _TV_CUR_ROW ))
+    then
+        _TV_SEARCH_STATUS="/$_TV_SEARCH_QUERY $((_TV_MATCH_IDX + 1))/$n [${_TV_HEADERS[_TV_MATCHED_COLS[_TV_MATCH_IDX]]}]"
+    elif (( n == 1 ))
+    then
+        _TV_SEARCH_STATUS="/$_TV_SEARCH_QUERY 1 match"
+    else
+        _TV_SEARCH_STATUS="/$_TV_SEARCH_QUERY $n matches"
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
+# Build the table status line:
+# `Row r/N | Col name (c/n)[ wide] | Sorted: key ↑ | <search> | <hints>`.
+#
+# *Returns*:
+# - `_TV_STATUS`
+# ```
+__bu_tv_render_status()
+{
+    local -a parts=()
+    if (( _TV_NUM_ROWS > 0 ))
+    then
+        parts+=("Row $((_TV_CUR_ROW + 1))/$_TV_NUM_ROWS")
+    else
+        parts+=("No data")
+    fi
+
+    if (( _TV_NUM_COLS > 0 ))
+    then
+        local col="Col ${_TV_HEADERS[_TV_CUR_COL]} ($((_TV_CUR_COL + 1))/$_TV_NUM_COLS)"
+        [[ "${_TV_COL_EXPANDED[_TV_CUR_COL]:-false}" == true ]] && col+=' wide'
+        parts+=("$col")
+    fi
+
+    if [[ -n "$_TV_SORT_COL" ]]
+    then
+        local arrow='↑'
+        [[ "$_TV_SORT_DIR" == desc ]] && arrow='↓'
+        parts+=("Sorted: $_TV_SORT_COL $arrow")
+    fi
+
+    __bu_tv_search_status
+    [[ -n "$_TV_SEARCH_STATUS" ]] && parts+=("$_TV_SEARCH_STATUS")
+
+    __bu_tv_compose_status "$__BU_TV_HINTS_TABLE" 'H:help' "${parts[@]}"
+}
+
+# ```
+# *Description*:
+# Full table frame: header, separator, data rows, sidebar, status line (or
+# the search prompt), written with one printf.
 # ```
 __bu_tv_render_frame()
 {
@@ -863,42 +1368,38 @@ __bu_tv_render_frame()
     #   row 1          = header
     #   row 2          = separator
     #   rows 3..N-1    = data (TERM_ROWS - 3 rows)
-    #   row N (bottom) = status line
+    #   row N (bottom) = status line, or the search prompt while it is open
     #   right edge     = column sidebar on rows 1..N-1, unless hidden
     #
     # Each row is drawn with absolute cursor positioning and \e[K
     # (clear-to-EOL) — no newlines anywhere, so the terminal can never
     # scroll and push the header off-screen.
-    local -i data_rows=$((_TV_TERM_ROWS - 3))
-    (( data_rows < 1 )) && data_rows=1
+    __bu_tv_data_rows
+    local -r -i data_rows=$_TV_DATA_ROWS
 
+    __bu_tv_query_prepare
     __bu_tv_compute_visible_cols
 
-    local frame= line=
+    local frame= line= attr
 
-    # Header (row 1)
-    __bu_tv_render_line -1 false line
-    printf -v frame '%s\e[1;1H%s\e[K' "$frame" "$line"
+    __bu_tv_render_line -1 '' line
+    frame+=$'\e[1;1H'$line$__BU_TV_CLEAR_LINE
+    __bu_tv_render_line -2 '' line
+    frame+=$'\e[2;1H'$line$__BU_TV_CLEAR_LINE
 
-    # Separator (row 2)
-    __bu_tv_render_line -2 false line
-    printf -v frame '%s\e[2;1H%s\e[K' "$frame" "$line"
-
-    # Data rows (rows 3..N-1)
-    local -i i
+    local -i i row_idx
     for (( i = 0; i < data_rows; i++ ))
     do
-        local -i row_idx=$((_TV_ROW_OFFSET + i))
-        local -i screen_row=$((i + 3))
+        row_idx=$((_TV_ROW_OFFSET + i))
         if (( row_idx >= _TV_NUM_ROWS ))
         then
-            printf -v frame '%s\e[%d;1H\e[K' "$frame" "$screen_row"
-        else
-            local is_match=false
-            __bu_tv_is_current_match $row_idx && is_match=true
-            __bu_tv_render_line "$row_idx" "$is_match" line
-            printf -v frame '%s\e[%d;1H%s\e[K' "$frame" "$screen_row" "$line"
+            frame+=$'\e['$((i + 3))$';1H'$__BU_TV_CLEAR_LINE
+            continue
         fi
+        attr=
+        (( row_idx == _TV_CUR_ROW )) && attr=$__BU_TV_REVERSE
+        __bu_tv_render_line "$row_idx" "$attr" line
+        frame+=$'\e['$((i + 3))$';1H'$line$__BU_TV_CLEAR_LINE
     done
 
     # Sidebar — drawn after the table so each row's \e[K ran first
@@ -907,92 +1408,616 @@ __bu_tv_render_frame()
         __bu_tv_render_sidebar frame "$data_rows"
     fi
 
-    # Status line (bottom row) — absolute position, no trailing newline
-    local status
-    __bu_tv_render_status status
-    printf -v frame '%s\e[%d;1H%s\e[K' "$frame" "$_TV_TERM_ROWS" "$status"
+    # Bottom row — absolute position, no trailing newline
+    if "$_TV_PROMPT_ACTIVE"
+    then
+        # Clipped to its tail, leaving the last column for the cursor
+        local ptext=$_TV_PROMPT_TEXT
+        local -r -i maxw=$((_TV_TERM_COLS - 1))
+        (( ${#ptext} > maxw )) && ptext=${ptext:${#ptext}-maxw}
+        frame+=$'\e['$_TV_TERM_ROWS$';1H'$ptext$__BU_TV_CLEAR_LINE
+        frame+=$'\e['$_TV_TERM_ROWS';'$((${#ptext} + 1))'H'$__BU_TV_CURSOR_SHOW
+    else
+        __bu_tv_render_status
+        frame+=$'\e['$_TV_TERM_ROWS$';1H'$_TV_STATUS$__BU_TV_CLEAR_LINE$__BU_TV_CURSOR_HIDE
+    fi
 
     printf '%s' "$frame"
 }
 
 # ```
 # *Description*:
-# Build the status line string.
+# Full overlay frame (record detail or help): a bold title, a separator,
+# the overlay's lines from its scroll offset, and a status line.  Detail
+# lines are pre-wrapped to the width; help lines are plain text, clipped.
+# ```
+__bu_tv_render_overlay()
+{
+    __bu_tv_data_rows
+    local -r -i data_rows=$_TV_DATA_ROWS
+    __bu_tv_overlay_clamp
+
+    local title lines_var off_var full plain=false
+    if [[ "$_TV_MODE" == help ]]
+    then
+        title=Keys
+        lines_var=__BU_TV_HELP_LINES
+        off_var=_TV_HELP_OFFSET
+        full=$__BU_TV_HINTS_HELP
+        plain=true
+    else
+        title="Record $((_TV_CUR_ROW + 1))/$_TV_NUM_ROWS"
+        lines_var=_TV_DETAIL_LINES
+        off_var=_TV_DETAIL_OFFSET
+        full=$__BU_TV_HINTS_DETAIL
+    fi
+    local -n __ov_lines=$lines_var __ov_off=$off_var
+    local -r -i total=${#__ov_lines[@]}
+
+    (( _TV_TERM_COLS > ${#__BU_TV_SPACES} )) && __bu_tv_ensure_pools $_TV_TERM_COLS
+    local frame=$'\e[1;1H'$__BU_TV_BOLD$title$__BU_TV_RESET$__BU_TV_CLEAR_LINE
+    frame+=$'\e[2;1H'${__BU_TV_DASHES:0:_TV_TERM_COLS}$__BU_TV_CLEAR_LINE
+
+    local line
+    local -i i idx
+    for (( i = 0; i < data_rows; i++ ))
+    do
+        idx=$((__ov_off + i))
+        line=
+        if (( idx < total ))
+        then
+            line=${__ov_lines[idx]}
+            "$plain" && line=${line:0:_TV_TERM_COLS}
+        fi
+        frame+=$'\e['$((i + 3))$';1H'$line$__BU_TV_CLEAR_LINE
+    done
+
+    local -a parts=()
+    local -i last=$((__ov_off + data_rows))
+    (( last > total )) && last=$total
+    (( total > 0 )) && parts+=("Lines $((__ov_off + 1))-$last/$total")
+    if [[ "$_TV_MODE" == detail ]]
+    then
+        __bu_tv_search_status
+        [[ -n "$_TV_SEARCH_STATUS" ]] && parts+=("$_TV_SEARCH_STATUS")
+    fi
+    __bu_tv_compose_status "$full" 'q:back' "${parts[@]}"
+    frame+=$'\e['$_TV_TERM_ROWS$';1H'$_TV_STATUS$__BU_TV_CLEAR_LINE$__BU_TV_CURSOR_HIDE
+
+    printf '%s' "$frame"
+}
+
+# ```
+# *Description*:
+# Draw the screen for the current mode.  Called by the event loop and the
+# search prompt.
+# ```
+__bu_tv_render()
+{
+    case "$_TV_MODE" in
+    detail|help)
+        __bu_tv_render_overlay
+        ;;
+    *)
+        __bu_tv_render_frame
+        ;;
+    esac
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Overlays
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ```
+# *Description*:
+# Clamp both overlay scroll offsets to their content.
+# ```
+__bu_tv_overlay_clamp()
+{
+    __bu_tv_data_rows
+    local -i max=$((${#_TV_DETAIL_LINES[@]} - _TV_DATA_ROWS))
+    (( _TV_DETAIL_OFFSET > max )) && _TV_DETAIL_OFFSET=$max
+    (( _TV_DETAIL_OFFSET < 0 )) && _TV_DETAIL_OFFSET=0
+    max=$((${#__BU_TV_HELP_LINES[@]} - _TV_DATA_ROWS))
+    (( _TV_HELP_OFFSET > max )) && _TV_HELP_OFFSET=$max
+    (( _TV_HELP_OFFSET < 0 )) && _TV_HELP_OFFSET=0
+    return 0
+}
+
+# ```
+# *Description*:
+# Fetch the untruncated values of one record from its raw JSON in a single
+# jq pass (the display cache is @tsv-escaped: nested JSON with quotes or
+# backslashes would not parse back, and \n would show as two characters).
+# Strings come out raw with real newlines, other types pretty-printed, null
+# as empty; each value is followed by a U+0001 line.  Falls back to the
+# cache text if the value count is off.
 #
 # *Params*:
-# - `$1`: Nameref to the output variable
+# - `$1`: Row index
+#
+# *Returns*:
+# - `_TV_DETAIL_VALUES`: One value per column
 # ```
-__bu_tv_render_status()
+__bu_tv_detail_values()
 {
-    local -n __rs_out=$1
-    local -a parts=()
-
-    # Row position (TERM_ROWS - 3 data rows, as in render_frame)
-    local -i data_rows=$((_TV_TERM_ROWS - 3))
-    (( data_rows < 1 )) && data_rows=1
-    local -i last_visible=$((_TV_ROW_OFFSET + data_rows - 1))
-    (( last_visible >= _TV_NUM_ROWS )) && last_visible=$((_TV_NUM_ROWS - 1))
-    if (( _TV_NUM_ROWS > 0 ))
-    then
-        parts+=("Rows $((_TV_ROW_OFFSET + 1))-$((last_visible + 1))/${_TV_NUM_ROWS}")
-    else
-        parts+=("No data")
-    fi
-
-    # Column info
-    if (( _TV_NUM_COLS > 0 ))
-    then
-        local col_name=${_TV_COLUMNS[$_TV_COL_OFFSET]:-}
-        parts+=("Col $((_TV_COL_OFFSET + 1))/${_TV_NUM_COLS} [$col_name]")
-    fi
-
-    # Sort info
-    if [[ -n "$_TV_SORT_COL" ]]
-    then
-        local arrow='↑'
-        [[ "$_TV_SORT_DIR" == desc ]] && arrow='↓'
-        parts+=("Sorted: ${_TV_SORT_COL} $arrow")
-    fi
-
-    # Search info
-    if [[ -n "$_TV_SEARCH_QUERY" ]]
-    then
-        local match_info
-        if (( ${#_TV_MATCHED_ROWS[@]} > 0 ))
-        then
-            match_info="$((_TV_MATCH_IDX + 1))/${#_TV_MATCHED_ROWS[@]}"
-        else
-            match_info="0/0"
-        fi
-        parts+=("Search: \"${_TV_SEARCH_QUERY}\" [$match_info]")
-    fi
-
-    # Key hints
-    parts+=("q:quit /:search s:sort n:next c:columns")
-
-    # Join
-    local sep=' │ '
-    local result=
-    local first=true
-    local part
-    for part in "${parts[@]}"
+    local -r -i row=$1
+    _TV_DETAIL_VALUES=()
+    local out=
+    out=$("$BU_OUT_JQ" -r --args \
+        '. as $r | $ARGS.positional[] as $k | ($r[$k] | if . == null then "" else . end), "\u0001"' \
+        "${_TV_COLUMNS[@]}" <<<"${_TV_ROWS[row]}" 2>/dev/null) || out=
+    # Every value is now terminated by "\n\x01\n"
+    out+=$'\n'
+    local -r term=$'\n\x01\n'
+    while [[ "$out" == *"$term"* ]]
     do
-        if "$first"
+        _TV_DETAIL_VALUES+=("${out%%"$term"*}")
+        out=${out#*"$term"}
+    done
+
+    if (( ${#_TV_DETAIL_VALUES[@]} != _TV_NUM_COLS )) || [[ -n "$out" ]]
+    then
+        _TV_DETAIL_VALUES=()
+        local -i j
+        for (( j = 0; j < _TV_NUM_COLS; j++ ))
+        do
+            _TV_DETAIL_VALUES+=("${_TV_CELLS[row * _TV_NUM_COLS + j]:-}")
+        done
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
+# Word-wrap a line: break at the last space that fits, hard-break words
+# longer than the width.  The space a line breaks at is dropped.
+#
+# *Params*:
+# - `$1`: Text (no ANSI escapes, no newlines)
+# - `$2`: Width
+#
+# *Returns*:
+# - `_TV_SEGS`: (start length) pairs, at least one (an empty line is 0 0)
+# ```
+__bu_tv_wrap()
+{
+    local -r text=$1
+    local -i -r width=$2 n=${#1}
+    local -i pos=0
+    local window head
+    _TV_SEGS=()
+    if (( n == 0 ))
+    then
+        _TV_SEGS=(0 0)
+        return 0
+    fi
+    while (( pos < n ))
+    do
+        if (( n - pos <= width ))
         then
-            result="$part"
-            first=false
+            _TV_SEGS+=("$pos" $((n - pos)))
+            break
+        fi
+        if [[ "${text:pos+width:1}" == ' ' ]]
+        then
+            _TV_SEGS+=("$pos" "$width")
+            pos=$((pos + width + 1))
+            continue
+        fi
+        window=${text:pos:width}
+        head=${window% *}
+        if [[ "$head" != "$window" && -n "$head" ]]
+        then
+            _TV_SEGS+=("$pos" "${#head}")
+            pos=$((pos + ${#head} + 1))
+            continue
+        fi
+        _TV_SEGS+=("$pos" "$width")
+        pos=$((pos + width))
+    done
+    return 0
+}
+
+# ```
+# *Description*:
+# Build the record-detail overlay for the cursor row: every column as
+# `key  value`, keys padded to the longest header (the cursor column's key
+# bold), values untruncated and word-wrapped to the terminal width with
+# continuation lines indented under the value column, search hits
+# highlighted.
+#
+# *Returns*:
+# - `_TV_DETAIL_LINES`, `_TV_DETAIL_COL_LINE`
+# ```
+__bu_tv_build_detail()
+{
+    _TV_DETAIL_LINES=()
+    _TV_DETAIL_COL_LINE=()
+    (( _TV_NUM_ROWS == 0 || _TV_NUM_COLS == 0 )) && return 0
+    __bu_tv_query_prepare
+    __bu_tv_detail_values "$_TV_CUR_ROW"
+
+    local -i keyw=1 j s
+    for (( j = 0; j < _TV_NUM_COLS; j++ ))
+    do
+        (( ${#_TV_HEADERS[j]} > keyw )) && keyw=${#_TV_HEADERS[j]}
+    done
+    # Leave values at least half the width
+    local -i max_key=$(((_TV_TERM_COLS - 2) / 2))
+    (( max_key < 1 )) && max_key=1
+    (( keyw > max_key )) && keyw=$max_key
+    local -i valw=$((_TV_TERM_COLS - keyw - 2))
+    (( valw < 1 )) && valw=1
+    (( keyw + 2 > ${#__BU_TV_SPACES} )) && __bu_tv_ensure_pools $((keyw + 2))
+    local -r indent=${__BU_TV_SPACES:0:keyw+2}
+
+    local key lead value lline
+    local -a llines=()
+    for (( j = 0; j < _TV_NUM_COLS; j++ ))
+    do
+        key=${_TV_HEADERS[j]}
+        (( ${#key} > keyw )) && key="${key:0:keyw-1}…"
+        if (( j == _TV_CUR_COL ))
+        then
+            lead=$__BU_TV_BOLD$key$__BU_TV_RESET
         else
-            result+="$sep$part"
+            lead=$key
+        fi
+        lead+=${__BU_TV_SPACES:0:keyw-${#key}+2}
+        _TV_DETAIL_COL_LINE[j]=${#_TV_DETAIL_LINES[@]}
+
+        value=${_TV_DETAIL_VALUES[j]:-}
+        [[ $value == *$'\e'* ]] && __bu_tv_strip_ansi value
+        value=${value//$'\t'/'    '}
+        value=${value//$'\r'/}
+        llines=()
+        while :
+        do
+            llines+=("${value%%$'\n'*}")
+            [[ $value == *$'\n'* ]] || break
+            value=${value#*$'\n'}
+        done
+
+        for lline in "${llines[@]}"
+        do
+            __bu_tv_find_hits "$lline"
+            __bu_tv_wrap "$lline" "$valw"
+            for (( s = 0; s < ${#_TV_SEGS[@]}; s += 2 ))
+            do
+                __bu_tv_paint "$lline" "${_TV_SEGS[s]}" $((_TV_SEGS[s] + _TV_SEGS[s + 1])) "$__BU_TV_RESET"
+                _TV_DETAIL_LINES+=("$lead$_TV_PAINT")
+                lead=$indent
+            done
+        done
+    done
+    return 0
+}
+
+# ```
+# *Description*:
+# Scroll the detail overlay so the cursor column's first line is on screen.
+# ```
+__bu_tv_detail_show_col()
+{
+    __bu_tv_data_rows
+    local -r -i line=${_TV_DETAIL_COL_LINE[_TV_CUR_COL]:-0}
+    if (( line < _TV_DETAIL_OFFSET || line >= _TV_DETAIL_OFFSET + _TV_DATA_ROWS ))
+    then
+        _TV_DETAIL_OFFSET=$line
+    fi
+    __bu_tv_overlay_clamp
+}
+
+# ```
+# *Description*:
+# Open the record-detail overlay for the cursor row.
+# ```
+__bu_tv_open_detail()
+{
+    (( _TV_NUM_ROWS == 0 )) && return 0
+    _TV_MODE=detail
+    _TV_DETAIL_OFFSET=0
+    __bu_tv_build_detail
+    __bu_tv_detail_show_col
+}
+
+# ```
+# *Description*:
+# Open the help overlay; closing it returns to the current mode.
+# ```
+__bu_tv_open_help()
+{
+    _TV_HELP_RETURN=$_TV_MODE
+    _TV_MODE=help
+    _TV_HELP_OFFSET=0
+}
+
+# ```
+# *Description*:
+# Move the detail overlay to the next / previous record.
+#
+# *Params*:
+# - `$1`: Row delta
+# ```
+__bu_tv_detail_record()
+{
+    local -r -i before=$_TV_CUR_ROW
+    __bu_tv_move "$1" 0
+    if (( _TV_CUR_ROW != before ))
+    then
+        __bu_tv_build_detail
+        _TV_DETAIL_OFFSET=0
+        __bu_tv_detail_show_col
+    fi
+}
+
+# ```
+# *Description*:
+# Move the detail overlay to the next / previous search match.
+#
+# *Params*:
+# - `$1`: forward or backward
+# ```
+__bu_tv_detail_match()
+{
+    __bu_tv_search_step "$1" || return 0
+    __bu_tv_build_detail
+    __bu_tv_detail_show_col
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Search
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ```
+# *Description*:
+# Recompute _TV_MATCHED_ROWS and _TV_MATCHED_COLS (first matching column
+# of each row) from the current query.  Literal substring, smart case,
+# matched on ANSI-stripped text.  Rows are prefiltered on their joined
+# text; only matching rows are scanned cell by cell.  Never moves the
+# cursor: sorting with an active query must keep it on its record.
+# ```
+__bu_tv_update_search_matches()
+{
+    _TV_MATCHED_ROWS=()
+    _TV_MATCHED_COLS=()
+    _TV_MATCH_IDX=-1
+    __bu_tv_query_prepare
+    local -r needle=$_TV_SEARCH_NEEDLE
+    [[ -z "$needle" ]] && return 0
+
+    local fold=false
+    [[ "$_TV_SEARCH_FOLD" == true ]] && fold=true
+    local -i i j base
+    local text
+    for (( i = 0; i < _TV_NUM_ROWS; i++ ))
+    do
+        text=${_TV_ROW_TEXT[i]:-}
+        "$fold" && text=${text,,}
+        [[ $text == *"$needle"* ]] || continue
+        base=$((i * _TV_NUM_COLS))
+        for (( j = 0; j < _TV_NUM_COLS; j++ ))
+        do
+            text=${_TV_CELLS[base + j]:-}
+            [[ $text == *$'\e'* ]] && __bu_tv_strip_ansi text
+            "$fold" && text=${text,,}
+            if [[ $text == *"$needle"* ]]
+            then
+                _TV_MATCHED_ROWS+=("$i")
+                _TV_MATCHED_COLS+=("$j")
+                break
+            fi
+        done
+    done
+    return 0
+}
+
+# ```
+# *Description*:
+# Find the first match at/after (forward) or at/before (backward) a row,
+# wrapping around.  The row may be out of range (cursor ± 1).
+#
+# *Params*:
+# - `$1`: Row index
+# - `$2`: forward or backward
+#
+# *Returns*:
+# - `_TV_FOUND_IDX`: Index into _TV_MATCHED_ROWS
+# - 1 if there are no matches
+# ```
+__bu_tv_search_from()
+{
+    local -r -i row=$1 n=${#_TV_MATCHED_ROWS[@]}
+    local -r dir=$2
+    _TV_FOUND_IDX=-1
+    (( n == 0 )) && return 1
+
+    # Binary search: lo = first index whose row is >= row
+    local -i lo=0 hi=$n mid
+    while (( lo < hi ))
+    do
+        mid=$(((lo + hi) / 2))
+        if (( _TV_MATCHED_ROWS[mid] < row ))
+        then
+            lo=$((mid + 1))
+        else
+            hi=$mid
         fi
     done
 
-    # Truncate to terminal width
-    if (( ${#result} > _TV_TERM_COLS ))
+    if [[ "$dir" == backward ]]
     then
-        result="${result:0:$((_TV_TERM_COLS - 1))}"
+        if (( lo < n && _TV_MATCHED_ROWS[lo] == row ))
+        then
+            _TV_FOUND_IDX=$lo
+        else
+            _TV_FOUND_IDX=$((lo - 1))
+            (( _TV_FOUND_IDX < 0 )) && _TV_FOUND_IDX=$((n - 1))
+        fi
+    else
+        _TV_FOUND_IDX=$lo
+        (( lo >= n )) && _TV_FOUND_IDX=0
     fi
+    return 0
+}
 
-    __rs_out=${__BU_TV_DIM}${result}${__BU_TV_RESET}
+# ```
+# *Description*:
+# Move the cursor row and column to a match; centre the row if it was off
+# screen.
+#
+# *Params*:
+# - `$1`: Index into _TV_MATCHED_ROWS
+# ```
+__bu_tv_goto_match()
+{
+    local -r -i idx=$1
+    (( idx < 0 || idx >= ${#_TV_MATCHED_ROWS[@]} )) && return 0
+    __bu_tv_data_rows
+    local -r -i row=${_TV_MATCHED_ROWS[idx]}
+    _TV_MATCH_IDX=$idx
+    _TV_CUR_ROW=$row
+    _TV_CUR_COL=${_TV_MATCHED_COLS[idx]}
+    if (( row < _TV_ROW_OFFSET || row >= _TV_ROW_OFFSET + _TV_DATA_ROWS ))
+    then
+        _TV_ROW_OFFSET=$((row - _TV_DATA_ROWS / 2))
+    fi
+    __bu_tv_clamp_offsets
+}
+
+# ```
+# *Description*:
+# n / N: go to the next match after the cursor row, or the previous one
+# before it (position-based, wrapping).
+#
+# *Params*:
+# - `$1`: forward or backward
+#
+# *Returns*:
+# - 1 if there are no matches
+# ```
+__bu_tv_search_step()
+{
+    local -i from=$((_TV_CUR_ROW + 1))
+    [[ "$1" == backward ]] && from=$((_TV_CUR_ROW - 1))
+    __bu_tv_search_from "$from" "$1" || return 1
+    __bu_tv_goto_match "$_TV_FOUND_IDX"
+    return 0
+}
+
+__bu_tv_search_clear()
+{
+    _TV_SEARCH_QUERY=
+    _TV_SEARCH_NEEDLE=
+    _TV_MATCHED_ROWS=()
+    _TV_MATCHED_COLS=()
+    _TV_MATCH_IDX=-1
+}
+
+# ```
+# *Description*:
+# Incremental search prompt on the status row, in raw mode.  Printable
+# characters append, Backspace deletes, Ctrl-U clears, Esc cancels, Enter
+# commits.  Every keystroke restores the pre-search cursor and offsets,
+# re-clamps (the terminal may have been resized), re-runs the matcher,
+# moves to the first match from the row the search began on and redraws.
+# An empty or cancelled query restores the previous query, cursor and
+# offsets.  tty EOF cancels and quits (read_key reports EOF as a printable
+# "q", which would otherwise be appended forever).
+#
+# *Params*:
+# - `$1`: "/" (forward) or "?" (backward)
+# ```
+__bu_tv_prompt()
+{
+    local -r pchar=$1
+    local dir=forward
+    [[ "$pchar" == '?' ]] && dir=backward
+    local -r -i save_row=$_TV_CUR_ROW save_col=$_TV_CUR_COL \
+        save_roff=$_TV_ROW_OFFSET save_coff=$_TV_COL_OFFSET save_idx=$_TV_MATCH_IDX
+    local -r save_query=$_TV_SEARCH_QUERY
+    local buf= key commit=false redraw=true
+
+    _TV_PROMPT_ACTIVE=true
+    _TV_PROMPT_TEXT=$pchar
+    while :
+    do
+        "$redraw" && __bu_tv_render
+        redraw=true
+        __bu_tv_read_key 1
+        key=$_TV_KEY
+        if "$_TV_EOF"
+        then
+            _TV_QUIT=true
+            break
+        fi
+        case "$key" in
+        none)
+            # A trap fired (resize, suspend/resume, Ctrl-C)
+            __bu_tv_process_signals
+            "$_TV_QUIT" && break
+            continue
+            ;;
+        $'\x0a')
+            [[ -n "$buf" ]] && commit=true
+            break
+            ;;
+        escape|$'\e')
+            break
+            ;;
+        $'\x7f'|$'\x08')
+            buf=${buf%?}
+            ;;
+        $'\x15')
+            buf=
+            ;;
+        *)
+            # Named keys (up, page_down, ...) are words, not characters
+            if (( ${#key} != 1 )) || [[ "$key" != [[:print:]] ]]
+            then
+                redraw=false
+                continue
+            fi
+            buf+=$key
+            ;;
+        esac
+
+        _TV_PROMPT_TEXT=$pchar$buf
+        _TV_CUR_ROW=$save_row
+        _TV_CUR_COL=$save_col
+        _TV_ROW_OFFSET=$save_roff
+        _TV_COL_OFFSET=$save_coff
+        __bu_tv_clamp_offsets
+        if [[ -z "$buf" ]]
+        then
+            _TV_SEARCH_QUERY=$save_query
+            __bu_tv_update_search_matches
+            _TV_MATCH_IDX=$save_idx
+        else
+            _TV_SEARCH_QUERY=$buf
+            __bu_tv_update_search_matches
+            if __bu_tv_search_from "$save_row" "$dir"
+            then
+                __bu_tv_goto_match "$_TV_FOUND_IDX"
+            fi
+        fi
+    done
+    _TV_PROMPT_ACTIVE=false
+    _TV_PROMPT_TEXT=
+
+    if ! "$commit"
+    then
+        _TV_SEARCH_QUERY=$save_query
+        __bu_tv_update_search_matches
+        _TV_MATCH_IDX=$save_idx
+        _TV_CUR_ROW=$save_row
+        _TV_CUR_COL=$save_col
+        _TV_ROW_OFFSET=$save_roff
+        _TV_COL_OFFSET=$save_coff
+        __bu_tv_clamp_offsets
+    fi
+    return 0
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1023,11 +2048,13 @@ __bu_tv_signal_pending()
 #                    0 = non-blocking probe (returns 1 if no input queued)
 #
 # *Returns*:
-# - `_TV_KEY`: Key name (e.g. "up", "down", "page_down", "/", "q").
-#   - real EOF (read rc=1)          -> "q" (quit)
+# - `_TV_KEY`: Key name (e.g. "up", "shift_right", "f1", "/", "q").
+#   - real EOF (read rc=1)          -> "q" (quit), and _TV_EOF=true
 #   - Enter (read rc=0, empty var)  -> $'\x0a' (read -n1 consumed the delimiter)
+#   - CR (a tty left in raw mode)   -> $'\x0a'
 #   - a trap set a signal flag or _TV_QUIT (read rc>128) -> "none"
 #     (no-op; the event loop processes the flags, NOT quit by itself)
+#   - an unrecognised escape sequence -> "none"
 # - Exit 1 only in probe mode when no input was available.
 # ```
 __bu_tv_read_key()
@@ -1063,28 +2090,41 @@ __bu_tv_read_key()
             _TV_KEY=none
             return 0
         fi
-        # Real EOF
+        # Real EOF.  "q" is printable, so the prompt checks _TV_EOF instead
+        _TV_EOF=true
         _TV_KEY=q
         return 0
     fi
 
-    if [[ -z "$_TV_KEY" ]]
-    then
+    case "$_TV_KEY" in
+    '')
         # rc=0 with an empty var: read -n1 consumed the newline delimiter
         _TV_KEY=$'\x0a'
-        return 0
-    fi
+        ;;
+    $'\r')
+        _TV_KEY=$'\x0a'
+        ;;
+    $'\x0c')
+        _TV_KEY=ctrl_l
+        ;;
+    $'\e')
+        __bu_tv_read_escape
+        ;;
+    esac
+    return 0
+}
 
-    if [[ "$_TV_KEY" != $'\e' ]]
-    then
-        if [[ "$_TV_KEY" == $'\x0c' ]]
-        then
-            _TV_KEY=ctrl_l
-        fi
-        return 0
-    fi
-
-    local seq
+# ```
+# *Description*:
+# Parse the rest of an escape sequence after ESC (each byte read with a
+# short timeout; a lone ESC is the Escape key).
+#
+# *Returns*:
+# - `_TV_KEY`
+# ```
+__bu_tv_read_escape()
+{
+    local seq=
     IFS= read -r -s -n 1 -t 0.01 seq
     if [[ -z "$seq" ]]
     then
@@ -1094,6 +2134,7 @@ __bu_tv_read_key()
 
     if [[ "$seq" == '[' ]]
     then
+        _TV_KEY=none
         IFS= read -r -s -n 1 -t 0.01 seq
         case "$seq" in
             A) _TV_KEY=up ;;
@@ -1103,8 +2144,16 @@ __bu_tv_read_key()
             H) _TV_KEY=home ;;
             F) _TV_KEY=end ;;
             1) IFS= read -r -s -n 1 -t 0.01 seq
-               [[ "$seq" == '~' ]] && _TV_KEY=home
-               [[ "$seq" == ';' ]] && IFS= read -r -s -n 1 -t 0.01 seq ;;
+               case "$seq" in
+               '~') _TV_KEY=home ;;
+               ';') __bu_tv_read_modified ;;
+               [0-9])
+                   # \e[1N~ function keys: F1 is \e[11~
+                   local num=1$seq
+                   IFS= read -r -s -n 1 -t 0.01 seq
+                   [[ "$seq" == '~' && "$num" == 11 ]] && _TV_KEY=f1
+                   ;;
+               esac ;;
             2) IFS= read -r -s -n 1 -t 0.01 seq
                [[ "$seq" == '~' ]] && _TV_KEY=insert ;;
             3) IFS= read -r -s -n 1 -t 0.01 seq
@@ -1122,81 +2171,63 @@ __bu_tv_read_key()
         esac
     elif [[ "$seq" == 'O' ]]
     then
+        _TV_KEY=none
         IFS= read -r -s -n 1 -t 0.01 seq
         case "$seq" in
+            A) _TV_KEY=up ;;
+            B) _TV_KEY=down ;;
+            C) _TV_KEY=right ;;
+            D) _TV_KEY=left ;;
             H) _TV_KEY=home ;;
             F) _TV_KEY=end ;;
+            P) _TV_KEY=f1 ;;
         esac
     fi
+    # Anything else (ESC + key): _TV_KEY stays ESC
     return 0
 }
 
 # ```
 # *Description*:
-# Read a line of input (temporarily restores echo/canonical mode).
-#
-# *Params*:
-# - `$1`: Prompt string (e.g. "/" or "?")
+# Parse `<mod><final>` after `\e[1;`.  Modifier 2 (Shift), 5 (Ctrl) and 6
+# (Ctrl+Shift) on an arrow give shift_<dir> (terminals and multiplexers
+# differ in which modifier they pass through); any other modifier falls
+# back to the plain arrow.  Home/End ignore the modifier.  The final byte
+# is always consumed, so nothing is left to dispatch as a stray key.
 #
 # *Returns*:
-# - stdout: The user's input line
+# - `_TV_KEY`
 # ```
-__bu_tv_read_line()
+__bu_tv_read_modified()
 {
-    local prompt=$1
-    printf '%s' "$__BU_TV_CURSOR_SHOW"
-    stty echo icanon 2>/dev/null || true
-    printf '\e[%d;1H' "$_TV_TERM_ROWS"
-    printf '\e[K%s' "$prompt"
-
-    local input
-    IFS= read -r input
-
-    stty -echo -icanon 2>/dev/null || true
-    printf '%s' "$__BU_TV_CURSOR_HIDE"
-    printf '%s' "$input"
+    local mod= fin= dir=
+    IFS= read -r -s -n 1 -t 0.01 mod
+    IFS= read -r -s -n 1 -t 0.01 fin
+    # Two-digit modifiers (extended keyboard protocols)
+    if [[ "$fin" == [0-9] ]]
+    then
+        mod+=$fin
+        IFS= read -r -s -n 1 -t 0.01 fin
+    fi
+    case "$fin" in
+    A) dir=up ;;
+    B) dir=down ;;
+    C) dir=right ;;
+    D) dir=left ;;
+    H) _TV_KEY=home; return 0 ;;
+    F) _TV_KEY=end; return 0 ;;
+    *) _TV_KEY=none; return 0 ;;
+    esac
+    case "$mod" in
+    2|5|6) _TV_KEY=shift_$dir ;;
+    *) _TV_KEY=$dir ;;
+    esac
+    return 0
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Actions
 # ═══════════════════════════════════════════════════════════════════════════
-
-__bu_tv_scroll_down()  { _TV_ROW_OFFSET=$((_TV_ROW_OFFSET + ${1:-1})); __bu_tv_clamp_offsets; }
-__bu_tv_scroll_up()    { _TV_ROW_OFFSET=$((_TV_ROW_OFFSET - ${1:-1})); __bu_tv_clamp_offsets; }
-__bu_tv_scroll_right() { _TV_COL_OFFSET=$((_TV_COL_OFFSET + ${1:-1})); __bu_tv_clamp_offsets; }
-__bu_tv_scroll_left()  { _TV_COL_OFFSET=$((_TV_COL_OFFSET - ${1:-1})); __bu_tv_clamp_offsets; }
-__bu_tv_go_top()       { _TV_ROW_OFFSET=0; }
-
-__bu_tv_go_bottom()
-{
-    local -i visible=$((_TV_TERM_ROWS - 3))
-    (( visible < 1 )) && visible=1
-    _TV_ROW_OFFSET=$((_TV_NUM_ROWS - visible))
-    (( _TV_ROW_OFFSET < 0 )) && _TV_ROW_OFFSET=0
-}
-
-__bu_tv_page_down()
-{
-    local -i visible=$((_TV_TERM_ROWS - 3))
-    (( visible < 1 )) && visible=1
-    __bu_tv_scroll_down $visible
-}
-
-__bu_tv_page_up()
-{
-    local -i visible=$((_TV_TERM_ROWS - 3))
-    (( visible < 1 )) && visible=1
-    __bu_tv_scroll_up $visible
-}
-
-__bu_tv_update_highlight_col()
-{
-    __bu_tv_compute_visible_cols
-    if (( ${#_TV_VIS_COLS[@]} > 0 ))
-    then
-        _TV_HIGHLIGHT_COL=${_TV_VIS_COLS[0]}
-    fi
-}
 
 # ── Sort ─────────────────────────────────────────────────────────────────
 
@@ -1204,7 +2235,7 @@ __bu_tv_update_highlight_col()
 # *Description*:
 # Sort rows by the given column key.  Toggles direction if already sorted
 # by this column, unless a direction is given.  The previous sort state is
-# kept if the sort fails.
+# kept if the sort fails, so the status never shows an unapplied sort.
 #
 # *Params*:
 # - `$1`: Column key
@@ -1239,15 +2270,29 @@ __bu_tv_sort_by_column()
 
 # ```
 # *Description*:
-# Apply current sort to _TV_ROWS via jq, rebuild cache, reset view.
-# Sorting raw values (not cell strings) orders numbers numerically and null
-# first.
+# Sort by the cursor column (s / S).
+#
+# *Params*:
+# - `$1` (optional): Force direction
+# ```
+__bu_tv_sort_cursor_col()
+{
+    (( _TV_NUM_COLS == 0 )) && return 0
+    __bu_tv_sort_by_column "${_TV_COLUMNS[_TV_CUR_COL]}" "${1:-}" || true
+}
+
+# ```
+# *Description*:
+# Apply current sort to _TV_ROWS via jq and rebuild the cache.  Sorting raw
+# values (not cell strings) orders numbers numerically and null first.
+# jq emits the permutation of original indices first, so the cursor
+# follows its record (keeping its screen position where possible).
 #
 # *Returns*:
-# - `_TV_SORT_PERM`: New-to-old row index permutation (a cursor can follow
-#   its record through the sort)
-# - 1 with rows, cells and widths untouched if jq's output is not one
-#   permutation line plus one line per row, or the cache rebuild fails.
+# - `_TV_SORT_PERM`: New-to-old row index permutation
+# - 1 with rows untouched if jq's output is not one permutation line plus
+#   one line per row; 1 with rows, cursor and offsets restored (and the
+#   old cache rebuilt) if the cache rebuild fails.
 # ```
 __bu_tv_apply_sort()
 {
@@ -1267,191 +2312,175 @@ __bu_tv_apply_sort()
     fi
 
     local -a prev_rows=("${_TV_ROWS[@]}")
-    local -a prev_cells=("${_TV_CELLS[@]}")
-    local -a prev_widths=("${_TV_COL_WIDTHS[@]}")
+    local -r -i prev_cur=$_TV_CUR_ROW prev_roff=$_TV_ROW_OFFSET
     _TV_ROWS=("${sorted[@]:1}")
     if ! __bu_tv_rebuild_cache
     then
         _TV_ROWS=("${prev_rows[@]}")
-        _TV_CELLS=("${prev_cells[@]}")
-        _TV_COL_WIDTHS=("${prev_widths[@]}")
+        __bu_tv_rebuild_cache || true
+        _TV_CUR_ROW=$prev_cur
+        _TV_ROW_OFFSET=$prev_roff
+        __bu_tv_update_search_matches
+        __bu_tv_clamp_offsets
         return 1
     fi
     IFS=$'\t' read -r -a _TV_SORT_PERM <<<"${sorted[0]}"
-    _TV_ROW_OFFSET=0
-    __bu_tv_update_search_matches
-    return 0
-}
 
-# ── Search ───────────────────────────────────────────────────────────────
-
-# ```
-# *Description*:
-# Update _TV_MATCHED_ROWS from the current search query.  Searches all
-# columns case-insensitively using the cell cache (no jq forks).
-# ```
-__bu_tv_update_search_matches()
-{
-    _TV_MATCHED_ROWS=()
-    _TV_MATCH_IDX=-1
-    if [[ -z "$_TV_SEARCH_QUERY" ]]
-    then
-        return 0
-    fi
-
-    local lower_query=${_TV_SEARCH_QUERY,,}
-    local -i i j base
+    local -i i new_cur=0
     for (( i = 0; i < _TV_NUM_ROWS; i++ ))
     do
-        base=$((i * _TV_NUM_COLS))
-        for (( j = 0; j < _TV_NUM_COLS; j++ ))
-        do
-            if [[ ${_TV_CELLS[base+j],,} == *"$lower_query"* ]]
-            then
-                _TV_MATCHED_ROWS+=($i)
-                break
-            fi
-        done
+        if (( _TV_SORT_PERM[i] == prev_cur ))
+        then
+            new_cur=$i
+            break
+        fi
     done
-
-    if (( ${#_TV_MATCHED_ROWS[@]} > 0 ))
-    then
-        _TV_MATCH_IDX=0
-        _TV_ROW_OFFSET=${_TV_MATCHED_ROWS[0]}
-        __bu_tv_clamp_offsets
-    fi
+    _TV_CUR_ROW=$new_cur
+    _TV_ROW_OFFSET=$((new_cur - (prev_cur - prev_roff)))
+    __bu_tv_update_search_matches
+    __bu_tv_clamp_offsets
     return 0
 }
 
-__bu_tv_search_next()
-{
-    (( ${#_TV_MATCHED_ROWS[@]} == 0 )) && return
-    _TV_MATCH_IDX=$((_TV_MATCH_IDX + 1))
-    (( _TV_MATCH_IDX >= ${#_TV_MATCHED_ROWS[@]} )) && _TV_MATCH_IDX=0
-    _TV_ROW_OFFSET=${_TV_MATCHED_ROWS[$_TV_MATCH_IDX]}
-    __bu_tv_clamp_offsets
-}
-
-__bu_tv_search_prev()
-{
-    (( ${#_TV_MATCHED_ROWS[@]} == 0 )) && return
-    _TV_MATCH_IDX=$((_TV_MATCH_IDX - 1))
-    (( _TV_MATCH_IDX < 0 )) && _TV_MATCH_IDX=$((${#_TV_MATCHED_ROWS[@]} - 1))
-    _TV_ROW_OFFSET=${_TV_MATCHED_ROWS[$_TV_MATCH_IDX]}
-    __bu_tv_clamp_offsets
-}
-
-__bu_tv_search_start()
-{
-    local query
-    query=$(__bu_tv_read_line "/")
-    if [[ -z "$query" ]]
-    then
-        __bu_tv_render_frame
-        return
-    fi
-    _TV_SEARCH_QUERY="$query"
-    __bu_tv_update_search_matches
-}
-
-__bu_tv_search_start_reverse()
-{
-    local query
-    query=$(__bu_tv_read_line "?")
-    if [[ -z "$query" ]]
-    then
-        __bu_tv_render_frame
-        return
-    fi
-    _TV_SEARCH_QUERY="$query"
-    __bu_tv_update_search_matches
-    if (( ${#_TV_MATCHED_ROWS[@]} > 0 ))
-    then
-        _TV_MATCH_IDX=$((${#_TV_MATCHED_ROWS[@]} - 1))
-        _TV_ROW_OFFSET=${_TV_MATCHED_ROWS[$_TV_MATCH_IDX]}
-        __bu_tv_clamp_offsets
-    fi
-}
-
-__bu_tv_search_clear()
-{
-    _TV_SEARCH_QUERY=
-    _TV_MATCHED_ROWS=()
-    _TV_MATCH_IDX=-1
-}
+# ── Dispatch ─────────────────────────────────────────────────────────────
 
 # ```
 # *Description*:
-# Dispatch one keypress (in _TV_KEY) to its action.  Sets _TV_QUIT=true on q.
+# Dispatch one table-mode keypress (in _TV_KEY) to its action.  Sets
+# _TV_QUIT=true on q.
 # ```
 __bu_tv_dispatch_key()
 {
+    __bu_tv_data_rows
+    local -r -i page=$_TV_DATA_ROWS
+    local -i half=$((page / 2))
+    (( half < 1 )) && half=1
+
     case "$_TV_KEY" in
     q|Q)
         _TV_QUIT=true ;;
 
-    # Row navigation
-    j|$'\x0a')       __bu_tv_scroll_down 1 ;;
-    k)               __bu_tv_scroll_up 1 ;;
-    down)            __bu_tv_scroll_down 1 ;;
-    up)              __bu_tv_scroll_up 1 ;;
+    # Cursor
+    j|down)          __bu_tv_move 1 0 ;;
+    k|up)            __bu_tv_move -1 0 ;;
+    h|left)          __bu_tv_move 0 -1 ;;
+    l|right)         __bu_tv_move 0 1 ;;
+    g)               _TV_CUR_ROW=0; __bu_tv_clamp_offsets ;;
+    G)               _TV_CUR_ROW=$((_TV_NUM_ROWS - 1)); __bu_tv_clamp_offsets ;;
+    0|home)          _TV_CUR_COL=0; __bu_tv_clamp_offsets ;;
+    '$'|end)         _TV_CUR_COL=$((_TV_NUM_COLS - 1)); __bu_tv_clamp_offsets ;;
 
-    # Column navigation
-    h)               __bu_tv_scroll_left 1;  __bu_tv_update_highlight_col ;;
-    l)               __bu_tv_scroll_right 1; __bu_tv_update_highlight_col ;;
-    left)            __bu_tv_scroll_left 1;  __bu_tv_update_highlight_col ;;
-    right)           __bu_tv_scroll_right 1; __bu_tv_update_highlight_col ;;
+    # Paging: cursor and viewport together; half pages move the cursor only
+    $'\x20'|page_down|shift_down) __bu_tv_page_rows "$page" ;;
+    b|page_up|shift_up)           __bu_tv_page_rows "-$page" ;;
+    shift_right)     __bu_tv_page_cols_right ;;
+    shift_left)      __bu_tv_page_cols_left ;;
+    $'\x04')         __bu_tv_move "$half" 0 ;;
+    $'\x15')         __bu_tv_move "-$half" 0 ;;
 
-    # Page navigation
-    $'\x20'|page_down) __bu_tv_page_down ;;
-    b|page_up)         __bu_tv_page_up ;;
+    # Sort the cursor column
+    s)               __bu_tv_sort_cursor_col ;;
+    S)               __bu_tv_sort_cursor_col desc ;;
 
-    # Jump to top/bottom
-    g)               __bu_tv_go_top ;;
-    G)               __bu_tv_go_bottom ;;
-
-    # Half-page scroll (Ctrl-d / Ctrl-u)
-    $'\x04')         __bu_tv_scroll_down $(((_TV_TERM_ROWS - 3) / 2)) ;;
-    $'\x15')         __bu_tv_scroll_up   $(((_TV_TERM_ROWS - 3) / 2)) ;;
+    # Column widths
+    w)               __bu_tv_toggle_wide ;;
+    W)               __bu_tv_toggle_wide_all ;;
 
     # Search
-    /)               __bu_tv_search_start ;;
-    '?')             __bu_tv_search_start_reverse ;;
-    n)               __bu_tv_search_next ;;
-    N)               __bu_tv_search_prev ;;
-    $'\e'|escape)    __bu_tv_search_clear ;;
-
-    # Sort
-    s)
-        __bu_tv_update_highlight_col
-        local sort_key=${_TV_COLUMNS[$_TV_HIGHLIGHT_COL]:-}
-        [[ -n "$sort_key" ]] && __bu_tv_sort_by_column "$sort_key"
-        ;;
-    S)
-        __bu_tv_update_highlight_col
-        local sort_key=${_TV_COLUMNS[$_TV_HIGHLIGHT_COL]:-}
-        [[ -n "$sort_key" ]] && __bu_tv_sort_by_column "$sort_key" desc
-        ;;
+    /)               __bu_tv_prompt / ;;
+    '?')             __bu_tv_prompt '?' ;;
+    n)               __bu_tv_search_step forward ;;
+    N)               __bu_tv_search_step backward ;;
+    escape|$'\e')    __bu_tv_search_clear ;;
 
     # Toggle the column sidebar; the table width changes, so re-clamp
     c)
         if "$_TV_SIDEBAR"; then _TV_SIDEBAR=false; else _TV_SIDEBAR=true; fi
         __bu_tv_clamp_offsets
-        __bu_tv_update_highlight_col
         ;;
 
-    # Redraw on Ctrl-l
-    ctrl_l)
-        __bu_tv_update_dimensions
-        __bu_tv_clamp_offsets
-        ;;
+    # Overlays
+    $'\x0a')         __bu_tv_open_detail ;;
+    H|f1)            __bu_tv_open_help ;;
 
-    # Jump to first/last column
-    home)   _TV_COL_OFFSET=0;                 __bu_tv_update_highlight_col ;;
-    end)    _TV_COL_OFFSET=$((_TV_NUM_COLS - 1))
-            __bu_tv_clamp_offsets
-            __bu_tv_update_highlight_col ;;
+    ctrl_l)          __bu_tv_remeasure ;;
     esac
+    return 0
+}
+
+# ```
+# *Description*:
+# Dispatch one keypress in the detail or help overlay.  Both scroll; the
+# detail overlay also steps through records (J / K) and matches (n / N)
+# without closing.  q, Q, Esc and Enter go back.
+# ```
+__bu_tv_dispatch_overlay()
+{
+    __bu_tv_data_rows
+    local -r -i page=$_TV_DATA_ROWS
+    local -i half=$((page / 2))
+    (( half < 1 )) && half=1
+    local off_var=_TV_DETAIL_OFFSET
+    [[ "$_TV_MODE" == help ]] && off_var=_TV_HELP_OFFSET
+    local -n __do_off=$off_var
+
+    case "$_TV_KEY" in
+    j|down)          __do_off=$((__do_off + 1)) ;;
+    k|up)            __do_off=$((__do_off - 1)) ;;
+    $'\x20'|page_down|shift_down) __do_off=$((__do_off + page)) ;;
+    b|page_up|shift_up)           __do_off=$((__do_off - page)) ;;
+    $'\x04')         __do_off=$((__do_off + half)) ;;
+    $'\x15')         __do_off=$((__do_off - half)) ;;
+    g)               __do_off=0 ;;
+    G)               __do_off=$((${#_TV_DETAIL_LINES[@]} + ${#__BU_TV_HELP_LINES[@]})) ;;
+    q|Q|escape|$'\e'|$'\x0a')
+        if [[ "$_TV_MODE" == help ]]
+        then
+            _TV_MODE=$_TV_HELP_RETURN
+        else
+            _TV_MODE=table
+        fi
+        _TV_HELP_RETURN=table
+        ;;
+    H|f1)
+        if [[ "$_TV_MODE" == help ]]
+        then
+            _TV_MODE=$_TV_HELP_RETURN
+            _TV_HELP_RETURN=table
+        else
+            __bu_tv_open_help
+        fi
+        ;;
+    J)  [[ "$_TV_MODE" == detail ]] && __bu_tv_detail_record 1 ;;
+    K)  [[ "$_TV_MODE" == detail ]] && __bu_tv_detail_record -1 ;;
+    n)  [[ "$_TV_MODE" == detail ]] && __bu_tv_detail_match forward ;;
+    N)  [[ "$_TV_MODE" == detail ]] && __bu_tv_detail_match backward ;;
+    ctrl_l)          __bu_tv_remeasure ;;
+    esac
+    __bu_tv_overlay_clamp
+    return 0
+}
+
+# ```
+# *Description*:
+# Dispatch one keypress (in _TV_KEY) by mode.  tty EOF quits from anywhere.
+# ```
+__bu_tv_dispatch()
+{
+    if "$_TV_EOF"
+    then
+        _TV_QUIT=true
+        return 0
+    fi
+    case "$_TV_MODE" in
+    detail|help)
+        __bu_tv_dispatch_overlay
+        ;;
+    *)
+        __bu_tv_dispatch_key
+        ;;
+    esac
+    return 0
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1462,8 +2491,8 @@ __bu_tv_dispatch_key()
 # *Description*:
 # Make bash count characters, not bytes.  Under a non-UTF-8 locale (e.g. LANG
 # unset) ${#var}, substring slicing and read -n 1 work on bytes while the jq
-# width pass counts codepoints, so any non-ASCII cell (or the status line's
-# │) misaligns padding and truncation.  Process-local: the cmdlet runs in its
+# width pass counts codepoints, so any non-ASCII cell (or the sidebar's │)
+# misaligns padding and truncation.  Process-local: the cmdlet runs in its
 # own process.  LC_ALL must be cleared or it overrides LC_CTYPE.
 # ```
 __bu_tv_ensure_utf8_ctype()
@@ -1488,6 +2517,7 @@ __bu_tv_ensure_utf8_ctype()
 # - `$1`: Column spec (comma-separated key:Label,...) — optional
 # - `$2`: Color spec (key=color,..., "auto" or "none") — optional, default none
 # - `$3`: "false" to start with the column sidebar hidden — optional
+# - `$4`: Column width cap (positive integer) — optional, default 40
 #
 # *Notes*:
 # - Reads JSONL from stdin.
@@ -1498,6 +2528,7 @@ bu_tv_enter()
     local columns_spec=$1
     local colors_spec=$2
     _TV_SIDEBAR=${3:-true}
+    local max_width=${4:-40}
 
     # The viewer manages its own error handling; errexit would break the
     # event loop and cause spurious exits on false (( ... )) guards.
@@ -1505,9 +2536,26 @@ bu_tv_enter()
 
     # Reset before the traps exist; a Ctrl-C during setup then still quits
     _TV_QUIT=false
+    _TV_EOF=false
     _TV_RESIZE_PENDING=false
     _TV_SUSPEND_PENDING=false
     _TV_RESUME_PENDING=false
+    _TV_MODE=table
+    _TV_PROMPT_ACTIVE=false
+    _TV_CUR_ROW=0
+    _TV_CUR_COL=0
+    _TV_ROW_OFFSET=0
+    _TV_COL_OFFSET=0
+    _TV_COL_EXPANDED=()
+
+    # A leading 0 would reach integer variables as (bad) octal
+    if [[ ! "$max_width" =~ ^[1-9][0-9]*$ ]]
+    then
+        bu_log_err "bu view-table: max width must be a positive integer, got [$max_width]"
+        return 1
+    fi
+    (( ${#max_width} > 6 )) && max_width=999999
+    _TV_MAX_WIDTH=$max_width
 
     __bu_tv_ensure_utf8_ctype
 
@@ -1548,12 +2596,12 @@ bu_tv_enter()
     do
         __bu_tv_process_signals
         "$_TV_QUIT" && break
-        __bu_tv_render_frame
+        __bu_tv_render
         __bu_tv_read_key 1
-        __bu_tv_dispatch_key
+        __bu_tv_dispatch
         while ! "$_TV_QUIT" && __bu_tv_read_key 0
         do
-            __bu_tv_dispatch_key
+            __bu_tv_dispatch
         done
     done
 

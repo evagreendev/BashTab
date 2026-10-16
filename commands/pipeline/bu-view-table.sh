@@ -31,6 +31,7 @@ bu_run_log_command "$@"
 local columns=
 local colors=auto
 local is_sidebar=true
+local max_width=40
 local is_help=false
 local error_msg=
 local autocompletion=()
@@ -49,6 +50,12 @@ do
         # rainbow (the default) or "none" for no colors
         bu_parse_positional $# --hint "Comma-separated key=color pairs (e.g. name=green,version=yellow), auto or none"
         colors=${!shift_by}
+        ;;
+    --max-width)# N
+        # Cap column widths at N characters (default 40); w widens the
+        # cursor column past the cap, W all columns
+        bu_parse_positional $# --hint "Maximum column width (default 40)"
+        max_width=${!shift_by}
         ;;
     --no-sidebar)# _FLAG
         # Start with the column sidebar hidden (toggle it with c)
@@ -86,18 +93,34 @@ then
     bu_autohelp \
         --description "
 Interactive table viewer for JSONL streams.  A superior alternative to piping
-through less(1) for tabular data — provides fixed headers, column-aware
-horizontal scrolling, interactive sort, and search with vim/less keybindings.
+through less(1) for tabular data — provides fixed headers, a cell cursor,
+interactive sort, incremental search and a record-detail view with vim/less
+keybindings.
 
 Reads JSONL records from stdin and opens a full-screen TUI.  A sidebar on the
 right lists every column and highlights those currently in view; press c to
-toggle it.  Press q to quit.
+toggle it.  Press H or F1 for all keys, q to quit.
+
+Keys: j/k/h/l or arrows move the cursor, g/G first/last row, 0/\$/Home/End
+first/last column, Space/b/PgDn/PgUp/Shift-Down/Shift-Up page rows,
+Shift-Right/Shift-Left (or Ctrl) page columns, Ctrl-D/Ctrl-U half page,
+s/S sort the cursor column, w/W widen columns, / and ? search (n/N next and
+previous match, Esc clears), Enter shows the record, q quits.
 " \
         --example "View all commands" "" \
         --example "Select columns" "--columns name,type,namespace" \
         --example "Without colors" "--colors none" \
+        --example "Narrower columns" "--max-width 20" \
         --example "Color only some columns" "--colors name=green,type=yellow"
     return 0
+fi
+
+# A leading 0 would reach the viewer's integer variables as (bad) octal
+if [[ ! "$max_width" =~ ^[1-9][0-9]*$ ]]
+then
+    bu_log_err_usage "--max-width must be a positive integer, got [$max_width]"
+    bu_scope_pop_function
+    return 1
 fi
 
 # Source the table viewer engine
@@ -105,7 +128,7 @@ fi
 source "$BU_DIR/lib/core/bu_core_tv.sh"
 
 # Enter the interactive viewer (reads stdin, renders TUI)
-bu_tv_enter "$columns" "$colors" "$is_sidebar"
+bu_tv_enter "$columns" "$colors" "$is_sidebar" "$max_width"
 local rc=$?
 
 bu_scope_pop_function
