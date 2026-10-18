@@ -43,6 +43,9 @@ declare -p BU_CONFIG_LAYER_RESOLVERS &>/dev/null || declare -A -g BU_CONFIG_LAYE
 #                             bu_config_local.PHASE.VARIANT.sh and
 #                             --default-for values
 #   __BU_CONFIG_PHASE_PREFIX  phase -> required setting-name prefix
+#   __BU_CONFIG_PHASE_FILES   phase -> extra settings files (--settings-file):
+#                             newline-separated ORIGIN:PATH entries, with a
+#                             bare `local` line where the built-in files go
 #   __BU_CONFIG_OPEN_PHASE    the phase registrations currently go to
 #   __BU_CONFIG_RECHECK       true while re-running a final static phase
 #   __BU_CONFIG_PHASE_NAMES   settings of the phase being resolved
@@ -50,6 +53,7 @@ declare -p BU_CONFIG_PHASE_STATE &>/dev/null || declare -A -g BU_CONFIG_PHASE_ST
 declare -p __BU_CONFIG_PHASE_STATIC &>/dev/null || declare -A -g __BU_CONFIG_PHASE_STATIC=()
 declare -p __BU_CONFIG_PHASE_VARIANT &>/dev/null || declare -A -g __BU_CONFIG_PHASE_VARIANT=()
 declare -p __BU_CONFIG_PHASE_PREFIX &>/dev/null || declare -A -g __BU_CONFIG_PHASE_PREFIX=()
+declare -p __BU_CONFIG_PHASE_FILES &>/dev/null || declare -A -g __BU_CONFIG_PHASE_FILES=()
 declare -g __BU_CONFIG_OPEN_PHASE=
 declare -g __BU_CONFIG_RECHECK=false
 declare -a -g __BU_CONFIG_PHASE_NAMES=()
@@ -61,7 +65,8 @@ declare -a -g __BU_CONFIG_PHASE_NAMES=()
 #   __BU_CONFIG_USER       name -> value the user exported before the phase ran
 #                          (for a static phase, also an unexported value)
 #   __BU_CONFIG_USER_KIND  name -> env (exported) or shell (unexported, static)
-#   BU_CONFIG_ORIGIN       name -> local | site | callback | layer: who set it
+#   BU_CONFIG_ORIGIN       name -> local | site | callback | layer, or the
+#                          label of a --settings-file: who set it
 #   BU_CONFIG_SOURCE_FILE  name -> absolute path of the file that set it
 #   __BU_CONFIG_APPLIED    name -> value when its phase finished (or after the
 #                          last `bu set-config`), to spot later shell edits
@@ -395,6 +400,16 @@ __bu_config_phase_settings()
 #   registered only for some variants come and go as the phase runs again.
 # - `--prefix PREFIX` (optional): every setting of the phase must start with
 #   PREFIX, so phases (e.g. profiles) cannot collide by accident
+# - `--settings-file [ORIGIN:]PATH` (optional, repeatable): one more settings
+#   file of the phase, attributed as ORIGIN (default `local`; not one of the
+#   reserved `env`, `shell`, `default`, `callback`, `site`). Split at the
+#   first colon; a relative PATH is resolved against $PWD now. Files are
+#   sourced in the order declared, later ones winning; a missing one is
+#   skipped. The bare `--settings-file local` marks where the phase's
+#   built-in files (bu_config_local.PHASE[.VARIANT].sh) go; without it they
+#   come first. E.g. a profile's layers, lowest precedence first:
+#   `--settings-file user:$HOME/.myapp.sh --settings-file local
+#   --settings-file profile:profiles/$P.sh`
 #
 # *Returns*: None (always 0; errors are logged)
 # ```
@@ -402,13 +417,49 @@ bu_config_phase_begin()
 {
     local -r phase=$1
     shift
-    local is_static=false variant= prefix=
+    local is_static=false variant= prefix= spec origin path files= has_local=false
     while (($#))
     do
         case "$1" in
         --static) is_static=true ;;
         --variant) variant=${2:-}; shift ;;
         --prefix) prefix=${2:-}; shift ;;
+        --settings-file)
+            spec=${2:-}
+            (($# > 1)) && shift
+            origin=local
+            path=$spec
+            if [[ "$spec" == *:* ]]
+            then
+                origin=${spec%%:*}
+                path=${spec#*:}
+            fi
+            if [[ "$spec" == local ]]
+            then
+                if "$has_local"
+                then
+                    bu_basic_log_err "bu_config_phase_begin: --settings-file local given twice; ignoring the second"
+                else
+                    has_local=true
+                    files+=local$'\n'
+                fi
+            elif [[ -z "$path" ]]
+            then
+                bu_basic_log_err "bu_config_phase_begin: --settings-file[$spec]: empty path; ignoring it"
+            elif [[ ! "$origin" =~ ^[a-z][a-z0-9_-]*$ ]]
+            then
+                bu_basic_log_err "bu_config_phase_begin: --settings-file[$spec]: invalid origin[$origin]; ignoring it"
+            elif [[ "$origin" =~ ^(env|shell|default|callback|site)$ ]]
+            then
+                bu_basic_log_err "bu_config_phase_begin: --settings-file[$spec]: origin[$origin] is reserved; ignoring it"
+            elif [[ "$path" == *$'\n'* ]]
+            then
+                bu_basic_log_err "bu_config_phase_begin: --settings-file[$spec]: path contains a newline; ignoring it"
+            else
+                [[ "$path" == /* ]] || path=$PWD/${path#./}
+                files+=$origin:$path$'\n'
+            fi
+            ;;
         *) bu_basic_log_err "bu_config_phase_begin: unrecognized option[$1]" ;;
         esac
         shift
@@ -442,6 +493,12 @@ bu_config_phase_begin()
     __bu_config_phase_drop "$phase"
     __BU_CONFIG_PHASE_VARIANT[$phase]=$variant
     __BU_CONFIG_PHASE_PREFIX[$phase]=$prefix
+    if [[ -n "$files" ]]
+    then
+        __BU_CONFIG_PHASE_FILES[$phase]=$files
+    else
+        unset '__BU_CONFIG_PHASE_FILES[$phase]'
+    fi
     BU_CONFIG_PHASE_STATE[$phase]=open
     __BU_CONFIG_OPEN_PHASE=$phase
     return 0
@@ -503,14 +560,15 @@ bu_config_phase_unload()
         return 0
     fi
     __bu_config_phase_drop "$phase"
-    unset 'BU_CONFIG_PHASE_STATE[$phase]' '__BU_CONFIG_PHASE_VARIANT[$phase]' '__BU_CONFIG_PHASE_PREFIX[$phase]'
+    unset 'BU_CONFIG_PHASE_STATE[$phase]' '__BU_CONFIG_PHASE_VARIANT[$phase]' '__BU_CONFIG_PHASE_PREFIX[$phase]' \
+        '__BU_CONFIG_PHASE_FILES[$phase]'
     [[ "$__BU_CONFIG_OPEN_PHASE" == "$phase" ]] && __BU_CONFIG_OPEN_PHASE=
     return 0
 }
 
 # ```
 # *Description*:
-# List the settings files a config phase sources, in order (later files win).
+# List a config phase's built-in settings files, in order (later files win).
 # For each level, the checkout's file comes first, then the embedder's
 # BU_CONFIG_LOCAL_FILE counterpart. The main phase uses bu_config_local.sh
 # itself plus site/*.sh; another phase PHASE uses bu_config_local.PHASE.sh,
@@ -518,13 +576,16 @@ bu_config_phase_unload()
 #
 # *Params*:
 # - `$1`: Phase name
+# - `$2` (optional): `true` to include files that do not exist (site files
+#   are always only the existing ones)
 #
 # *Returns*:
-# - `BU_RET`: "ORIGIN:PATH" entries for the files that exist
+# - `BU_RET`: "ORIGIN:PATH" entries
 # ```
-__bu_config_phase_files()
+__bu_config_phase_builtin_files()
 {
     local -r phase=$1
+    local -r include_missing=${2:-false}
     local -r variant=${__BU_CONFIG_PHASE_VARIANT[$phase]:-}
     local -a suffixes=(.sh)
     if [[ "$phase" != main ]]
@@ -537,12 +598,15 @@ __bu_config_phase_files()
     for suffix in "${suffixes[@]}"
     do
         checkout=$BU_DIR/config/bu_config_local$suffix
-        [[ -f "$checkout" ]] && files+=("local:$checkout")
+        if "$include_missing" || [[ -f "$checkout" ]]
+        then
+            files+=("local:$checkout")
+        fi
         if [[ -n "${BU_CONFIG_LOCAL_FILE:-}" ]]
         then
             embedder=${BU_CONFIG_LOCAL_FILE%.sh}$suffix
             [[ "$embedder" == /* ]] || embedder=$PWD/${embedder#./}
-            if [[ "$embedder" != "$checkout" && -f "$embedder" ]]
+            if [[ "$embedder" != "$checkout" ]] && { "$include_missing" || [[ -f "$embedder" ]]; }
             then
                 files+=("local:$embedder")
             fi
@@ -557,6 +621,96 @@ __bu_config_phase_files()
         done
     fi
     BU_RET=("${files[@]}")
+    return 0
+}
+
+# ```
+# *Description*:
+# List the settings files a config phase reads, in the order
+# bu_config_phase_end sources them (later files win): its extra files
+# (`bu_config_phase_begin --settings-file`) with the built-in files expanded
+# where `--settings-file local` was given, or first without it. Files that
+# do not exist are included (bu_config_phase_end skips them), so a doctor
+# command can show where the phase would read its settings from.
+#
+# *Params*:
+# - `$1`: Phase name
+#
+# *Returns*:
+# - `BU_RET`: "ORIGIN:PATH" entries
+# ```
+bu_config_phase_files()
+{
+    local -r phase=$1
+    local -r declared=${__BU_CONFIG_PHASE_FILES[$phase]:-}
+    local -a entries=() files=()
+    local entry
+    [[ -n "$declared" ]] && mapfile -t entries <<<"${declared%$'\n'}"
+    [[ $'\n'"$declared" == *$'\nlocal\n'* ]] || entries=(local "${entries[@]}")
+    for entry in "${entries[@]}"
+    do
+        if [[ "$entry" == local ]]
+        then
+            __bu_config_phase_builtin_files "$phase" true
+            files+=("${BU_RET[@]}")
+        else
+            files+=("$entry")
+        fi
+    done
+    BU_RET=("${files[@]}")
+    return 0
+}
+
+# ```
+# *Description*:
+# The settings files a config phase sources (bu_config_phase_files), only
+# those that exist.
+#
+# *Params*:
+# - `$1`: Phase name
+#
+# *Returns*:
+# - `BU_RET`: "ORIGIN:PATH" entries for the files that exist
+# ```
+__bu_config_phase_files()
+{
+    local entry
+    local -a files=()
+    bu_config_phase_files "$1"
+    for entry in "${BU_RET[@]}"
+    do
+        [[ -f "${entry#*:}" ]] && files+=("$entry")
+    done
+    BU_RET=("${files[@]}")
+    return 0
+}
+
+# ```
+# *Description*:
+# Origin label of a file declared for a config phase with
+# `bu_config_phase_begin --settings-file`, for `bu set-config --file`.
+#
+# *Params*:
+# - `$1`: Phase name
+# - `$2`: Absolute path
+#
+# *Returns*:
+# - `BU_RET`: the declared ORIGIN, or empty if the file is not declared
+#   (the last declaration wins if it is declared more than once)
+# ```
+__bu_config_phase_file_origin()
+{
+    local -r phase=$1
+    local -r file=$2
+    local -r declared=${__BU_CONFIG_PHASE_FILES[$phase]:-}
+    local -a entries=()
+    local entry
+    BU_RET=
+    [[ -n "$declared" ]] && mapfile -t entries <<<"${declared%$'\n'}"
+    for entry in "${entries[@]}"
+    do
+        [[ "$entry" == *:* && "${entry#*:}" == "$file" ]] && BU_RET=${entry%%:*}
+    done
     return 0
 }
 
@@ -825,8 +979,10 @@ __bu_config_write_vars_file()
 # ```
 # *Description*:
 # Close and resolve a config phase: save exported values, source the phase's
-# settings files (__bu_config_phase_files), restore the exported values, then
-# apply defaults. Call after the phase's settings are registered.
+# settings files (bu_config_phase_files: its --settings-file files and its
+# built-in ones, in order, skipping missing files) with each assignment
+# attributed to its file's origin, restore the exported values, then apply
+# defaults. Call after the phase's settings are registered.
 #
 # *Params*:
 # - `$1`: Phase name (must be the open phase)

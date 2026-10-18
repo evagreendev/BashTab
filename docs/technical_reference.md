@@ -143,7 +143,7 @@ already resolved phase is ignored with a warning.
 |---|---|---|---|
 | `static` | `config/bu_config_static.sh`, modules' `NAME_bu_config.static.sh` | `bu_config_local.static.sh` | Once per shell, before almost all of BashTab |
 | `main` | `config/bu_config_dynamic.sh`, modules' `NAME_bu_config.sh` | `bu_config_local.sh`, then `site/*.sh` | Every activation |
-| `NAME` | Your code, between `bu_config_phase_begin NAME` and `bu_config_phase_end NAME` | `bu_config_local.NAME.sh`, then `bu_config_local.NAME.VARIANT.sh` | Whenever you run it |
+| `NAME` | Your code, between `bu_config_phase_begin NAME` and `bu_config_phase_end NAME` | `bu_config_local.NAME.sh`, then `bu_config_local.NAME.VARIANT.sh`, plus any `--settings-file` | Whenever you run it |
 
 Each settings file exists in the checkout (`config/…`) and, when an embedder
 sets `BU_CONFIG_LOCAL_FILE`, next to it (`${BU_CONFIG_LOCAL_FILE%.sh}.NAME.sh`,
@@ -183,6 +183,29 @@ bu_config_register MYAPP_API_URL --default-for dev https://dev.example \
 bu_config_phase_end profile
 ```
 
+**Extra settings files**: `--settings-file [ORIGIN:]PATH` (repeatable) adds a
+file of the project's own to the phase, attributed as ORIGIN (default `local`;
+the split is at the first colon, a relative PATH is resolved when the phase
+begins, and `env`, `shell`, `default`, `callback`, `site` are reserved). Files
+are sourced in the order declared, a missing one is skipped, and everything
+above applies to them: assignments to another phase's settings are ignored
+with a warning, exported values still win, defaults apply last. The bare
+`--settings-file local` places the phase's built-in files (both levels,
+variant included) among them; without it they come first. A profile with a
+per-user file below the machine-local one and an override file above it:
+
+```sh
+bu_config_phase_begin profile --variant "$MYAPP_PROFILE" --prefix MYAPP_ \
+    --settings-file "user:$MYAPP_ROOT/users/$USER/settings.sh" \
+    --settings-file local \
+    --settings-file "profile:$MYAPP_ROOT/profiles/$MYAPP_PROFILE/overrides.sh"
+```
+
+`bu_config_phase_files NAME` returns (in `BU_RET`) the ordered `ORIGIN:PATH`
+entries the phase reads, missing files included, e.g. for a doctor command.
+`bu set-config` still writes to the built-in file; `--file PATH` naming one of
+the declared files records its ORIGIN, as the next resolution will.
+
 **Modules** register their settings in `NAME_bu_config.sh` (main phase) and
 `NAME_bu_config.static.sh` (static phase) next to their preinit, found from
 `BU_MODULE_LIST`; `BU_CURRENT_MODULE_DIR` is the module's directory while they
@@ -199,6 +222,7 @@ and where its value came from:
 | `env` | Exported before its phase ran | empty |
 | `shell` | Changed in the shell after its phase ran; for a static setting, set unexported before the phase ran | empty |
 | `local` | A settings file of its phase (including `bu set-config`) | `file:line` of the last assignment |
+| *ORIGIN* | A file declared with `bu_config_phase_begin --settings-file ORIGIN:PATH` (or `bu set-config --file PATH` on it): the declared label | `file:line` of the last assignment |
 | `site` | A `site/*.sh` file | `file:line` when the assignment is a plain `VAR=`/`export VAR=` line, else `file` |
 | `callback` | A user-defined config callback (`BU_USER_DEFINED_*_CONFIGS`) | empty |
 | `layer` | `bu set-config --layer`/`--file` in this shell | `file:line` |

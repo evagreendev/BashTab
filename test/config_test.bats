@@ -923,6 +923,214 @@ function test_set_config_variants { #@test
     assert_equal "$BU_TEST_PROFILE_REGION" ap
 }
 
+# ===========================================================================
+# Extra settings files of a phase (bu_config_phase_begin --settings-file)
+# ===========================================================================
+
+# A phase with its own layers: extra args go to bu_config_phase_begin
+__config_test_layered_phase()
+{
+    bu_config_phase_begin layered --prefix BU_TEST_LAYER_ "$@"
+    bu_config_register BU_TEST_LAYER_ALL --default d --hint "In every file"
+    bu_config_register BU_TEST_LAYER_UE --default d --hint "In the user and embedder files"
+    bu_config_register BU_TEST_LAYER_U --default d --hint "In the user file only"
+    bu_config_phase_end layered 2>"$BATS_TEST_TMPDIR/err"
+}
+
+__config_test_layer_row()
+{
+    bu get-config --format jsonl 2>/dev/null | jq -r --arg n "$1" 'select(.name == $n) | "\(.origin)|\(.location)"'
+}
+
+function test_config_phase_settings_file_order { #@test
+    local base=${BU_CONFIG_LOCAL_FILE%.sh}
+    local u=$BATS_TEST_TMPDIR/user.sh p=$BATS_TEST_TMPDIR/profile.sh
+    printf 'BU_TEST_LAYER_ALL=u\nBU_TEST_LAYER_UE=u\nBU_TEST_LAYER_U=u\n' > "$u"
+    printf 'BU_TEST_LAYER_ALL=e\nBU_TEST_LAYER_UE=e\n' > "$base.layered.sh"
+    printf '# profile overrides\nBU_TEST_LAYER_ALL=p\n' > "$p"
+
+    __config_test_layered_phase --settings-file "user:$u" --settings-file local --settings-file "profile:$p"
+    assert_equal "$BU_TEST_LAYER_ALL|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_ALL]}|${BU_CONFIG_SOURCE_FILE[BU_TEST_LAYER_ALL]}" "p|profile|$p"
+    assert_equal "$BU_TEST_LAYER_UE|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_UE]}|${BU_CONFIG_SOURCE_FILE[BU_TEST_LAYER_UE]}" "e|local|$base.layered.sh"
+    assert_equal "$BU_TEST_LAYER_U|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_U]}|${BU_CONFIG_SOURCE_FILE[BU_TEST_LAYER_U]}" "u|user|$u"
+    assert_equal "$(__config_test_layer_row BU_TEST_LAYER_ALL)" "profile|$p:2"
+    assert_equal "$(__config_test_layer_row BU_TEST_LAYER_U)" "user|$u:3"
+    [[ ! -s "$BATS_TEST_TMPDIR/err" ]]
+
+    # The local token placed first: the user file beats the embedder file
+    __config_test_layered_phase --settings-file local --settings-file "user:$u" --settings-file "profile:$p"
+    assert_equal "$BU_TEST_LAYER_UE|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_UE]}" "u|user"
+
+    # No local token: the built-in files come first, as before
+    __config_test_layered_phase --settings-file "user:$u"
+    assert_equal "$BU_TEST_LAYER_UE|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_UE]}" "u|user"
+    assert_equal "$BU_TEST_LAYER_ALL|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_ALL]}" "u|user"
+
+    # ORIGIN omitted: local
+    __config_test_layered_phase --settings-file local --settings-file "$p"
+    assert_equal "$BU_TEST_LAYER_ALL|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_ALL]}|${BU_CONFIG_SOURCE_FILE[BU_TEST_LAYER_ALL]}" "p|local|$p"
+}
+
+function test_config_phase_settings_file_reproduction { #@test
+    run --separate-stderr env -i HOME="$HOME" PATH="$PATH" USER="$USER" TERM=dumb bash -c '
+        cd "$1" || exit 1
+        export BU_OUT_DIR=$2
+        export BU_CONFIG_LOCAL_FILE=$BU_OUT_DIR/settings.sh
+        source ./bu_entrypoint.sh >/dev/null 2>&1
+        mkdir -p "$BU_OUT_DIR/users/$USER" "$BU_OUT_DIR/profiles/dev"
+        printf "MYAPP_REGION=eu\nMYAPP_BUILD=release\n" > "$BU_OUT_DIR/users/$USER/settings.sh"
+        printf "MYAPP_BUILD=debug\n"                    > "$BU_OUT_DIR/profiles/dev/overrides.sh"
+        printf "MYAPP_REGION=us\n"                      > "$BU_OUT_DIR/settings.profile.sh"
+        BU_CONFIG_NAME_PREFIXES+=(MYAPP_)
+        bu_config_phase_begin profile --variant dev --prefix MYAPP_ \
+            --settings-file "user:$BU_OUT_DIR/users/$USER/settings.sh" \
+            --settings-file local \
+            --settings-file "profile:$BU_OUT_DIR/profiles/dev/overrides.sh"
+        bu_config_register MYAPP_REGION --default ap   --hint "Region"
+        bu_config_register MYAPP_BUILD  --default none --hint "Build flavour"
+        bu_config_phase_end profile
+        echo "REGION=$MYAPP_REGION (${BU_CONFIG_ORIGIN[MYAPP_REGION]:-default}) BUILD=$MYAPP_BUILD (${BU_CONFIG_ORIGIN[MYAPP_BUILD]:-default})"' \
+        _ "$DIR/.." "$BATS_TEST_TMPDIR/out"
+    assert_success
+    assert_output "REGION=us (local) BUILD=debug (profile)"
+}
+
+function test_config_phase_settings_file_missing_and_protected { #@test
+    local p=$BATS_TEST_TMPDIR/profile.sh
+    local lvl_before=$BU_LOG_LVL top_before=$BU_TOP_LEVEL_MODULE
+    printf 'BU_TEST_LAYER_ALL=p\n' > "$p"
+
+    # A missing file is skipped silently
+    __config_test_layered_phase --settings-file "user:$BATS_TEST_TMPDIR/missing.sh" --settings-file "profile:$p"
+    assert_equal "$BU_TEST_LAYER_ALL|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_ALL]}" "p|profile"
+    [[ ! -s "$BATS_TEST_TMPDIR/err" ]]
+
+    # Another phase's settings (final, env-only static) are reverted; an
+    # exported value survives every file
+    printf 'BU_TEST_LAYER_ALL=p\nBU_TEST_LAYER_U=p\nBU_LOG_LVL=0\nBU_TOP_LEVEL_MODULE=from-file\n' > "$p"
+    export BU_TEST_LAYER_U=exported
+    __config_test_layered_phase --settings-file "profile:$p"
+    assert_equal "$BU_LOG_LVL" "$lvl_before"
+    assert_equal "$BU_TOP_LEVEL_MODULE" "$top_before"
+    grep -q "$p: ignoring assignment to BU_LOG_LVL, a setting of config phase 'main'" "$BATS_TEST_TMPDIR/err"
+    grep -q "$p: ignoring assignment to BU_TOP_LEVEL_MODULE, a setting of config phase 'static'" "$BATS_TEST_TMPDIR/err"
+    assert_equal "$BU_TEST_LAYER_U|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_U]}" "exported|env"
+    assert_equal "$BU_TEST_LAYER_ALL|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_ALL]}" "p|profile"
+
+    # Static phases take extra files too; an env-only setting of the phase
+    # itself is protected as in its built-in files
+    printf 'BU_TEST_LAYER_STATIC=from-file\nBU_TEST_LAYER_ENV=from-file\n' > "$p"
+    bu_config_phase_begin layeredstatic --static --settings-file "profile:$p"
+    bu_config_register BU_TEST_LAYER_STATIC --default d --hint "Static"
+    bu_config_register BU_TEST_LAYER_ENV --env-only --default d --hint "Env only"
+    bu_config_phase_end layeredstatic 2>"$BATS_TEST_TMPDIR/err"
+    assert_equal "$BU_TEST_LAYER_ENV" d
+    grep -q "$p: ignoring assignment to BU_TEST_LAYER_ENV, which only the environment can set" "$BATS_TEST_TMPDIR/err"
+    assert_equal "$BU_TEST_LAYER_STATIC|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_STATIC]}|${BU_TEST_LAYER_STATIC@a}" "from-file|profile|x"
+}
+
+function test_config_phase_settings_file_variants { #@test
+    local base=${BU_CONFIG_LOCAL_FILE%.sh}
+    local u=$BATS_TEST_TMPDIR/user.sh p=$BATS_TEST_TMPDIR/profile.sh
+    printf 'BU_TEST_LAYER_ALL=u\nBU_TEST_LAYER_U=u\n' > "$u"
+    printf 'BU_TEST_LAYER_ALL=e\n' > "$base.layered.sh"
+    printf 'BU_TEST_LAYER_ALL=v\n' > "$base.layered.dev.sh"
+    printf 'BU_TEST_LAYER_ALL=p\n' > "$p"
+
+    # The variant file runs inside the local group, after the shared one
+    __config_test_layered_phase --variant dev --settings-file "user:$u" --settings-file local
+    assert_equal "$BU_TEST_LAYER_ALL|${BU_CONFIG_SOURCE_FILE[BU_TEST_LAYER_ALL]}" "v|$base.layered.dev.sh"
+    assert_equal "$BU_TEST_LAYER_U|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_U]}" "u|user"
+
+    # Running it again with another variant and list uses the new list only
+    __config_test_layered_phase --variant prod --settings-file "profile:$p"
+    assert_equal "$BU_TEST_LAYER_ALL|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_ALL]}" "p|profile"
+    assert_equal "$BU_TEST_LAYER_U|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_U]:-default}" "d|default"
+    bu_config_phase_files layered
+    assert_equal "${BU_RET[*]}" "local:$BU_DIR/config/bu_config_local.layered.sh local:$base.layered.sh local:$BU_DIR/config/bu_config_local.layered.prod.sh local:$base.layered.prod.sh profile:$p"
+}
+
+function test_config_phase_settings_file_validation { #@test
+    local p=$BATS_TEST_TMPDIR/profile.sh
+    printf 'BU_TEST_LAYER_ALL=p\n' > "$p"
+    bu_config_phase_begin layered --prefix BU_TEST_LAYER_ --settings-file "nope!:$p" --settings-file "env:$p" \
+        --settings-file local --settings-file local --settings-file '' --settings-file "user:" 2>"$BATS_TEST_TMPDIR/err"
+    assert_equal "$(grep -c 'bu_config_phase_begin: --settings-file' "$BATS_TEST_TMPDIR/err")" 5
+    grep -q "invalid origin\[nope!\]" "$BATS_TEST_TMPDIR/err"
+    grep -q "origin\[env\] is reserved" "$BATS_TEST_TMPDIR/err"
+    grep -q "local given twice" "$BATS_TEST_TMPDIR/err"
+    assert_equal "$__BU_CONFIG_OPEN_PHASE" layered
+    bu_config_register BU_TEST_LAYER_ALL --default d --hint "In every file"
+    bu_config_phase_end layered 2>/dev/null
+    assert_equal "${BU_CONFIG_PHASE_STATE[layered]}|$BU_TEST_LAYER_ALL" "final|d"
+    bu_config_phase_files layered
+    assert_equal "${BU_RET[*]}" "local:$BU_DIR/config/bu_config_local.layered.sh local:${BU_CONFIG_LOCAL_FILE%.sh}.layered.sh"
+}
+
+function test_config_phase_files_lists_entries { #@test
+    local base=${BU_CONFIG_LOCAL_FILE%.sh} p=$BATS_TEST_TMPDIR/profile.sh
+    local missing=$BATS_TEST_TMPDIR/missing.sh
+    : > "$p"
+    # Relative paths are resolved when the phase begins
+    mkdir -p "$BATS_TEST_TMPDIR/cwd"
+    cd "$BATS_TEST_TMPDIR/cwd"
+    bu_config_phase_begin layered --variant dev --settings-file "user:$missing" --settings-file local \
+        --settings-file "profile:$p" --settings-file rel:sub/x:y.sh
+    cd /
+    bu_config_phase_end layered 2>/dev/null
+    bu_config_phase_files layered
+    local -a expected=(
+        "user:$missing"
+        "local:$BU_DIR/config/bu_config_local.layered.sh"
+        "local:$base.layered.sh"
+        "local:$BU_DIR/config/bu_config_local.layered.dev.sh"
+        "local:$base.layered.dev.sh"
+        "profile:$p"
+        "rel:$BATS_TEST_TMPDIR/cwd/sub/x:y.sh"
+    )
+    assert_equal "$(printf '%s\n' "${BU_RET[@]}")" "$(printf '%s\n' "${expected[@]}")"
+    # bu_config_phase_end reads only the existing ones
+    __bu_config_phase_files layered
+    assert_equal "${BU_RET[*]}" "profile:$p"
+}
+
+function test_set_config_declared_settings_file { #@test
+    local p=$BATS_TEST_TMPDIR/profile.sh
+    printf 'BU_TEST_LAYER_ALL=p\n' > "$p"
+    __config_test_layered_phase --settings-file local --settings-file "profile:$p"
+
+    bu set-config --file "$p" BU_TEST_LAYER_U pval >/dev/null 2>&1
+    assert_equal "$BU_TEST_LAYER_U|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_U]}|${BU_CONFIG_SOURCE_FILE[BU_TEST_LAYER_U]}" "pval|profile|$p"
+    local line
+    line=$(grep -n '^BU_TEST_LAYER_U=pval$' "$p" | cut -d: -f1)
+    [[ -n "$line" ]]
+    assert_equal "$(__config_test_layer_row BU_TEST_LAYER_U)" "profile|$p:$line"
+
+    # The next resolution reports the same
+    __config_test_layered_phase --settings-file local --settings-file "profile:$p"
+    assert_equal "$BU_TEST_LAYER_U|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_U]}" "pval|profile"
+    assert_equal "$(__config_test_layer_row BU_TEST_LAYER_U)" "profile|$p:$line"
+
+    # An undeclared file is still a layer
+    bu set-config --file "$BATS_TEST_TMPDIR/other.sh" BU_TEST_LAYER_UE oval >/dev/null 2>&1
+    assert_equal "${BU_CONFIG_ORIGIN[BU_TEST_LAYER_UE]}" layer
+}
+
+function test_config_phase_unload_forgets_settings_files { #@test
+    local p=$BATS_TEST_TMPDIR/profile.sh
+    printf 'BU_TEST_LAYER_ALL=p\n' > "$p"
+    printf 'BU_TEST_LAYER_ALL=e\n' > "${BU_CONFIG_LOCAL_FILE%.sh}.layered.sh"
+    __config_test_layered_phase --settings-file "profile:$p"
+    assert_equal "$BU_TEST_LAYER_ALL" p
+    bu_config_phase_unload layered
+    [[ ! -v '__BU_CONFIG_PHASE_FILES[layered]' ]]
+
+    __config_test_layered_phase
+    assert_equal "$BU_TEST_LAYER_ALL|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_ALL]}" "e|local"
+    bu_config_phase_files layered
+    assert_equal "${BU_RET[*]}" "local:$BU_DIR/config/bu_config_local.layered.sh local:${BU_CONFIG_LOCAL_FILE%.sh}.layered.sh"
+}
+
 function test_config_module_config_files { #@test
     local mod="$BATS_TEST_TMPDIR/mymod"
     mkdir -p "$mod"

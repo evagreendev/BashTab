@@ -502,13 +502,19 @@ fi
 declare -g "$var=$value"
 
 # Provenance: the phase's settings file is "local" (sourced when the phase
-# runs); any other target (--layer, --file) is "layer".
+# runs), a file declared for the phase with `bu_config_phase_begin
+# --settings-file ORIGIN:PATH` is ORIGIN; any other target (--layer, --file)
+# is "layer".
 local _abs_file=$file
 [[ "$_abs_file" == /* ]] || _abs_file=$PWD/${_abs_file#./}
 local _origin=layer
 if [[ "$file" == "$phase_file" ]]
 then
     _origin=local
+elif "$file_explicit"
+then
+    __bu_config_phase_file_origin "$phase" "$_abs_file"
+    [[ -n "$BU_RET" ]] && _origin=$BU_RET
 fi
 __bu_config_mark_applied "$var" "$_origin" "$_abs_file"
 

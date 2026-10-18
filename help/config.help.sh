@@ -66,6 +66,12 @@ ${BU_TPUT_BOLD}PHASES${BU_TPUT_RESET}
         NAME      bu_config_local.NAME.sh     phases a project adds
                   (+ .NAME.VARIANT.sh)        (e.g. profiles, as variants)
 
+    A phase can add its own files, sourced in order with the built-in ones
+    where "local" is given (first otherwise), each reported with its label:
+
+        bu_config_phase_begin profile --variant dev --settings-file user:u.sh \\
+            --settings-file local --settings-file profile:profiles/dev.sh
+
     bu set-config writes a setting to its phase's file. A file that assigns
     another phase's setting is ignored with a warning. Env-only settings
     (BU_CONFIG_LOCAL_FILE, BU_TOP_LEVEL_MODULE, BU_MODULE_LIST) come only from
