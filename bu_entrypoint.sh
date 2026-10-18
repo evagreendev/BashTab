@@ -66,74 +66,6 @@ fi
 source ./bu_custom_source.sh --__bu-once
 source ./lib/core/bu_core_config.sh --__bu-once
 
-# Settings precedence: exported variables > settings files > registered
-# defaults. Save the user's values now (and reset what an earlier activation
-# in this shell applied), let the settings files below assign plain VAR=value,
-# then restore the saved values once the settings are registered. Each file's
-# assignments are attributed to it for `bu get-config`.
-__bu_config_save_user_values || true
-__bu_config_track_begin || true
-
-# Machine-local settings (uncommitted, managed by `bu set-config`). Sourced
-# early so BU_BOOTSTRAP_VERBOSE applies to the sourcing logs below, and before
-# bu_config_dynamic.sh, whose ${VAR:-default} assignments yield to these.
-# Intentionally NOT --__bu-once: re-activation should re-read edited settings.
-if [[ -f ./config/bu_config_local.sh ]]; then
-    source ./config/bu_config_local.sh
-    __bu_config_track_end "$BU_DIR/config/bu_config_local.sh" local || true
-fi
-
-# Embedder-redirected settings file. `bu set-config` writes to
-# BU_CONFIG_LOCAL_FILE when an embedding project points it at its own tree, so
-# this is the read counterpart of that write target. It must be re-read here
-# (not just applied by the embedder's activate in the parent shell): execute-
-# type commands re-run this entrypoint in a child process, where the parent's
-# non-exported variables are invisible, so any persisted setting would
-# otherwise silently revert to its registered default inside those commands.
-#
-# Sourced before bu_config_dynamic.sh so its ${VAR:-default} assignments yield
-# to the persisted values, and (like the checkout-local file) NOT --__bu-once:
-# re-activation should re-read edits.
-if [[ -n "${BU_CONFIG_LOCAL_FILE:-}" && -f "$BU_CONFIG_LOCAL_FILE" ]]; then
-    # Normalize a relative path (same policy as bu_realpath) before comparing,
-    # so `./config/bu_config_local.sh` and `config/bu_config_local.sh` are
-    # recognized as the checkout-local file and not sourced a second time.
-    _bu_embedder_config_file=$BU_CONFIG_LOCAL_FILE
-    case "$_bu_embedder_config_file" in
-    /*) ;;
-    *) _bu_embedder_config_file=$PWD/${_bu_embedder_config_file#./} ;;
-    esac
-    if [[ "$_bu_embedder_config_file" != "$BU_DIR/config/bu_config_local.sh" ]]; then
-        # shellcheck disable=SC1090
-        source "$BU_CONFIG_LOCAL_FILE"
-        __bu_config_track_end "$_bu_embedder_config_file" local || true
-    fi
-    unset _bu_embedder_config_file
-fi
-
-# Fleet-shared site glue (profile.d-style, sourced in glob order). Runs after
-# machine-local config and before capability probing so a site can install a
-# BU_CAP_MISS_RESOLVER hook that makes lazily-loaded binaries (module systems,
-# etc.) visible to bu_cap_probe.
-#
-# site/*.sh is committed and deployed with the checkout: a "site" is a fleet
-# of hosts sharing one module system/package tool. That is a different layer
-# from config/bu_config_local.sh — genuinely per-machine, gitignored.
-#
-# Sourced without --__bu-once (like the local config) so edits take effect on
-# re-activation; site files should be idempotent (function definitions,
-# exported variables). Missing/empty dir is a no-op.
-if [[ -d ./site ]]; then
-    _bu_site_file=
-    for _bu_site_file in ./site/*.sh
-    do
-        [[ -f "$_bu_site_file" ]] || continue
-        source "$_bu_site_file"
-        __bu_config_track_end "$BU_DIR/${_bu_site_file#./}" site || true
-    done
-    unset _bu_site_file
-fi
-
 source ./lib/core/bu_core_user_defined.sh --__bu-once
 
 # BU_MODULE_LIST is the sole module registry — an exported scalar of the form
@@ -146,8 +78,16 @@ then
     export BU_MODULE_LIST=
 fi
 
-
 source ./config/bu_config_static.sh --__bu-once
+
+# ── Config phase "main" ─────────────────────────────────────────────────────
+# Precedence: exported variables > settings files > registered defaults.
+# Register the core settings (and any user-defined config callbacks' ones),
+# then resolve them: save exported values, source the settings files with
+# their plain VAR=value assignments, restore the exported values, and apply
+# defaults from the generated vars file. Each file's assignments are
+# attributed to it for `bu get-config`. Re-activation runs the phase again.
+bu_config_phase_begin main || true
 # Core settings are registered from the framework itself, so scope
 # BU_CURRENT_MODULE=bu around the dynamic config source (same save/restore
 # pattern as the core help-topic registration further down) to stamp each
@@ -156,13 +96,38 @@ _bu_cur_module_prev=${BU_CURRENT_MODULE:-}
 BU_CURRENT_MODULE=bu
 source ./config/bu_config_dynamic.sh
 BU_CURRENT_MODULE=$_bu_cur_module_prev
+__bu_config_phase_prepare main || true
 
+# The phase's settings files are sourced here at top level rather than inside
+# bu_config_phase_end, so site glue runs in the entrypoint's own scope.
+# Intentionally NOT --__bu-once: re-activation should re-read edited settings.
+#
+# 1. Machine-local settings (uncommitted, managed by `bu set-config`).
+# 2. The embedder's BU_CONFIG_LOCAL_FILE, the write target of `bu set-config`
+#    when an embedding project points it at its own tree. It must be re-read
+#    here (not just applied by the embedder's activate in the parent shell):
+#    execute-type commands re-run this entrypoint in a child process, where the
+#    parent's non-exported variables are invisible.
+# 3. Fleet-shared site glue (profile.d-style, sourced in glob order), committed
+#    and deployed with the checkout: a "site" is a fleet of hosts sharing one
+#    module system/package tool. Runs before capability probing so a site can
+#    install a BU_CAP_MISS_RESOLVER hook that makes lazily-loaded binaries
+#    visible to bu_cap_probe. Site files should be idempotent.
+__bu_config_phase_files main || true
+_bu_config_files=("${BU_RET[@]}")
+for _bu_config_file in "${_bu_config_files[@]}"
+do
+    # shellcheck disable=SC1090
+    source "${_bu_config_file#*:}"
+    __bu_config_phase_track "${_bu_config_file#*:}" "${_bu_config_file%%:*}" || true
+done
+unset _bu_config_file _bu_config_files
+
+# User-defined config callbacks count as one more source of the phase
 bu_source_user_defined_configs
+__bu_config_phase_track "" callback || true
 
-# Core and module-config settings are registered now: exported values win
-# over the settings files sourced above (repeated at the end of activation
-# for settings registered by preinit callbacks).
-__bu_config_restore_user_values || true
+__bu_config_phase_complete main || true
 
 source ./lib/core/bu_core_var.sh --__bu-once
 source ./lib/core/bu_core_base.sh --__bu-once
@@ -224,9 +189,6 @@ fi
 popd &>/dev/null
 
 bu_source_user_defined_post_entrypoint_callbacks
-
-__bu_config_restore_user_values || true
-__bu_config_record_applied || true
 
 bu_log_info "Bash utils: fully set up"
 

@@ -3,7 +3,7 @@
 # Dispatch: source
 # Synopsis: List BashTab configuration settings
 # Help-Topic: config
-# Fields: name value origin default allowed module description location
+# Fields: name value origin phase default allowed module description location
 function __bu_bu_get_config_main()
 {
 # --is-compatible: no external dependencies
@@ -49,7 +49,7 @@ do
         ;;
     --columns)# COLUMNS
         # Fields to display, in order (comma-separated)
-        bu_parse_positional $# --hint "Comma-separated fields: name value origin default allowed module description location"
+        bu_parse_positional $# --hint "Comma-separated fields: name value origin phase default allowed module description location"
         columns=${!shift_by}
         ;;
     -h|--help)# _FLAG
@@ -115,8 +115,8 @@ done
         [[ "$key" == *,registered ]] || continue
         name=${key%,registered}
         current=${!name:-}
-        # Origin: changed in the shell since activation, else who set it on
-        # activation (env, shell, local, site, layer), else the default.
+        # Origin: changed in the shell since its phase ran, else who set it
+        # then (env, local, site, callback, layer), else the default.
         if [[ -v "__BU_CONFIG_APPLIED[$name]" && "${!name-}" != "${__BU_CONFIG_APPLIED[$name]}" ]]
         then
             origin=shell
@@ -130,17 +130,18 @@ done
             origin=default
             location=${BU_CONFIG_PROPERTIES[$name,defined_at]:-}
         fi
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "$name" \
             "${current:-(unset)}" \
             "$origin" \
+            "${BU_CONFIG_PROPERTIES[$name,phase]:-}" \
             "${BU_CONFIG_PROPERTIES[$name,default]:-}" \
             "${BU_CONFIG_PROPERTIES[$name,enum]:-${BU_CONFIG_PROPERTIES[$name,bool]:+true|false}}" \
             "${BU_CONFIG_PROPERTIES[$name,module]:-}" \
             "${BU_CONFIG_PROPERTIES[$name,hint]:-}" \
             "$location"
     done
-} | bu_out_from_tsv --columns name,value,origin,default,allowed,module,description,location | bu_out --format "$format" ${columns:+--columns "$columns"}
+} | bu_out_from_tsv --columns name,value,origin,phase,default,allowed,module,description,location | bu_out --format "$format" ${columns:+--columns "$columns"}
 
 bu_scope_pop_function
 }

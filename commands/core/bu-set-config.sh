@@ -403,12 +403,12 @@ then
 
     __bu_set_config_write_block "$_new_body"
 
-    if [[ -n "${BU_CONFIG_PROPERTIES[$var,default]:-}" ]]
+    # The registered default, as the phase's generated vars file applies it
+    if [[ "${BU_CONFIG_PROPERTIES[$var,registered]:-}" == true ]]
     then
-        declare -g "$var=${BU_CONFIG_PROPERTIES[$var,default]}"
+        declare -g "$var=${BU_CONFIG_PROPERTIES[$var,default]:-}"
     else
         unset "$var"
-        source "$BU_DIR"/config/bu_config_dynamic.sh
     fi
     __bu_config_mark_applied "$var" default
     printf 'Unset %s in %s (default applies)\n' "$var" "$file"

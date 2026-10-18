@@ -524,10 +524,10 @@ SCRIPT_EOF
 # ===========================================================================
 # Settings precedence and provenance
 #
-# Exported variables > settings files > registered defaults. The entrypoint
-# saves exported values before sourcing the settings files and restores them
-# afterwards; on re-activation it resets unexported values of registered
-# settings so edited files and defaults apply again.
+# Exported variables > settings files > registered defaults. A config phase
+# saves exported values before sourcing its settings files, resets unexported
+# values, restores the exported ones afterwards, then applies defaults from a
+# vars file generated from the registry.
 # ===========================================================================
 
 # Throwaway BU_DIR without the developer's config/bu_config_local.sh (see
@@ -570,12 +570,20 @@ function test_config_exported_bootstrap_verbose_wins_during_bootstrap { #@test
     ! grep -q '^DEBUG' "$BATS_TEST_TMPDIR/off.log"
 }
 
-function test_config_first_activation_keeps_unexported_value { #@test
-    run env -u BU_QUERY_EXECUTOR bash -c \
-        'BU_QUERY_EXECUTOR=combined; source "$1"/bu_entrypoint.sh >/dev/null 2>&1; printf "%s|%s" "$BU_QUERY_EXECUTOR" "${BU_CONFIG_ORIGIN[BU_QUERY_EXECUTOR]}"' \
-        _ "$DIR/.."
+function test_config_unexported_value_does_not_beat_settings { #@test
+    # Only exported values win, on the first activation too
+    local minrepo="$BATS_TEST_TMPDIR/minrepo"
+    __config_test_minrepo "$minrepo"
+    printf 'BU_TABLE_PAGER=preset:never\n' > "$minrepo/config/bu_config_local.sh"
+
+    run env -u BU_QUERY_EXECUTOR -u BU_TABLE_PAGER -u BU_CONFIG_LOCAL_FILE bash -c \
+        'BU_QUERY_EXECUTOR=combined; BU_TABLE_PAGER=bat
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        [[ "$BU_QUERY_EXECUTOR" == "${BU_CONFIG_PROPERTIES[BU_QUERY_EXECUTOR,default]}" ]] && q=default
+        printf "%s|%s" "${q:-$BU_QUERY_EXECUTOR}" "$BU_TABLE_PAGER"' \
+        _ "$minrepo"
     assert_success
-    assert_output "combined|shell"
+    assert_output "default|preset:never"
 }
 
 function test_config_reactivation_rereads_settings_file { #@test
@@ -679,6 +687,64 @@ function test_get_config_origin_and_location { #@test
     bu set-config --unset BU_TABLE_PAGER >/dev/null 2>&1
     out=$(bu get-config --format jsonl 2>/dev/null)
     assert_equal "$(jq -r 'select(.name == "BU_TABLE_PAGER") | .origin' <<<"$out")" default
+}
+
+function test_config_vars_file_generated_from_registry { #@test
+    __bu_config_vars_file main
+    local file=$BU_RET
+    assert_equal "$file" "$BU_OUT_DIR/cache/config-vars/${BU_TOP_LEVEL_MODULE:-default}/${BU_DIR//\//_}/main.sh"
+    assert [ -f "$file" ]
+    # One documented NAME=${NAME:-default} line per main-phase setting
+    grep -qxF 'BU_QUERY_EXECUTOR=${BU_QUERY_EXECUTOR:-pipeline}' "$file"
+    grep -qxF 'BU_OUTPUT_FORMAT=${BU_OUTPUT_FORMAT:-}' "$file"
+    grep -q '^# Query executor' "$file"
+    grep -q "declared: $BU_DIR/config/bu_config_dynamic.sh:[0-9]*\$" "$file"
+    assert_equal "$(grep -c '^BU_[A-Z0-9_]*=' "$file")" \
+        "$(for k in "${!BU_CONFIG_PROPERTIES[@]}"; do [[ "$k" == *,phase && "${BU_CONFIG_PROPERTIES[$k]}" == main ]] && echo x; done | grep -c .)"
+    # Unchanged registry: the file is not rewritten
+    local before
+    before=$(ls -li "$file")
+    bu_config_phase_begin main
+    source "$BU_DIR"/config/bu_config_dynamic.sh
+    bu_config_phase_end main
+    assert_equal "$(ls -li "$file")" "$before"
+}
+
+function test_config_custom_phase { #@test
+    local phase_file="${BU_CONFIG_LOCAL_FILE%.sh}.extra.sh"
+    printf 'BU_TEST_EXTRA_A=from-file\nBU_LOG_LVL=0\n' > "$phase_file"
+    local lvl_before=$BU_LOG_LVL
+
+    export BU_TEST_EXTRA_C=exported
+    bu_config_phase_begin extra
+    bu_config_register BU_TEST_EXTRA_A --default a --hint "extra a"
+    bu_config_register BU_TEST_EXTRA_B --default b --hint "extra b"
+    bu_config_register BU_TEST_EXTRA_C --default c --hint "extra c"
+    bu_config_phase_end extra 2>"$BATS_TEST_TMPDIR/err"
+
+    # The phase's own file, defaults, exported value; main's setting protected
+    assert_equal "$BU_TEST_EXTRA_A|${BU_CONFIG_ORIGIN[BU_TEST_EXTRA_A]}" "from-file|local"
+    assert_equal "$BU_TEST_EXTRA_B" b
+    assert_equal "$BU_TEST_EXTRA_C|${BU_CONFIG_ORIGIN[BU_TEST_EXTRA_C]}" "exported|env"
+    assert_equal "$BU_LOG_LVL" "$lvl_before"
+    grep -q "ignoring assignment to BU_LOG_LVL, a setting of config phase 'main'" "$BATS_TEST_TMPDIR/err"
+    assert_equal "${BU_CONFIG_PROPERTIES[BU_TEST_EXTRA_A,phase]}" extra
+
+    # A setting belongs to one phase
+    run bu_config_register BU_LOG_LVL --default 1
+    assert_success
+    bu_config_phase_begin other
+    run bu_config_register BU_TEST_EXTRA_A --default z
+    assert_failure
+    bu_config_phase_end other
+
+    # Running the phase again drops settings no longer registered
+    bu_config_phase_begin extra
+    bu_config_register BU_TEST_EXTRA_A --default a --hint "extra a"
+    bu_config_phase_end extra 2>/dev/null
+    assert_equal "${BU_CONFIG_PROPERTIES[BU_TEST_EXTRA_B,registered]:-}" ""
+    [[ ! -v BU_TEST_EXTRA_B ]]
+    assert_equal "$BU_TEST_EXTRA_C" exported
 }
 
 # ===========================================================================

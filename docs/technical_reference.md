@@ -111,22 +111,33 @@ Settings registered with `bu_config_register` resolve, highest first:
    embedder's `BU_CONFIG_LOCAL_FILE`, then `site/*.sh`. They use plain
    `VAR=value` assignments, so the last file sourced wins, and sourcing a
    file by hand applies it.
-3. **Registered defaults** (`VAR=${VAR:-default}` after the register call).
+3. **Registered defaults** (`bu_config_register --default`).
 
-`bu_entrypoint.sh` saves the exported values before sourcing the settings
-files and restores them afterwards (registered settings only). On
-re-activation in the same shell, unexported values of registered settings
-are reset first, so an edited settings file or default applies again. A
-value you set in the shell survives re-activation only if you `export` it.
-An unexported value set before the *first* activation in a shell is kept.
+Settings are resolved in **config phases**. Every setting belongs to the
+phase that was open when it was registered (`bu_config_phase_begin NAME` …
+`bu_config_phase_end NAME`); `config/bu_config_dynamic.sh` registers the
+built-in `main` phase. Resolving a phase saves the exported values of its
+settings, resets their unexported values, sources the phase's settings files
+(`main`: the files above; phase `NAME`: `bu_config_local.NAME.sh`), restores
+the exported values, then applies the registered defaults by sourcing a vars
+file generated from the registry:
+`$BU_OUT_DIR/cache/config-vars/<top-level module>/<BashTab dir>/<phase>.sh`,
+one documented `NAME=${NAME:-default}` line per setting, rewritten only when
+the registrations change. A settings file that assigns a setting of another,
+already resolved phase is ignored with a warning.
+
+Only exported values beat the settings files: a value you set in the shell
+without `export` is reset whenever its phase runs (every activation for
+`main`).
 
 `bu get-config` reports where each value came from:
 
 | `origin` | Meaning | `location` |
 |---|---|---|
 | `env` | Exported before activation | empty |
-| `shell` | Set unexported before the first activation, or changed in the shell after activation | empty |
-| `local` | The checkout-local or embedder settings file (including `bu set-config`) | `file:line` of the last assignment |
+| `shell` | Changed in the shell after its phase ran | empty |
+| `local` | The checkout-local or embedder settings file of the phase (including `bu set-config`) | `file:line` of the last assignment |
+| `callback` | A user-defined config callback (`BU_USER_DEFINED_*_CONFIGS`) | empty |
 | `site` | A `site/*.sh` file | `file:line` when the assignment is a plain `VAR=`/`export VAR=` line, else `file` |
 | `layer` | `bu set-config --layer`/`--file` in this shell | `file:line` |
 | `default` | None of the above | where the setting is registered |

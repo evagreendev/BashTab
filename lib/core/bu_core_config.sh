@@ -25,17 +25,28 @@ declare -A -g BU_CONFIG_PROPERTIES=()
 # The "local" layer is built-in (the machine-local settings file).
 declare -A -g BU_CONFIG_LAYER_RESOLVERS=()
 
-# Settings provenance. Exported values belong to the user: the entrypoint
-# saves them before sourcing the settings files and restores them afterwards,
-# so the environment beats persisted settings while the files keep plain
-# VAR=value assignments (re-sourcing a file by hand still applies it).
-#   __BU_CONFIG_USER       name -> value the user supplied before activation
-#   __BU_CONFIG_USER_KIND  name -> env (exported) or shell (unexported, only
-#                          kept on the first activation in a shell)
-#   BU_CONFIG_ORIGIN       name -> local | site | layer: who set the value
+# Config phases. Every setting belongs to exactly one phase, the one open
+# when it was registered. A phase resolves its settings in one step
+# (bu_config_phase_end): exported values win, then the phase's own settings
+# files, then registered defaults, written to a generated file and sourced.
+# The entrypoint runs the built-in "main" phase; projects can add their own.
+#   BU_CONFIG_PHASE_STATE    phase -> open | final
+#   __BU_CONFIG_OPEN_PHASE   the phase registrations currently go to
+#   __BU_CONFIG_PHASE_NAMES  settings of the phase being resolved
+declare -A -g BU_CONFIG_PHASE_STATE=()
+declare -g __BU_CONFIG_OPEN_PHASE=
+declare -a -g __BU_CONFIG_PHASE_NAMES=()
+
+# Settings provenance. Exported values belong to the user: a phase saves them
+# before sourcing its settings files and restores them afterwards, so the
+# environment beats persisted settings while the files keep plain VAR=value
+# assignments (re-sourcing a file by hand still applies it).
+#   __BU_CONFIG_USER       name -> value the user exported before the phase ran
+#   __BU_CONFIG_USER_KIND  name -> env
+#   BU_CONFIG_ORIGIN       name -> local | site | callback | layer: who set it
 #   BU_CONFIG_SOURCE_FILE  name -> absolute path of the file that set it
-#   __BU_CONFIG_APPLIED    name -> value at the end of activation (or the last
-#                          `bu set-config`), to spot later edits in the shell
+#   __BU_CONFIG_APPLIED    name -> value when its phase finished (or after the
+#                          last `bu set-config`), to spot later shell edits
 #   __BU_CONFIG_SNAP       scratch snapshot for attributing file assignments
 declare -A -g __BU_CONFIG_USER=()
 declare -A -g __BU_CONFIG_USER_KIND=()
@@ -223,7 +234,17 @@ bu_config_register()
             ;;
         esac
     done
+    # Owning phase: the open one; outside any phase, legacy late registration
+    # into main (no files, defaults or provenance beyond what the caller does)
+    local phase=${__BU_CONFIG_OPEN_PHASE:-main}
+    local owner=${BU_CONFIG_PROPERTIES[$name,phase]:-}
+    if [[ -n "$owner" && "$owner" != "$phase" ]]
+    then
+        bu_basic_log_err "bu_config_register: $name already belongs to config phase '$owner', cannot register it in '$phase'"
+        return 1
+    fi
     BU_CONFIG_PROPERTIES[$name,registered]=true
+    BU_CONFIG_PROPERTIES[$name,phase]=$phase
     [[ -n "$default" ]] && BU_CONFIG_PROPERTIES[$name,default]=$default
     [[ -n "$enum" ]] && BU_CONFIG_PROPERTIES[$name,enum]=$enum
     [[ -n "$hint" ]] && BU_CONFIG_PROPERTIES[$name,hint]=$hint
@@ -234,11 +255,9 @@ bu_config_register()
     # Stamp the owning module (mirrors __bu_stamp_command_module and the
     # help-topic stamp in bu_core_help_topic.sh) so `bu get-config` can tell
     # a core BU_* setting from one a module registered. STICKY: only
-    # overwrite when BU_CURRENT_MODULE is non-empty. Rationale:
-    # `bu set-config --unset` for a setting without a registered default
-    # re-sources config/bu_config_dynamic.sh outside the entrypoint, where
-    # BU_CURRENT_MODULE is empty — an unconditional stamp would blank every
-    # core setting's provenance on that path.
+    # overwrite when BU_CURRENT_MODULE is non-empty, so re-registering a
+    # setting outside the entrypoint (where BU_CURRENT_MODULE is empty) never
+    # blanks its provenance.
     if [[ -n "${BU_CURRENT_MODULE:-}" ]]
     then
         BU_CONFIG_PROPERTIES[$name,module]=$BU_CURRENT_MODULE
@@ -256,87 +275,182 @@ bu_config_register()
 
 # ```
 # *Description*:
-# Collect the names of all variables matching BU_CONFIG_NAME_PREFIXES.
-# Uses ${!PREFIX@} (via eval on a validated identifier), so no subshells.
+# List the names of the settings registered in a config phase.
 #
-# *Params*: None
+# *Params*:
+# - `$1`: Phase name
 #
 # *Returns*:
-# - `BU_RET`: the variable names
+# - `BU_RET`: the setting names, sorted
 # ```
-__bu_config_prefixed_names()
+__bu_config_phase_settings()
 {
-    local prefix
-    local -a names=()
+    local -r phase=$1
+    local key
     BU_RET=()
-    for prefix in "${BU_CONFIG_NAME_PREFIXES[@]}"
+    for key in "${!BU_CONFIG_PROPERTIES[@]}"
     do
-        [[ "$prefix" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-        eval 'names=(${!'"$prefix"'@})'
-        BU_RET+=("${names[@]}")
+        [[ "$key" == *,phase && "${BU_CONFIG_PROPERTIES[$key]}" == "$phase" ]] || continue
+        BU_RET+=("${key%,phase}")
+    done
+    # Insertion sort (a handful of names; no subshell)
+    local i j item
+    for ((i = 1; i < ${#BU_RET[@]}; i++))
+    do
+        item=${BU_RET[i]}
+        j=$((i - 1))
+        while ((j >= 0)) && [[ "${BU_RET[j]}" > "$item" ]]
+        do
+            BU_RET[j + 1]=${BU_RET[j]}
+            j=$((j - 1))
+        done
+        BU_RET[j + 1]=$item
     done
     return 0
 }
 
 # ```
 # *Description*:
-# Save the setting values the user supplied, before the entrypoint sources
-# the settings files. Exported variables are the user's. Unexported values
-# of settings registered by an earlier activation in this shell are what
-# that activation applied, so they are unset to let the settings files and
-# defaults apply again; other unexported values (first activation) are kept
-# as the user's too.
+# Open a config phase: settings registered until bu_config_phase_end belong
+# to it. Running a phase again (re-activation) first drops its previous
+# registrations, so settings that are no longer registered disappear, and
+# resets their values unless exported.
 #
-# *Params*: None
+# *Params*:
+# - `$1`: Phase name (lowercase letters, digits, `_` and `-`)
+#
+# *Returns*: None (always 0; errors are logged)
+# ```
+bu_config_phase_begin()
+{
+    local -r phase=$1
+    if [[ ! "$phase" =~ ^[a-z0-9][a-z0-9_-]*$ ]]
+    then
+        bu_basic_log_err "bu_config_phase_begin: invalid phase name[$phase]"
+        return 0
+    fi
+    if [[ -n "$__BU_CONFIG_OPEN_PHASE" && "$__BU_CONFIG_OPEN_PHASE" != "$phase" ]]
+    then
+        bu_basic_log_err "bu_config_phase_begin: config phase '$__BU_CONFIG_OPEN_PHASE' is still open; closing it without resolving"
+    fi
+
+    # Drop the phase's previous registrations
+    local name key attrs
+    local -A dropped=()
+    __bu_config_phase_settings "$phase"
+    for name in "${BU_RET[@]}"
+    do
+        dropped[$name]=1
+        attrs=${!name@a}
+        if [[ -v "$name" && "$attrs" != *x* && "$attrs" != *r* ]]
+        then
+            unset "$name"
+        fi
+        unset '__BU_CONFIG_USER[$name]' '__BU_CONFIG_USER_KIND[$name]' \
+            'BU_CONFIG_ORIGIN[$name]' 'BU_CONFIG_SOURCE_FILE[$name]' '__BU_CONFIG_APPLIED[$name]'
+    done
+    if ((${#dropped[@]}))
+    then
+        for key in "${!BU_CONFIG_PROPERTIES[@]}"
+        do
+            [[ -v "dropped[${key%%,*}]" ]] && unset 'BU_CONFIG_PROPERTIES[$key]'
+        done
+    fi
+
+    BU_CONFIG_PHASE_STATE[$phase]=open
+    __BU_CONFIG_OPEN_PHASE=$phase
+    return 0
+}
+
+# ```
+# *Description*:
+# List the settings files a config phase sources, in order (later files win):
+# the checkout's file, then the embedder's BU_CONFIG_LOCAL_FILE counterpart.
+# The main phase uses bu_config_local.sh itself plus site/*.sh; another phase
+# PHASE uses bu_config_local.PHASE.sh.
+#
+# *Params*:
+# - `$1`: Phase name
+#
+# *Returns*:
+# - `BU_RET`: "ORIGIN:PATH" entries for the files that exist
+# ```
+__bu_config_phase_files()
+{
+    local -r phase=$1
+    local suffix=.sh
+    [[ "$phase" == main ]] || suffix=.$phase.sh
+    local -r checkout=$BU_DIR/config/bu_config_local$suffix
+    BU_RET=()
+    [[ -f "$checkout" ]] && BU_RET+=("local:$checkout")
+    if [[ -n "${BU_CONFIG_LOCAL_FILE:-}" ]]
+    then
+        local embedder=${BU_CONFIG_LOCAL_FILE%.sh}$suffix
+        [[ "$embedder" == /* ]] || embedder=$PWD/${embedder#./}
+        if [[ "$embedder" != "$checkout" && -f "$embedder" ]]
+        then
+            BU_RET+=("local:$embedder")
+        fi
+    fi
+    if [[ "$phase" == main && -d "$BU_DIR/site" ]]
+    then
+        local site_file
+        for site_file in "$BU_DIR"/site/*.sh
+        do
+            [[ -f "$site_file" ]] && BU_RET+=("site:$site_file")
+        done
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
+# First half of resolving a config phase: save the phase's exported values,
+# reset its unexported ones, and snapshot every registered setting so the
+# settings files sourced next can be attributed (__bu_config_phase_track).
+# bu_config_phase_end calls the three steps; the entrypoint calls them itself
+# to source the main phase's files at top level.
+#
+# *Params*:
+# - `$1`: Phase name (must be the open phase)
 #
 # *Returns*: None (always 0)
 # ```
-__bu_config_save_user_values()
+__bu_config_phase_prepare()
 {
+    local -r phase=$1
     local name attrs
-    __BU_CONFIG_USER=()
-    __BU_CONFIG_USER_KIND=()
-    BU_CONFIG_ORIGIN=()
-    BU_CONFIG_SOURCE_FILE=()
+    __bu_config_phase_settings "$phase"
+    __BU_CONFIG_PHASE_NAMES=("${BU_RET[@]}")
     __BU_CONFIG_RESTORE_PENDING=true
-    __bu_config_prefixed_names
-    for name in "${BU_RET[@]}"
+    for name in "${__BU_CONFIG_PHASE_NAMES[@]}"
     do
+        unset '__BU_CONFIG_USER[$name]' '__BU_CONFIG_USER_KIND[$name]' \
+            'BU_CONFIG_ORIGIN[$name]' 'BU_CONFIG_SOURCE_FILE[$name]'
         [[ -v "$name" ]] || continue
         attrs=${!name@a}
-        # Settings are scalars
-        [[ "$attrs" == *[aAn]* ]] && continue
         if [[ "$attrs" == *x* ]]
         then
             __BU_CONFIG_USER[$name]=${!name}
             __BU_CONFIG_USER_KIND[$name]=env
-        elif [[ "${BU_CONFIG_PROPERTIES[$name,registered]:-}" == true ]]
+        elif [[ "$attrs" != *r* ]]
         then
-            [[ "$attrs" == *r* ]] || unset "$name"
-        else
-            __BU_CONFIG_USER[$name]=${!name}
-            __BU_CONFIG_USER_KIND[$name]=shell
+            unset "$name"
         fi
     done
+    __bu_config_snapshot
     return 0
 }
 
-# ```
-# *Description*:
-# Snapshot the prefixed variables, so __bu_config_track_end can tell which
-# ones the next settings file assigned.
-#
-# *Params*: None
-#
-# *Returns*: None (always 0)
-# ```
-__bu_config_track_begin()
+# Snapshot every registered setting (scratch for __bu_config_phase_track)
+__bu_config_snapshot()
 {
-    local name
+    local key name
     __BU_CONFIG_SNAP=()
-    __bu_config_prefixed_names
-    for name in "${BU_RET[@]}"
+    for key in "${!BU_CONFIG_PROPERTIES[@]}"
     do
+        [[ "$key" == *,registered ]] || continue
+        name=${key%,registered}
         [[ -v "$name" ]] && __BU_CONFIG_SNAP[$name]=${!name}
     done
     return 0
@@ -344,29 +458,53 @@ __bu_config_track_begin()
 
 # ```
 # *Description*:
-# Attribute the variables assigned since the last snapshot to a settings
-# file, then update the snapshot for the next file.
+# After sourcing one settings file for the phase being resolved: attribute
+# the phase's settings it assigned to it, and revert (with a warning) any
+# assignment to a setting owned by another phase that has already finished.
 #
 # *Params*:
-# - `$1`: Absolute path of the settings file just sourced
-# - `$2`: Origin to record (`local` or `site`)
+# - `$1`: Absolute path of the file just sourced (empty for callbacks)
+# - `$2`: Origin to record (`local`, `site` or `callback`)
 #
 # *Returns*: None (always 0)
 # ```
-__bu_config_track_end()
+__bu_config_phase_track()
 {
     local -r file=$1
     local -r origin=$2
-    local name
-    __bu_config_prefixed_names
-    for name in "${BU_RET[@]}"
+    local -r phase=$__BU_CONFIG_OPEN_PHASE
+    local key name owner
+    for key in "${!BU_CONFIG_PROPERTIES[@]}"
     do
-        [[ -v "$name" ]] || continue
-        if [[ ! -v "__BU_CONFIG_SNAP[$name]" || "${__BU_CONFIG_SNAP[$name]}" != "${!name}" ]]
+        [[ "$key" == *,registered ]] || continue
+        name=${key%,registered}
+        if [[ -v "$name" ]]
         then
+            [[ -v "__BU_CONFIG_SNAP[$name]" && "${__BU_CONFIG_SNAP[$name]}" == "${!name}" ]] && continue
+        else
+            [[ -v "__BU_CONFIG_SNAP[$name]" ]] || continue
+        fi
+        owner=${BU_CONFIG_PROPERTIES[$name,phase]:-}
+        if [[ "$owner" == "$phase" || "${BU_CONFIG_PHASE_STATE[$owner]:-}" != final ]]
+        then
+            # Ours, or a later phase's (that phase resets it when it runs)
+            [[ "$owner" == "$phase" && -v "$name" ]] || continue
             BU_CONFIG_ORIGIN[$name]=$origin
-            BU_CONFIG_SOURCE_FILE[$name]=$file
+            if [[ -n "$file" ]]
+            then
+                BU_CONFIG_SOURCE_FILE[$name]=$file
+            else
+                unset 'BU_CONFIG_SOURCE_FILE[$name]'
+            fi
             __BU_CONFIG_SNAP[$name]=${!name}
+        else
+            bu_basic_log_warn "${file:-$origin}: ignoring assignment to $name, a setting of config phase '$owner' (set it in that phase's settings file)"
+            if [[ -v "__BU_CONFIG_SNAP[$name]" ]]
+            then
+                printf -v "$name" '%s' "${__BU_CONFIG_SNAP[$name]}" || true
+            else
+                unset "$name"
+            fi
         fi
     done
     return 0
@@ -374,23 +512,22 @@ __bu_config_track_end()
 
 # ```
 # *Description*:
-# Put the user's saved values back over whatever the settings files
-# assigned. Only registered settings are restored, so a settings file that
-# extends a non-setting variable (e.g. BU_MODULE_LIST) is not undone.
-# Idempotent: the entrypoint runs it once the core settings are registered
-# and again at the end for settings that modules register later.
+# Second half of resolving a config phase: restore the saved exported
+# values, then apply registered defaults by generating the phase's vars file
+# (one `NAME=${NAME:-default}` line per setting, documented for editors) and
+# sourcing it, and record the resulting values.
 #
-# *Params*: None
+# *Params*:
+# - `$1`: Phase name (must be the open phase)
 #
 # *Returns*: None (always 0)
 # ```
-__bu_config_restore_user_values()
+__bu_config_phase_complete()
 {
-    local key name
-    for key in "${!BU_CONFIG_PROPERTIES[@]}"
+    local -r phase=$1
+    local name
+    for name in "${__BU_CONFIG_PHASE_NAMES[@]}"
     do
-        [[ "$key" == *,registered ]] || continue
-        name=${key%,registered}
         [[ -v "__BU_CONFIG_USER[$name]" ]] || continue
         if [[ "${!name-}" != "${__BU_CONFIG_USER[$name]}" ]]
         then
@@ -400,28 +537,144 @@ __bu_config_restore_user_values()
         unset 'BU_CONFIG_SOURCE_FILE[$name]'
     done
     __BU_CONFIG_RESTORE_PENDING=false
+
+    # Settings registered while the files ran (callbacks) count too
+    __bu_config_phase_settings "$phase"
+    __BU_CONFIG_PHASE_NAMES=("${BU_RET[@]}")
+    __bu_config_write_vars_file "$phase"
+    if [[ -n "$BU_RET" ]]
+    then
+        # shellcheck disable=SC1090
+        builtin source "$BU_RET"
+    fi
+    for name in "${__BU_CONFIG_PHASE_NAMES[@]}"
+    do
+        __BU_CONFIG_APPLIED[$name]=${!name-}
+    done
+
+    BU_CONFIG_PHASE_STATE[$phase]=final
+    __BU_CONFIG_OPEN_PHASE=
     return 0
 }
 
 # ```
 # *Description*:
-# Record the value of every registered setting at the end of activation,
-# so `bu get-config` can tell when one was changed in the shell afterwards.
+# Path of a config phase's generated vars file:
+# $BU_OUT_DIR/cache/config-vars/<top-level module>/<BashTab dir>/<phase>.sh
+# (the BashTab dir with every character outside [A-Za-z0-9._-] replaced by
+# `_`, so checkouts sharing a module name never share a file).
 #
-# *Params*: None
+# *Params*:
+# - `$1`: Phase name
 #
-# *Returns*: None (always 0)
+# *Returns*:
+# - `BU_RET`: the file path
 # ```
-__bu_config_record_applied()
+__bu_config_vars_file()
 {
-    local key name
-    __BU_CONFIG_APPLIED=()
-    for key in "${!BU_CONFIG_PROPERTIES[@]}"
+    local -r phase=$1
+    BU_RET=${BU_OUT_DIR:-/tmp/bu/${USER:-unknown}}/cache/config-vars/${BU_TOP_LEVEL_MODULE:-default}/${BU_DIR//[^A-Za-z0-9._-]/_}/$phase.sh
+    return 0
+}
+
+# ```
+# *Description*:
+# Generate the vars file of a config phase from the registry, rewriting it
+# only when its content changes (so it stays stable for editors and the
+# usual activation needs no extra processes).
+#
+# *Params*:
+# - `$1`: Phase name
+#
+# *Returns*:
+# - `BU_RET`: the file path (__bu_config_vars_file), or empty if it could not
+#   be written
+# ```
+__bu_config_write_vars_file()
+{
+    local -r phase=$1
+    __bu_config_vars_file "$phase"
+    local -r file=$BU_RET
+    local -r dir=${file%/*}
+    local content name default quoted allowed entry
+    printf -v content '%s\n' \
+        "# Generated by BashTab from the registered settings of config phase '$phase'." \
+        "# Do not edit: rewritten whenever the registered settings change."
+    for name in "${__BU_CONFIG_PHASE_NAMES[@]}"
     do
-        [[ "$key" == *,registered ]] || continue
-        name=${key%,registered}
-        __BU_CONFIG_APPLIED[$name]=${!name-}
+        content+=$'\n'
+        [[ -n "${BU_CONFIG_PROPERTIES[$name,hint]:-}" ]] && content+="# ${BU_CONFIG_PROPERTIES[$name,hint]}"$'\n'
+        allowed=
+        if [[ "${BU_CONFIG_PROPERTIES[$name,bool]:-}" == true ]]
+        then
+            allowed='true false'
+        else
+            for entry in ${BU_CONFIG_PROPERTIES[$name,enum]:-}
+            do
+                allowed+="${allowed:+ }${entry%%:*}"
+            done
+        fi
+        default=${BU_CONFIG_PROPERTIES[$name,default]:-}
+        content+="#${allowed:+ allowed: $allowed |} default: ${default:-(empty)} | declared: ${BU_CONFIG_PROPERTIES[$name,defined_at]:-?}"$'\n'
+        quoted=
+        [[ -n "$default" ]] && printf -v quoted '%q' "$default"
+        content+="$name=\${$name:-$quoted}"$'\n'
     done
+
+    BU_RET=
+    local existing=
+    if [[ -f "$file" ]]
+    then
+        IFS= read -r -d '' existing < "$file" || true
+    fi
+    if [[ "$existing" != "$content" ]]
+    then
+        if [[ ! -d "$dir" ]] && ! mkdir -p "$dir" 2>/dev/null
+        then
+            bu_basic_log_err "Cannot create $dir; config phase '$phase' defaults not applied"
+            return 0
+        fi
+        if ! { printf '%s' "$content" > "$file.$$" && mv -f "$file.$$" "$file"; } 2>/dev/null
+        then
+            bu_basic_log_err "Cannot write $file; config phase '$phase' defaults not applied"
+            rm -f "$file.$$" 2>/dev/null
+            return 0
+        fi
+    fi
+    BU_RET=$file
+    return 0
+}
+
+# ```
+# *Description*:
+# Close and resolve a config phase: save exported values, source the phase's
+# settings files (__bu_config_phase_files), restore the exported values, then
+# apply defaults. Call after the phase's settings are registered.
+#
+# *Params*:
+# - `$1`: Phase name (must be the open phase)
+#
+# *Returns*: None (always 0; errors are logged)
+# ```
+bu_config_phase_end()
+{
+    local -r phase=$1
+    if [[ "$__BU_CONFIG_OPEN_PHASE" != "$phase" ]]
+    then
+        bu_basic_log_err "bu_config_phase_end: config phase '$phase' is not open"
+        return 0
+    fi
+    __bu_config_phase_prepare "$phase"
+    local entry
+    __bu_config_phase_files "$phase"
+    local -a files=("${BU_RET[@]}")
+    for entry in "${files[@]}"
+    do
+        # shellcheck disable=SC1090
+        source "${entry#*:}"
+        __bu_config_phase_track "${entry#*:}" "${entry%%:*}"
+    done
+    __bu_config_phase_complete "$phase"
     return 0
 }
 
