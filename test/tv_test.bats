@@ -2131,3 +2131,25 @@ function test_tv_tmux_background_refusal { #@test
 
     tmux -L "$sock" kill-server
 }
+
+function test_tv_tmux_edit_config_applies_to_shell { #@test
+    command -v tmux >/dev/null || skip "tmux not available"
+    local -r sock="bu-ec-$$-$RANDOM"
+    local pane
+    tmux -L "$sock" new-session -d -s ec -x 160 -y 40 \
+        "env -u BU_QUERY_EXECUTOR BU_CONFIG_LOCAL_FILE='$BATS_TEST_TMPDIR/settings.sh' bash --norc"
+    tmux -L "$sock" send-keys -t ec "source \"$DIR\"/../activate >/dev/null 2>&1; bu edit-config" Enter
+    __tv_wait_pane "$sock" ec 'Row [0-9]+/' 120
+    tmux -L "$sock" send-keys -t ec /
+    tmux -L "$sock" send-keys -t ec BU_QUERY_EXECUTOR Enter
+    tmux -L "$sock" send-keys -t ec t
+    __tv_wait_pane "$sock" ec 'Set BU_QUERY_EXECUTOR=combined'
+    grep -qE '^BU_QUERY_EXECUTOR +combined +local' <<<"$pane" || { echo "$pane"; tmux -L "$sock" kill-server; return 1; }
+    tmux -L "$sock" send-keys -t ec q
+    __tv_wait_pane "$sock" ec 'Applied 1 change'
+    tmux -L "$sock" send-keys -t ec 'echo "QE=$BU_QUERY_EXECUTOR/${BU_CONFIG_ORIGIN[BU_QUERY_EXECUTOR]}"' Enter
+    __tv_wait_pane "$sock" ec 'QE=[a-z]+/'
+    tmux -L "$sock" kill-server
+    grep -q 'QE=combined/local' <<<"$pane" || { echo "$pane"; return 1; }
+    grep -qx 'BU_QUERY_EXECUTOR=combined' "$BATS_TEST_TMPDIR/settings.sh"
+}

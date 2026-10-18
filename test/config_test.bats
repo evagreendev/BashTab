@@ -1018,6 +1018,89 @@ function test_config_late_module_registration_warns { #@test
 }
 
 # ===========================================================================
+# bu edit-config actions (run inside the viewer; replayed in the caller)
+# ===========================================================================
+
+# Run __bu_config_edit_action for a setting in a subshell (like the viewer's
+# process), queueing into $BATS_TEST_TMPDIR/queue.sh. Prints its output.
+__config_test_edit()
+{
+    local -r name=$1 mode=$2
+    (
+        BU_TV_RECORD=$(bu get-config --format jsonl 2>/dev/null | jq -c --arg n "$name" 'select(.name == $n)')
+        BU_CONFIG_EDIT_QUEUE="$BATS_TEST_TMPDIR/queue.sh"
+        bu_tv_prompt() { BU_RET=$TEST_PROMPT_VALUE; }
+        bu_tv_interactive() { echo "interactive: $*"; }
+        __bu_config_edit_action "$mode" 2>&1
+    )
+}
+
+function test_config_edit_action_queue_applies_in_caller { #@test
+    : > "$BATS_TEST_TMPDIR/queue.sh"
+    BU_QUERY_EXECUTOR=pipeline
+    run __config_test_edit BU_QUERY_EXECUTOR cycle
+    assert_success
+    assert_output --partial "Set BU_QUERY_EXECUTOR=combined"
+    # The subshell changed nothing here until the queue is replayed
+    assert_equal "$BU_QUERY_EXECUTOR" pipeline
+    builtin source "$BATS_TEST_TMPDIR/queue.sh"
+    assert_equal "$BU_QUERY_EXECUTOR|${BU_CONFIG_ORIGIN[BU_QUERY_EXECUTOR]}|${BU_CONFIG_SOURCE_FILE[BU_QUERY_EXECUTOR]}" \
+        "combined|local|$BU_CONFIG_LOCAL_FILE"
+
+    : > "$BATS_TEST_TMPDIR/queue.sh"
+    TEST_PROMPT_VALUE=ascii run __config_test_edit BU_TABLE_STYLE prompt
+    assert_success
+    __config_test_edit BU_QUERY_EXECUTOR unset >/dev/null
+    builtin source "$BATS_TEST_TMPDIR/queue.sh"
+    assert_equal "$BU_TABLE_STYLE|$BU_QUERY_EXECUTOR|${BU_CONFIG_ORIGIN[BU_QUERY_EXECUTOR]:-default}" "ascii|pipeline|default"
+    grep -qx 'BU_TABLE_STYLE=ascii' "$BU_CONFIG_LOCAL_FILE"
+    ! grep -q BU_QUERY_EXECUTOR "$BU_CONFIG_LOCAL_FILE"
+}
+
+function test_config_edit_action_cycles_bool_and_enum { #@test
+    BU_OUT_STRICT=true
+    run __config_test_edit BU_OUT_STRICT cycle
+    assert_output --partial "Set BU_OUT_STRICT=false"
+    # A name:mapped enum steps by name from the mapped current value
+    BU_LOG_LVL=$BU_LOG_LVL_ERR
+    run __config_test_edit BU_LOG_LVL cycle
+    assert_output --partial "Set BU_LOG_LVL=$BU_LOG_LVL_SILENCE"
+    BU_LOG_LVL=$BU_LOG_LVL_SILENCE
+    run __config_test_edit BU_LOG_LVL cycle
+    assert_output --partial "Set BU_LOG_LVL=$BU_LOG_LVL_TRACE"
+    run __config_test_edit BU_REMOTE_SSH_DIR cycle
+    assert_output --partial "takes any value"
+}
+
+function test_config_edit_action_static_and_env_only { #@test
+    : > "$BATS_TEST_TMPDIR/queue.sh"
+    run __config_test_edit BU_BOOTSTRAP_VERBOSE cycle
+    assert_success
+    assert_output --partial "takes effect in a new shell"
+    # Static: stored for new shells, not queued for this one
+    assert [ ! -s "$BATS_TEST_TMPDIR/queue.sh" ]
+    run __config_test_edit BU_TOP_LEVEL_MODULE prompt
+    assert_failure
+    assert_output --partial "can only be set in the environment"
+}
+
+function test_config_edit_action_open { #@test
+    bu set-config BU_TABLE_STYLE ascii >/dev/null 2>&1
+    run __config_test_edit BU_TABLE_STYLE open
+    assert_success
+    assert_line --index 0 "interactive: ${VISUAL:-${EDITOR:-vi}} +2 $BU_CONFIG_LOCAL_FILE"
+    # A default: where it is registered
+    local line
+    line=$(grep -n '^bu_config_register BU_QUERY_EXECUTOR' "$BU_DIR/config/bu_config_dynamic.sh" | cut -d: -f1)
+    run __config_test_edit BU_QUERY_EXECUTOR open
+    assert_line --index 0 "interactive: ${VISUAL:-${EDITOR:-vi}} +$line $BU_DIR/config/bu_config_dynamic.sh"
+    # Changed in the shell: nowhere to open
+    BU_OUT_VALIDATION=off
+    run __config_test_edit BU_OUT_VALIDATION open
+    assert_output --partial "no settings file to open (origin"
+}
+
+# ===========================================================================
 # Documentation/registry default consistency
 # ===========================================================================
 

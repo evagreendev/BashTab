@@ -207,6 +207,18 @@ and where its value came from:
 `bu set-config` warns when the variable is exported, since an exported value
 keeps winning on later activations.
 
+`bu edit-config` opens the settings in `bu view-table` with row actions:
+`t` toggles a boolean or steps to the next allowed value, `e` asks for a
+value, `x` restores the default, and `o` opens the setting's `location` in
+`$VISUAL`/`$EDITOR`. Each change goes through `bu set-config` and the table
+reloads; because the viewer is a separate process, the changes are queued and
+applied to the calling shell when it exits (static settings: in a new shell).
+The same mechanism is available to any producer:
+`bu view-table --action KEY[:LABEL]=COMMAND --reload COMMAND --key COLUMN`.
+An action is eval'd in the viewer's shell with the cursor record in
+`BU_TV_RECORD`; it can ask for input with `bu_tv_prompt` and run an editor with
+`bu_tv_interactive`, and its last output line shows on the status line.
+
 ### Initialization callable functions
 Another point of customization are the pre-init functions. They are found in [bu_core_preinit.sh][bu_core_preinit]. They all have the `bu_preinit_` prefix.
 

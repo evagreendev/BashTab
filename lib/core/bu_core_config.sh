@@ -949,6 +949,142 @@ __bu_config_mark_applied()
 
 # ```
 # *Description*:
+# Row action of `bu edit-config`, run inside `bu view-table` (a separate
+# process) on the cursor record in BU_TV_RECORD: change the setting with
+# `bu set-config`, and queue the change in $BU_CONFIG_EDIT_QUEUE so
+# edit-config applies it to the calling shell once the viewer exits (a
+# static setting is stored for new shells only, so it is not queued). The
+# last line printed becomes the viewer's status message.
+#
+# *Params*:
+# - `$1`: `cycle` (next true/false or allowed value), `unset` (registered
+#   default), `prompt` (type a value), `open` (open its location, as
+#   `bu get-config` reports it, in $VISUAL / $EDITOR: the settings file line
+#   that set it, or where a defaulted setting is registered)
+#
+# *Returns*:
+# - The `bu set-config` status (non-zero shows as a failure)
+# ```
+__bu_config_edit_action()
+{
+    local -r mode=$1
+    local name= location= current next entry
+    local -i i n
+    IFS=$'\t' read -r name location < <("$BU_OUT_JQ" -r '[.name, (.location // "")] | @tsv' <<<"${BU_TV_RECORD:-}" 2>/dev/null)
+    if [[ "${BU_CONFIG_PROPERTIES[$name,registered]:-}" != true ]]
+    then
+        echo "Not a registered setting: ${name:-?}"
+        return 1
+    fi
+    current=${!name-}
+
+    case "$mode" in
+    cycle)
+        if [[ "${BU_CONFIG_PROPERTIES[$name,bool]:-}" == true ]]
+        then
+            next=true
+            [[ "$current" == true ]] && next=false
+        elif [[ -n "${BU_CONFIG_PROPERTIES[$name,enum]:-}" ]]
+        then
+            local -a entries=(${BU_CONFIG_PROPERTIES[$name,enum]})
+            n=${#entries[@]}
+            next=${entries[0]%%:*}
+            for (( i = 0; i < n; i++ ))
+            do
+                entry=${entries[i]}
+                if [[ "${entry#*:}" == "$current" || "${entry%%:*}" == "$current" ]]
+                then
+                    entry=${entries[(i + 1) % n]}
+                    next=${entry%%:*}
+                    break
+                fi
+            done
+        else
+            echo "$name takes any value: press e to edit it"
+            return 0
+        fi
+        bu set-config "$name" "$next" || return
+        __bu_config_edit_queue "$name"
+        ;;
+    unset)
+        bu set-config --unset "$name" || return
+        __bu_config_edit_queue "$name" --unset
+        ;;
+    prompt)
+        if ! bu_tv_prompt "$name=" "$current"
+        then
+            echo "Cancelled"
+            return 0
+        fi
+        bu set-config "$name" "$BU_RET" || return
+        __bu_config_edit_queue "$name"
+        ;;
+    open)
+        if [[ -z "$location" ]]
+        then
+            echo "$name has no settings file to open (origin ${BU_CONFIG_ORIGIN[$name]:-shell})"
+            return 0
+        fi
+        local file=$location line=
+        if [[ "$location" =~ ^(.*):([0-9]+)$ ]]
+        then
+            file=${BASH_REMATCH[1]}
+            line=${BASH_REMATCH[2]}
+        fi
+        bu_tv_interactive "${VISUAL:-${EDITOR:-vi}}" ${line:+"+$line"} "$file" || return
+        echo "Edited $file (hand edits apply on the next activation)"
+        ;;
+    *)
+        echo "Unknown edit action: $mode"
+        return 1
+        ;;
+    esac
+}
+
+# Queue a change `bu set-config` just applied in this process, for
+# __bu_config_apply_live in the shell running `bu edit-config`
+__bu_config_edit_queue()
+{
+    local -r name=$1
+    local -r phase=${BU_CONFIG_PROPERTIES[$name,phase]:-main}
+    [[ -n "${BU_CONFIG_EDIT_QUEUE:-}" ]] || return 0
+    [[ "${__BU_CONFIG_PHASE_STATIC[$phase]:-}" == true ]] && return 0
+    if [[ "${2:-}" == --unset ]]
+    then
+        printf '__bu_config_apply_live --unset %q\n' "$name" >> "$BU_CONFIG_EDIT_QUEUE"
+    else
+        printf '__bu_config_apply_live %q %q %q\n' "$name" "${!name-}" "${BU_CONFIG_SOURCE_FILE[$name]:-}" >> "$BU_CONFIG_EDIT_QUEUE"
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
+# Apply a change queued by __bu_config_edit_action to this shell: the value
+# (already stored in its settings file) and its provenance.
+#
+# *Params*:
+# - `NAME VALUE [FILE]`, or `--unset NAME` (the registered default)
+#
+# *Returns*: None (always 0)
+# ```
+__bu_config_apply_live()
+{
+    if [[ "$1" == --unset ]]
+    then
+        local -r unset_name=$2
+        declare -g "$unset_name=${BU_CONFIG_PROPERTIES[$unset_name,default]:-}"
+        __bu_config_mark_applied "$unset_name" default
+        return 0
+    fi
+    local -r name=$1 value=$2 file=${3:-}
+    declare -g "$name=$value"
+    __bu_config_mark_applied "$name" local "$file"
+    return 0
+}
+
+# ```
+# *Description*:
 # Validate a value against a registered setting and map it to its stored form.
 # Unregistered settings (or registered ones without --bool/--enum) pass through.
 #

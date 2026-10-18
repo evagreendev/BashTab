@@ -36,6 +36,7 @@ ${BU_TPUT_BOLD}SYNOPSIS${BU_TPUT_RESET}
     bu set-config BU_LOG_LVL debug
     bu set-config --unset BU_LOG_LVL
     bu get-config
+    bu edit-config
 
 ${BU_TPUT_BOLD}DESCRIPTION${BU_TPUT_RESET}
     Every BashTab knob is declared once with bu_config_register, which records
@@ -100,6 +101,11 @@ $_cmd_table
 ${BU_TPUT_BOLD}TYPICAL FLOWS${BU_TPUT_RESET}
     Read the whole surface:
         bu get-config
+
+    Browse and change settings interactively (t toggle/step, e edit,
+    x default, o open where the value comes from; applied to this shell
+    when you quit):
+        bu edit-config
 
     Change a setting (takes effect in the current shell immediately; a
     static setting takes effect in a new shell):
