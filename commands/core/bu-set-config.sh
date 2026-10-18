@@ -27,6 +27,8 @@ local value=
 local is_unset=false
 local is_help=false
 local is_dry_run=false
+local target_variant=
+local is_all_variants=false
 local error_msg=
 local autocompletion=()
 local shift_by=
@@ -50,6 +52,15 @@ do
         bu_parse_positional $# "${BU_AUTOCOMPLETE_SPEC_FILE[@]}" --hint "Settings file path"
         file=${!shift_by}
         file_explicit=true
+        ;;
+    --variant)# VARIANT
+        # Store the value for this variant (e.g. profile) of the setting's config phase (default: the active variant)
+        bu_parse_positional $# --hint "Variant name"
+        target_variant=${!shift_by}
+        ;;
+    --all-variants)# _FLAG
+        # Store the value for every variant of the setting's config phase (its shared settings file)
+        is_all_variants=true
         ;;
     -l|--layer)# LAYER
         # Route write through a registered layer resolver
@@ -131,9 +142,25 @@ then
 fi
 local -r phase=${BU_CONFIG_PROPERTIES[$var,phase]:-main}
 local -r is_static=${__BU_CONFIG_PHASE_STATIC[$phase]:-false}
+local -r active_variant=${__BU_CONFIG_PHASE_VARIANT[$phase]:-}
+local variant=${target_variant:-$active_variant}
+"$is_all_variants" && variant=
 local phase_file=$file
-[[ "$phase" == main ]] || phase_file=${file%.sh}.$phase.sh
+[[ "$phase" == main ]] || phase_file=${file%.sh}.$phase${variant:+.$variant}.sh
 "$file_explicit" || file=$phase_file
+# Applied in this shell too, unless static (a new shell picks it up) or
+# written for a variant other than the active one
+local is_live=true
+local deferred_note=
+if "$is_static"
+then
+    is_live=false
+    deferred_note="static setting: takes effect in a new shell"
+elif [[ "$variant" != "$active_variant" ]]
+then
+    is_live=false
+    deferred_note="takes effect the next time config phase '$phase' runs${variant:+ with variant $variant}"
+fi
 
 # ── Registry-driven value validation ─────────────────────────
 # Validate BEFORE touching the file.
@@ -418,9 +445,9 @@ then
 
     __bu_set_config_write_block "$_new_body"
 
-    if "$is_static"
+    if ! "$is_live"
     then
-        printf 'Unset %s in %s (static setting: the default applies in a new shell)\n' "$var" "$file"
+        printf 'Unset %s in %s (%s)\n' "$var" "$file" "$deferred_note"
         bu_scope_pop_function
         return 0
     fi
@@ -464,10 +491,9 @@ fi
 
 __bu_set_config_write_block "$_new_body"
 
-# Static settings are final for the shell: only a new shell picks this up
-if "$is_static"
+if ! "$is_live"
 then
-    printf 'Set %s=%s in %s (static setting: takes effect in a new shell)\n' "$var" "$value" "$file"
+    printf 'Set %s=%s in %s (%s)\n' "$var" "$value" "$file" "$deferred_note"
     bu_scope_pop_function
     return 0
 fi

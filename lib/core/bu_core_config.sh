@@ -39,11 +39,17 @@ declare -p BU_CONFIG_LAYER_RESOLVERS &>/dev/null || declare -A -g BU_CONFIG_LAYE
 # restores any that changed.
 #   BU_CONFIG_PHASE_STATE     phase -> open | final
 #   __BU_CONFIG_PHASE_STATIC  phase -> true for static phases
+#   __BU_CONFIG_PHASE_VARIANT phase -> active variant (e.g. a profile): picks
+#                             bu_config_local.PHASE.VARIANT.sh and
+#                             --default-for values
+#   __BU_CONFIG_PHASE_PREFIX  phase -> required setting-name prefix
 #   __BU_CONFIG_OPEN_PHASE    the phase registrations currently go to
 #   __BU_CONFIG_RECHECK       true while re-running a final static phase
 #   __BU_CONFIG_PHASE_NAMES   settings of the phase being resolved
 declare -p BU_CONFIG_PHASE_STATE &>/dev/null || declare -A -g BU_CONFIG_PHASE_STATE=()
 declare -p __BU_CONFIG_PHASE_STATIC &>/dev/null || declare -A -g __BU_CONFIG_PHASE_STATIC=()
+declare -p __BU_CONFIG_PHASE_VARIANT &>/dev/null || declare -A -g __BU_CONFIG_PHASE_VARIANT=()
+declare -p __BU_CONFIG_PHASE_PREFIX &>/dev/null || declare -A -g __BU_CONFIG_PHASE_PREFIX=()
 declare -g __BU_CONFIG_OPEN_PHASE=
 declare -g __BU_CONFIG_RECHECK=false
 declare -a -g __BU_CONFIG_PHASE_NAMES=()
@@ -166,6 +172,8 @@ bu_config_layer_file()
 #   - `--hint "text"`: description shown by `bu set-config --list`
 #   - `--env-only`: (static phases) only the environment can set it, never a
 #     settings file or `bu set-config`
+#   - `--default-for VARIANT VALUE`: (repeatable) the default while the
+#     phase's variant is VARIANT, instead of --default
 #
 # *Examples*:
 # ```bash
@@ -187,6 +195,7 @@ bu_config_register()
     local default= enum= hint= layer= complete_values_fn=
     local is_bool=false
     local is_env_only=false
+    local -A default_for=()
     local presets=
     while (($#))
     do
@@ -247,6 +256,10 @@ bu_config_register()
             is_env_only=true
             shift
             ;;
+        --default-for)
+            default_for[$2]=$3
+            shift 3
+            ;;
         *)
             bu_basic_log_err "bu_config_register: unrecognized specifier[$1]"
             return 1
@@ -257,6 +270,16 @@ bu_config_register()
     # into main (no files, defaults or provenance beyond what the caller does)
     local phase=${__BU_CONFIG_OPEN_PHASE:-main}
     local owner=${BU_CONFIG_PROPERTIES[$name,phase]:-}
+    if [[ -z "$__BU_CONFIG_OPEN_PHASE" && -n "${BU_CURRENT_MODULE:-}" && "${BU_CONFIG_PHASE_STATE[main]:-}" == final ]]
+    then
+        bu_basic_log_warn "bu_config_register: $name registered outside a config phase (module ${BU_CURRENT_MODULE}); register it in ${BU_CURRENT_MODULE}_bu_config.sh so the environment and settings files apply to it"
+    fi
+    local prefix=${__BU_CONFIG_PHASE_PREFIX[$phase]:-}
+    if [[ -n "$prefix" && "$name" != "$prefix"* ]]
+    then
+        bu_basic_log_err "bu_config_register: settings of config phase '$phase' must start with $prefix (got $name)"
+        return 1
+    fi
     if [[ -n "$owner" && "$owner" != "$phase" ]]
     then
         bu_basic_log_err "bu_config_register: $name already belongs to config phase '$owner', cannot register it in '$phase'"
@@ -278,6 +301,16 @@ bu_config_register()
     fi
     BU_CONFIG_PROPERTIES[$name,registered]=true
     BU_CONFIG_PROPERTIES[$name,phase]=$phase
+    # The default for the phase's active variant, if one was given
+    local variant=${__BU_CONFIG_PHASE_VARIANT[$phase]:-} key
+    for key in "${!default_for[@]}"
+    do
+        BU_CONFIG_PROPERTIES[$name,default_for,$key]=${default_for[$key]}
+    done
+    if [[ -n "$variant" && -v "default_for[$variant]" ]]
+    then
+        default=${default_for[$variant]}
+    fi
     [[ -n "$default" ]] && BU_CONFIG_PROPERTIES[$name,default]=$default
     [[ -n "$enum" ]] && BU_CONFIG_PROPERTIES[$name,enum]=$enum
     [[ -n "$hint" ]] && BU_CONFIG_PROPERTIES[$name,hint]=$hint
@@ -356,6 +389,12 @@ __bu_config_phase_settings()
 #   final. Beginning a static phase that is already final re-checks it
 #   instead: registrations are ignored and bu_config_phase_end restores any
 #   changed value.
+# - `--variant VARIANT` (optional): the active variant (e.g. a profile): its
+#   settings file bu_config_local.PHASE.VARIANT.sh is sourced after the
+#   phase's shared one, and `--default-for VARIANT` defaults apply. Settings
+#   registered only for some variants come and go as the phase runs again.
+# - `--prefix PREFIX` (optional): every setting of the phase must start with
+#   PREFIX, so phases (e.g. profiles) cannot collide by accident
 #
 # *Returns*: None (always 0; errors are logged)
 # ```
@@ -363,15 +402,22 @@ bu_config_phase_begin()
 {
     local -r phase=$1
     shift
-    local is_static=false
+    local is_static=false variant= prefix=
     while (($#))
     do
         case "$1" in
         --static) is_static=true ;;
+        --variant) variant=${2:-}; shift ;;
+        --prefix) prefix=${2:-}; shift ;;
         *) bu_basic_log_err "bu_config_phase_begin: unrecognized option[$1]" ;;
         esac
         shift
     done
+    if [[ -n "$variant" && ! "$variant" =~ ^[a-z0-9][a-z0-9_-]*$ ]]
+    then
+        bu_basic_log_err "bu_config_phase_begin: invalid variant name[$variant]"
+        variant=
+    fi
     if [[ ! "$phase" =~ ^[a-z0-9][a-z0-9_-]*$ ]]
     then
         bu_basic_log_err "bu_config_phase_begin: invalid phase name[$phase]"
@@ -393,7 +439,27 @@ bu_config_phase_begin()
         fi
     fi
 
-    # Drop the phase's previous registrations
+    __bu_config_phase_drop "$phase"
+    __BU_CONFIG_PHASE_VARIANT[$phase]=$variant
+    __BU_CONFIG_PHASE_PREFIX[$phase]=$prefix
+    BU_CONFIG_PHASE_STATE[$phase]=open
+    __BU_CONFIG_OPEN_PHASE=$phase
+    return 0
+}
+
+# ```
+# *Description*:
+# Drop a config phase's registrations, unsetting their values unless
+# exported (the user's).
+#
+# *Params*:
+# - `$1`: Phase name
+#
+# *Returns*: None (always 0)
+# ```
+__bu_config_phase_drop()
+{
+    local -r phase=$1
     local name key attrs
     local -A dropped=()
     __bu_config_phase_settings "$phase"
@@ -415,18 +481,40 @@ bu_config_phase_begin()
             [[ -v "dropped[${key%%,*}]" ]] && unset 'BU_CONFIG_PROPERTIES[$key]'
         done
     fi
-
-    BU_CONFIG_PHASE_STATE[$phase]=open
-    __BU_CONFIG_OPEN_PHASE=$phase
     return 0
 }
 
 # ```
 # *Description*:
-# List the settings files a config phase sources, in order (later files win):
-# the checkout's file, then the embedder's BU_CONFIG_LOCAL_FILE counterpart.
-# The main phase uses bu_config_local.sh itself plus site/*.sh; another phase
-# PHASE uses bu_config_local.PHASE.sh.
+# Unload a (non-static) config phase, e.g. to deactivate a profile: drop its
+# registrations and unset its values, except exported ones.
+#
+# *Params*:
+# - `$1`: Phase name
+#
+# *Returns*: None (always 0; errors are logged)
+# ```
+bu_config_phase_unload()
+{
+    local -r phase=$1
+    if [[ "${__BU_CONFIG_PHASE_STATIC[$phase]:-}" == true ]]
+    then
+        bu_basic_log_err "bu_config_phase_unload: '$phase' is a static config phase, final for this shell"
+        return 0
+    fi
+    __bu_config_phase_drop "$phase"
+    unset 'BU_CONFIG_PHASE_STATE[$phase]' '__BU_CONFIG_PHASE_VARIANT[$phase]' '__BU_CONFIG_PHASE_PREFIX[$phase]'
+    [[ "$__BU_CONFIG_OPEN_PHASE" == "$phase" ]] && __BU_CONFIG_OPEN_PHASE=
+    return 0
+}
+
+# ```
+# *Description*:
+# List the settings files a config phase sources, in order (later files win).
+# For each level, the checkout's file comes first, then the embedder's
+# BU_CONFIG_LOCAL_FILE counterpart. The main phase uses bu_config_local.sh
+# itself plus site/*.sh; another phase PHASE uses bu_config_local.PHASE.sh,
+# then, with an active variant, bu_config_local.PHASE.VARIANT.sh.
 #
 # *Params*:
 # - `$1`: Phase name
@@ -437,28 +525,38 @@ bu_config_phase_begin()
 __bu_config_phase_files()
 {
     local -r phase=$1
-    local suffix=.sh
-    [[ "$phase" == main ]] || suffix=.$phase.sh
-    local -r checkout=$BU_DIR/config/bu_config_local$suffix
-    BU_RET=()
-    [[ -f "$checkout" ]] && BU_RET+=("local:$checkout")
-    if [[ -n "${BU_CONFIG_LOCAL_FILE:-}" ]]
+    local -r variant=${__BU_CONFIG_PHASE_VARIANT[$phase]:-}
+    local -a suffixes=(.sh)
+    if [[ "$phase" != main ]]
     then
-        local embedder=${BU_CONFIG_LOCAL_FILE%.sh}$suffix
-        [[ "$embedder" == /* ]] || embedder=$PWD/${embedder#./}
-        if [[ "$embedder" != "$checkout" && -f "$embedder" ]]
-        then
-            BU_RET+=("local:$embedder")
-        fi
+        suffixes=(".$phase.sh")
+        [[ -n "$variant" ]] && suffixes+=(".$phase.$variant.sh")
     fi
+    local suffix checkout embedder
+    local -a files=()
+    for suffix in "${suffixes[@]}"
+    do
+        checkout=$BU_DIR/config/bu_config_local$suffix
+        [[ -f "$checkout" ]] && files+=("local:$checkout")
+        if [[ -n "${BU_CONFIG_LOCAL_FILE:-}" ]]
+        then
+            embedder=${BU_CONFIG_LOCAL_FILE%.sh}$suffix
+            [[ "$embedder" == /* ]] || embedder=$PWD/${embedder#./}
+            if [[ "$embedder" != "$checkout" && -f "$embedder" ]]
+            then
+                files+=("local:$embedder")
+            fi
+        fi
+    done
     if [[ "$phase" == main && -d "$BU_DIR/site" ]]
     then
         local site_file
         for site_file in "$BU_DIR"/site/*.sh
         do
-            [[ -f "$site_file" ]] && BU_RET+=("site:$site_file")
+            [[ -f "$site_file" ]] && files+=("site:$site_file")
         done
     fi
+    BU_RET=("${files[@]}")
     return 0
 }
 
@@ -638,7 +736,7 @@ __bu_config_phase_complete()
 # ```
 # *Description*:
 # Path of a config phase's generated vars file:
-# $BU_OUT_DIR/cache/config-vars/<top-level module>/<BashTab dir>/<phase>.sh
+# $BU_OUT_DIR/cache/config-vars/<top-level module>/<BashTab dir>/<phase>[.<variant>].sh
 # (the BashTab dir with every character outside [A-Za-z0-9._-] replaced by
 # `_`, so checkouts sharing a module name never share a file).
 #
@@ -651,7 +749,8 @@ __bu_config_phase_complete()
 __bu_config_vars_file()
 {
     local -r phase=$1
-    BU_RET=${BU_OUT_DIR:-/tmp/bu/${USER:-unknown}}/cache/config-vars/${BU_TOP_LEVEL_MODULE:-default}/${BU_DIR//[^A-Za-z0-9._-]/_}/$phase.sh
+    local -r variant=${__BU_CONFIG_PHASE_VARIANT[$phase]:-}
+    BU_RET=${BU_OUT_DIR:-/tmp/bu/${USER:-unknown}}/cache/config-vars/${BU_TOP_LEVEL_MODULE:-default}/${BU_DIR//[^A-Za-z0-9._-]/_}/$phase${variant:+.$variant}.sh
     return 0
 }
 
@@ -676,7 +775,7 @@ __bu_config_write_vars_file()
     local -r dir=${file%/*}
     local content name default quoted allowed entry
     printf -v content '%s\n' \
-        "# Generated by BashTab from the registered settings of config phase '$phase'." \
+        "# Generated by BashTab from the registered settings of config phase '$phase${__BU_CONFIG_PHASE_VARIANT[$phase]:+ (variant ${__BU_CONFIG_PHASE_VARIANT[$phase]})}'." \
         "# Do not edit: rewritten whenever the registered settings change."
     for name in "${__BU_CONFIG_PHASE_NAMES[@]}"
     do

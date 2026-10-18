@@ -79,12 +79,15 @@ source ./lib/core/bu_core_user_defined.sh --__bu-once
 # exported scalar "name:version:preinit_path;...". Top-level projects set it
 # in their activate script, library dependencies append to it in their module
 # scripts. It is normalized (repeated modules dropped) before it is final.
+# Each module registers its static settings in NAME_bu_config.static.sh next
+# to its preinit, and its main-phase settings in NAME_bu_config.sh.
 bu_config_phase_begin static --static || true
 _bu_cur_module_prev=${BU_CURRENT_MODULE:-}
 BU_CURRENT_MODULE=bu
 source ./config/bu_config_static.sh
 BU_CURRENT_MODULE=$_bu_cur_module_prev
 __bu_module_list_normalize || true
+__bu_source_module_configs static || true
 bu_config_phase_end static || true
 
 # ── Config phase "main" ─────────────────────────────────────────────────────
@@ -103,6 +106,7 @@ _bu_cur_module_prev=${BU_CURRENT_MODULE:-}
 BU_CURRENT_MODULE=bu
 source ./config/bu_config_dynamic.sh
 BU_CURRENT_MODULE=$_bu_cur_module_prev
+__bu_source_module_configs main || true
 __bu_config_phase_prepare main || true
 
 # The phase's settings files are sourced here at top level rather than inside

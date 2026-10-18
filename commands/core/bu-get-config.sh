@@ -109,12 +109,14 @@ done
 # Stream TSV records (zero forks in the loop), recordify once, then
 # let bu_out decide presentation (table on a terminal, JSONL when piped).
 {
-    local key name current origin location
+    local key name current origin location phase_label
     for key in "${!BU_CONFIG_PROPERTIES[@]}"
     do
         [[ "$key" == *,registered ]] || continue
         name=${key%,registered}
         current=${!name:-}
+        phase_label=${BU_CONFIG_PROPERTIES[$name,phase]:-}
+        [[ -n "${__BU_CONFIG_PHASE_VARIANT[$phase_label]:-}" ]] && phase_label+="[${__BU_CONFIG_PHASE_VARIANT[$phase_label]}]"
         # Origin: changed in the shell since its phase ran, else who set it
         # then (env, local, site, callback, layer), else the default.
         if [[ -v "__BU_CONFIG_APPLIED[$name]" && "${!name-}" != "${__BU_CONFIG_APPLIED[$name]}" ]]
@@ -134,7 +136,7 @@ done
             "$name" \
             "${current:-(unset)}" \
             "$origin" \
-            "${BU_CONFIG_PROPERTIES[$name,phase]:-}" \
+            "$phase_label" \
             "${BU_CONFIG_PROPERTIES[$name,default]:-}" \
             "${BU_CONFIG_PROPERTIES[$name,enum]:-${BU_CONFIG_PROPERTIES[$name,bool]:+true|false}}" \
             "${BU_CONFIG_PROPERTIES[$name,module]:-}" \

@@ -173,6 +173,50 @@ __bu_module_list_normalize()
 
 # ```
 # *Description*:
+# Source each module's config registration file, found next to its preinit
+# (from BU_MODULE_LIST): NAME_bu_config.static.sh for the static config phase,
+# NAME_bu_config.sh for the main one. The entrypoint calls this while the
+# phase is open, so a module's settings are resolved with BashTab's own.
+# While a file runs, BU_CURRENT_MODULE is the module's name and
+# BU_CURRENT_MODULE_DIR its directory (for defaults relative to it).
+#
+# *Params*:
+# - `$1`: `static` or `main`
+#
+# *Returns*: None (always 0)
+# ```
+__bu_source_module_configs()
+{
+    local -r kind=$1
+    local suffix=.sh
+    [[ "$kind" == static ]] && suffix=.static.sh
+    local entry name path file
+    local -r saved_module=${BU_CURRENT_MODULE:-}
+    local old_ifs=$IFS
+    IFS=';'
+    local -a entries=(${BU_MODULE_LIST:-})
+    IFS=$old_ifs
+    for entry in "${entries[@]}"
+    do
+        [[ -n "$entry" ]] || continue
+        name=${entry%%:*}
+        path=${entry#*:}
+        path=${path#*:}
+        [[ "$path" == */* ]] || continue
+        file=${path%/*}/${name}_bu_config$suffix
+        [[ -f "$file" ]] || continue
+        BU_CURRENT_MODULE=$name
+        BU_CURRENT_MODULE_DIR=${path%/*}
+        # shellcheck disable=SC1090
+        source "$file"
+    done
+    BU_CURRENT_MODULE=$saved_module
+    unset BU_CURRENT_MODULE_DIR
+    return 0
+}
+
+# ```
+# *Description*:
 # Parse BU_MODULE_LIST and register preinit callbacks + module registry entries.
 #
 # BU_MODULE_LIST is an exported scalar of the form:

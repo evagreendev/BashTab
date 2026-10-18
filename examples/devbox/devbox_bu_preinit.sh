@@ -50,16 +50,7 @@ bu_preinit_register_user_defined_subcommand_dir \
 
 BU_COMMAND_SEARCH_DIR_RECURSIVE["$DEVBOX_DIR/commands"]=false
 
-# ── Config namespace ──────────────────────────────────────────────
-if [[ " ${BU_CONFIG_NAME_PREFIXES[*]} " != *" DEVBOX_ "* ]]
-then
-    BU_CONFIG_NAME_PREFIXES+=("DEVBOX_")
-fi
-
-# ── Config key ────────────────────────────────────────────────────
-bu_config_register DEVBOX_ENV_FILE \
-    --default "$DEVBOX_DIR/.bu/env.json" \
-    --hint "Where devbox writes its last get-env snapshot"
+# Config keys are registered in devbox_bu_config.sh.
 
 # ── Pipeline stage effects ────────────────────────────────────────
 bu_register_stage_effect "bu get-env" producer

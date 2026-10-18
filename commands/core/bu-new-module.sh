@@ -155,6 +155,12 @@ chmod +x "$module_dir"/activate
     bu_gen_substitute MODULE_NAME <"$tmpldir"/module_preinit.sh >"$module_dir"/"${substitute_name}"_bu_preinit.sh
 )
 
+# Config registrations
+(
+    MODULE_NAME=$substitute_name
+    bu_gen_substitute MODULE_NAME <"$tmpldir"/module_config.sh >"$module_dir"/"${substitute_name}"_bu_config.sh
+)
+
 # Print summary
 local g=$BU_TPUT_GREEN rs=$BU_TPUT_RESET b=$BU_TPUT_BOLD
 echo
@@ -164,6 +170,7 @@ echo "  Layout:"
 echo "    activate                      ← source this to enter the environment"
 echo "    ${substitute_name}_bu_module.sh ← library registration (appends to BU_MODULE_LIST)"
 echo "    ${substitute_name}_bu_preinit.sh ← pre-init callback (bu IS available here)"
+echo "    ${substitute_name}_bu_config.sh ← settings (bu_config_register), resolved with BashTab's"
 echo "    commands/                     ← your subcommands (registered by preinit)"
 echo
 echo "  Lifecycle:"

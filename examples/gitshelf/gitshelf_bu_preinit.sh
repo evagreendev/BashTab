@@ -72,19 +72,9 @@ bu_preinit_register_user_defined_subcommand_dir \
 BU_COMMAND_SEARCH_DIR_RECURSIVE["$GITSHELF_DIR/commands"]=false
 
 # ── Config namespace ──────────────────────────────────────────────
-# Allow GITSHELF_* settings in `bu set-config` / `bu get-config`. Guarded
-# against double-append: preinits can run more than once across re-activations
-# of the same shell.
-if [[ " ${BU_CONFIG_NAME_PREFIXES[*]} " != *" GITSHELF_ "* ]]
-then
-    BU_CONFIG_NAME_PREFIXES+=("GITSHELF_")
-fi
-
 # ── Config key ────────────────────────────────────────────────────
-bu_config_register GITSHELF_CONFIG_FILE \
-    --default "$GITSHELF_DIR/config/shelf.json" \
-    --hint "Path to the gitshelf repo config (shelf.json)"
-GITSHELF_CONFIG_FILE=${GITSHELF_CONFIG_FILE:-${BU_CONFIG_PROPERTIES[GITSHELF_CONFIG_FILE,default]}}
+# Registered and resolved in gitshelf_bu_config.sh; exported for commands
+# that run in a child process.
 export GITSHELF_CONFIG_FILE
 
 # ── Default callback a host may override ──────────────────────────

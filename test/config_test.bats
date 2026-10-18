@@ -848,6 +848,115 @@ function test_config_static_reset_resolves_again { #@test
 }
 
 # ===========================================================================
+# User-defined phases with variants (profiles) and module config files
+# ===========================================================================
+
+# A profile-style phase: shared settings with per-variant defaults, plus a
+# setting that exists only for one variant
+__config_test_profile_phase()
+{
+    local -r variant=$1
+    bu_config_phase_begin profile --variant "$variant" --prefix BU_TEST_PROFILE_
+    bu_config_register BU_TEST_PROFILE_URL --default https://default.example \
+        --default-for dev https://dev.example --default-for prod https://prod.example \
+        --hint "Endpoint"
+    bu_config_register BU_TEST_PROFILE_REGION --default us --hint "Region"
+    if [[ "$variant" == dev ]]
+    then
+        bu_config_register BU_TEST_PROFILE_MOCK_PORT --default 8080 --hint "Dev-only mock port"
+    fi
+    bu_config_phase_end profile 2>/dev/null
+}
+
+function test_config_phase_variants { #@test
+    local base=${BU_CONFIG_LOCAL_FILE%.sh}
+    printf 'BU_TEST_PROFILE_REGION=eu\n' > "$base.profile.sh"
+    printf 'BU_TEST_PROFILE_REGION=ap\n' > "$base.profile.prod.sh"
+
+    __config_test_profile_phase dev
+    assert_equal "$BU_TEST_PROFILE_URL" https://dev.example
+    assert_equal "$BU_TEST_PROFILE_REGION|${BU_CONFIG_SOURCE_FILE[BU_TEST_PROFILE_REGION]}" "eu|$base.profile.sh"
+    assert_equal "$BU_TEST_PROFILE_MOCK_PORT" 8080
+    __bu_config_vars_file profile
+    [[ "$BU_RET" == */profile.dev.sh && -f "$BU_RET" ]]
+    assert_equal "$(bu get-config --format jsonl 2>/dev/null | jq -r 'select(.name == "BU_TEST_PROFILE_URL") | .phase')" "profile[dev]"
+
+    # Switching variant: the variant file wins over the shared one, and
+    # dev-only settings disappear
+    __config_test_profile_phase prod
+    assert_equal "$BU_TEST_PROFILE_URL" https://prod.example
+    assert_equal "$BU_TEST_PROFILE_REGION" ap
+    assert_equal "${BU_CONFIG_PROPERTIES[BU_TEST_PROFILE_MOCK_PORT,registered]:-}" ""
+    [[ ! -v BU_TEST_PROFILE_MOCK_PORT ]]
+
+    # The phase prefix is enforced
+    bu_config_phase_begin profile --variant prod --prefix BU_TEST_PROFILE_
+    run bu_config_register BU_TEST_OTHER --default x
+    assert_failure
+    bu_config_phase_end profile 2>/dev/null
+
+    # Unloading drops the phase entirely
+    bu_config_phase_unload profile
+    [[ ! -v BU_TEST_PROFILE_URL ]]
+    assert_equal "${BU_CONFIG_PROPERTIES[BU_TEST_PROFILE_URL,registered]:-}" ""
+}
+
+function test_set_config_variants { #@test
+    local base=${BU_CONFIG_LOCAL_FILE%.sh}
+    __config_test_profile_phase dev
+
+    # Active variant: its own file, applied live
+    bu set-config BU_TEST_PROFILE_REGION eu >/dev/null 2>&1
+    grep -qx 'BU_TEST_PROFILE_REGION=eu' "$base.profile.dev.sh"
+    assert_equal "$BU_TEST_PROFILE_REGION|${BU_CONFIG_ORIGIN[BU_TEST_PROFILE_REGION]}" "eu|local"
+
+    # Another variant, or all variants: stored, applied when the phase runs
+    run bu set-config --variant prod BU_TEST_PROFILE_REGION ap
+    assert_success
+    assert_output --partial "next time config phase 'profile' runs with variant prod"
+    grep -qx 'BU_TEST_PROFILE_REGION=ap' "$base.profile.prod.sh"
+    bu set-config --all-variants BU_TEST_PROFILE_REGION sa >/dev/null 2>&1
+    grep -qx 'BU_TEST_PROFILE_REGION=sa' "$base.profile.sh"
+    assert_equal "$BU_TEST_PROFILE_REGION" eu
+
+    __config_test_profile_phase prod
+    assert_equal "$BU_TEST_PROFILE_REGION" ap
+}
+
+function test_config_module_config_files { #@test
+    local mod="$BATS_TEST_TMPDIR/mymod"
+    mkdir -p "$mod"
+    : > "$mod/mymod_bu_preinit.sh"
+    cat > "$mod/mymod_bu_config.static.sh" <<'SCRIPT_EOF'
+BU_CONFIG_NAME_PREFIXES+=(MYMOD_)
+bu_config_register MYMOD_HOME --default "$BU_CURRENT_MODULE_DIR/home" --hint "static"
+SCRIPT_EOF
+    cat > "$mod/mymod_bu_config.sh" <<'SCRIPT_EOF'
+bu_config_register MYMOD_COLOR --default blue --hint "main"
+bu_config_register MYMOD_SIZE --default 1 --hint "main"
+SCRIPT_EOF
+    printf 'MYMOD_SIZE=2\n' > "$BATS_TEST_TMPDIR/settings.sh"
+
+    run env BU_MODULE_LIST="mymod:0.1.0:$mod/mymod_bu_preinit.sh;" MYMOD_COLOR=red \
+        BU_CONFIG_LOCAL_FILE="$BATS_TEST_TMPDIR/settings.sh" bash -c '
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        for n in MYMOD_HOME MYMOD_COLOR MYMOD_SIZE; do
+            printf "%s=%s:%s:%s:%s " "$n" "${!n}" "${BU_CONFIG_PROPERTIES[$n,phase]}" \
+                "${BU_CONFIG_ORIGIN[$n]:-default}" "${BU_CONFIG_PROPERTIES[$n,module]}"
+        done' \
+        _ "$DIR/.."
+    assert_success
+    assert_output "MYMOD_HOME=$mod/home:static:default:mymod MYMOD_COLOR=red:main:env:mymod MYMOD_SIZE=2:main:local:mymod "
+}
+
+function test_config_late_module_registration_warns { #@test
+    BU_CURRENT_MODULE=latemod
+    run bu_config_register BU_TEST_LATE --default x
+    assert_success
+    assert_output --partial "registered outside a config phase (module latemod)"
+}
+
+# ===========================================================================
 # Documentation/registry default consistency
 # ===========================================================================
 
