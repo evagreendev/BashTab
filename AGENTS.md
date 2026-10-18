@@ -448,6 +448,13 @@ BU_MODULE_LIST+="libname:0.1.0:/path/to/lib_preinit.sh;"
 populates `BU_MODULE_REGISTRY` for `bu get-module`, and registers each
 preinit callback to be sourced during init.
 
+`bu_module_require` also records each requirement in `BU_MODULE_DEPS`
+(`parent>dep;...`, exported). Module config files and preinit callbacks run
+in dependency order: a topological sort (`__bu_module_order`), so each module
+comes after the modules it requires and the top-level module runs last; ties
+keep `BU_MODULE_LIST` order, a cycle is reported and broken. `BU_MODULE_RANK`
+(command shadowing) still follows `BU_MODULE_LIST` order.
+
 A module registers its settings in `NAME_bu_config.sh` (main config phase)
 and `NAME_bu_config.static.sh` (static phase) next to its preinit; the
 entrypoint sources them while those phases are open, with

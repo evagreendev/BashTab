@@ -949,6 +949,67 @@ SCRIPT_EOF
     assert_output "MYMOD_HOME=$mod/home:static:default:mymod MYMOD_COLOR=red:main:env:mymod MYMOD_SIZE=2:main:local:mymod "
 }
 
+# Throwaway modules for ordering tests: each NAME_bu_module.sh appends its
+# entry and requires its dependencies; its config file and preinit append to
+# $ORDER_LOG. Args: root, then "name:dep1,dep2" specs.
+__config_test_modules()
+{
+    local -r root=$1
+    shift
+    local spec name deps dep
+    for spec in "$@"
+    do
+        name=${spec%%:*}
+        deps=${spec#*:}
+        mkdir -p "$root/$name"
+        {
+            printf 'BU_MODULE_LIST+="%s:0.1.0:%s/%s/%s_bu_preinit.sh;"\n' "$name" "$root" "$name" "$name"
+            for dep in ${deps//,/ }
+            do
+                printf 'bu_module_require %s --dir "%s/%s"\n' "$dep" "$root" "$dep"
+            done
+        } > "$root/$name/${name}_bu_module.sh"
+        printf 'printf "config %%s\\n" %s >> "$ORDER_LOG"\n' "$name" > "$root/$name/${name}_bu_config.sh"
+        printf 'printf "preinit %%s\\n" %s >> "$ORDER_LOG"\n' "$name" > "$root/$name/${name}_bu_preinit.sh"
+    done
+}
+
+# Activate like a top-level project: TOP is listed first and requires DEPS.
+# Prints the order log as one line.
+__config_test_activate_modules()
+{
+    local -r root=$1 top=$2
+    shift 2
+    run --separate-stderr env ORDER_LOG="$BATS_TEST_TMPDIR/order.log" BU_TOP_LEVEL_MODULE="$top" bash -c '
+        dir=$1 root=$2 top=$3
+        shift 3
+        source "$dir/lib/bu_module_require.sh"
+        export BU_MODULE_LIST="$top:0.1.0:$root/$top/${top}_bu_preinit.sh;"
+        for dep in "$@"; do bu_module_require "$dep" --dir "$root/$dep"; done
+        source "$dir"/bu_entrypoint.sh >/dev/null
+        paste -sd, "$ORDER_LOG"' \
+        _ "$DIR/.." "$root" "$top" "$@"
+}
+
+function test_config_module_order_diamond { #@test
+    local root="$BATS_TEST_TMPDIR/mods"
+    __config_test_modules "$root" app: b:d c:d d:
+    __config_test_activate_modules "$root" app b c
+    assert_success
+    # Dependencies first, the top-level module last; unrelated modules keep
+    # their BU_MODULE_LIST order (b before c)
+    assert_output "config d,config b,config c,config app,preinit d,preinit b,preinit c,preinit app"
+}
+
+function test_config_module_order_cycle { #@test
+    local root="$BATS_TEST_TMPDIR/mods"
+    __config_test_modules "$root" top: a:b b:a
+    __config_test_activate_modules "$root" top a
+    assert_success
+    assert_output "config b,config a,config top,preinit b,preinit a,preinit top"
+    assert_equal "$(grep -c 'Module dependency cycle: b requires a' <<<"$stderr")" 1
+}
+
 function test_config_late_module_registration_warns { #@test
     BU_CURRENT_MODULE=latemod
     run bu_config_register BU_TEST_LATE --default x

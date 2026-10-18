@@ -50,6 +50,35 @@ __bu_module_require_registered()
     [[ "$list" == "$name:"* || "$list" == *";$name:"* ]]
 }
 
+# Modules whose *_bu_module.sh script is being sourced by bu_module_require,
+# innermost last: the requirer of a nested bu_module_require call. Kept across
+# re-sourcing this file mid-require.
+declare -p __BU_MODULE_REQUIRE_STACK &>/dev/null || __BU_MODULE_REQUIRE_STACK=()
+
+# ```
+# *Description*:
+# Record that module PARENT requires module DEP in BU_MODULE_DEPS, an exported
+# "parent>dep;..." list. bu_entrypoint.sh orders modules (config files and
+# preinit callbacks) so each comes after the modules it requires. An edge
+# already recorded is not added again, so re-activation leaves the list as is.
+#
+# *Params*:
+# - $1: Requiring module (empty: nothing to record)
+# - $2: Required module
+# ```
+__bu_module_require_add_dep()
+{
+    local -r parent=$1
+    local -r dep=$2
+    [[ -n "$parent" && "$parent" != "$dep" ]] || return 0
+    case ";${BU_MODULE_DEPS:-};" in
+    *";$parent>$dep;"*) return 0 ;;
+    esac
+    BU_MODULE_DEPS="${BU_MODULE_DEPS:-}$parent>$dep;"
+    export BU_MODULE_DEPS
+    return 0
+}
+
 # ```
 # *Description*:
 # Register a library module by sourcing its *_bu_module.sh script (which
@@ -176,6 +205,18 @@ bu_module_require()
         return 1
     fi
 
+    # ── 0. Dependency edge: the module whose script is being sourced, or the
+    #       top-level module (the first BU_MODULE_LIST entry) requires NAME.
+    #       Recorded even when NAME is already registered (diamonds). ──
+    local parent=
+    if ((${#__BU_MODULE_REQUIRE_STACK[@]})); then
+        parent=${__BU_MODULE_REQUIRE_STACK[${#__BU_MODULE_REQUIRE_STACK[@]}-1]}
+    else
+        parent=${BU_MODULE_LIST:-}
+        parent=${parent%%:*}
+    fi
+    __bu_module_require_add_dep "$parent" "$name"
+
     # ── 1. Idempotency (anchored: start-of-list or after ';') ─────
     if __bu_module_require_registered "$name"; then
         return 0
@@ -249,13 +290,16 @@ bu_module_require()
     fi
 
     # ── 5. Register (builtin source bypasses any source() override) ─
+    __BU_MODULE_REQUIRE_STACK+=("$name")
     if ! builtin source "$resolved_file"; then
+        unset '__BU_MODULE_REQUIRE_STACK[${#__BU_MODULE_REQUIRE_STACK[@]}-1]'
         __bu_module_require_log WARN "bu_module_require '$name': failed to source module script '$resolved_file'"
         if "$required"; then
             return 1
         fi
         return 0
     fi
+    unset '__BU_MODULE_REQUIRE_STACK[${#__BU_MODULE_REQUIRE_STACK[@]}-1]'
 
     if ! __bu_module_require_registered "$name"; then
         __bu_module_require_log WARN "bu_module_require '$name': module script '$resolved_file' did not register '$name' in BU_MODULE_LIST"

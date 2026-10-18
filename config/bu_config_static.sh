@@ -48,3 +48,5 @@ bu_config_register BU_TOP_LEVEL_MODULE --env-only \
     --hint "Top-level module: the command-cache key and prompt name"
 bu_config_register BU_MODULE_LIST --env-only \
     --hint "Registered modules, name:version:preinit_path;..."
+bu_config_register BU_MODULE_DEPS --env-only \
+    --hint "Module requirements recorded by bu_module_require, parent>dep;..."

@@ -90,7 +90,20 @@ bu_module_require remotelib --dir "/path" --git-url "https://..." --branch main
 
 It is idempotent (anchored match — `lib` vs `mylib` never collides), resolves
 `<dir>/*_bu_module.sh` or an explicit `--module-file`, and verifies the script
-actually registered the requested name.
+actually registered the requested name. It also records the requirement in
+`BU_MODULE_DEPS` (`parent>dep;...`; the requirer is the module whose script is
+being sourced, else the top-level module, the first `BU_MODULE_LIST` entry),
+even when the dependency is already registered.
+
+Modules' config files (`NAME_bu_config.static.sh`, `NAME_bu_config.sh`) and
+preinit callbacks then run in **dependency order**: a depth-first topological
+sort over `BU_MODULE_DEPS`, so a module comes after everything it requires and
+the top-level module runs last. Modules without a requirement between them
+keep their `BU_MODULE_LIST` order; a requirement that closes a cycle is
+ignored for ordering, with a warning. Precedence (`BU_MODULE_RANK`, which
+module's command takes a bare name) still follows `BU_MODULE_LIST` order, the
+top-level module first. A library sourced by hand (not via
+`bu_module_require`) records no requirements, so it keeps its list position.
 
 This populates:
 
@@ -98,6 +111,7 @@ This populates:
 |---|---|---|
 | `BU_MODULE_REGISTRY` | `Map[String, String]` | `name → "version:preinit_path"`. Available in current shell. |
 | `BU_MODULE_LIST` | `String` (exported) | `"name:version:path;..."`. Deduped after parsing. Survives subshells for `bu get-module`. |
+| `BU_MODULE_DEPS` | `String` (exported) | `"parent>dep;..."`, recorded by `bu_module_require`; orders module config files and preinits. |
 
 `bu get-module` reads `BU_MODULE_LIST` to display loaded modules with name, version, and path.
 

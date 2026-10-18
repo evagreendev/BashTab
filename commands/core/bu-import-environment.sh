@@ -209,6 +209,7 @@ if "$is_reset_module_path"
 then
     bu_log_info "Resetting BU_MODULE_LIST"
     BU_MODULE_LIST=
+    BU_MODULE_DEPS=
 fi
 
 if "$is_init"

@@ -262,3 +262,28 @@ function test_usage_errors { #@test
     assert_line "rc=1"
     assert_stderr --partial "requires a value"
 }
+
+function test_module_require_records_dependencies { #@test
+    # app requires b and c, which both require d (a diamond)
+    local root="$BATS_TEST_TMPDIR/mods" m
+    for m in b c d; do mkdir -p "$root/$m"; done
+    printf 'BU_MODULE_LIST+="b:0.1.0:/fake/b.sh;"\nbu_module_require d --dir "%s/d"\n' "$root" > "$root/b/b_bu_module.sh"
+    printf 'BU_MODULE_LIST+="c:0.1.0:/fake/c.sh;"\nbu_module_require d --dir "%s/d"\n' "$root" > "$root/c/c_bu_module.sh"
+    printf 'BU_MODULE_LIST+="d:0.1.0:/fake/d.sh;"\n' > "$root/d/d_bu_module.sh"
+
+    run --separate-stderr bash -euo pipefail -c '
+        source "$1"
+        export BU_MODULE_LIST="app:0.1.0:/fake/app.sh;"
+        bu_module_require b --dir "$2/b"
+        bu_module_require c --dir "$2/c"
+        first=$BU_MODULE_DEPS
+        # Requiring again (re-activation) records nothing new
+        bu_module_require b --dir "$2/b"
+        bu_module_require c --dir "$2/c"
+        [[ "$BU_MODULE_DEPS" == "$first" ]] || echo "changed: $BU_MODULE_DEPS"
+        printf "%s|%s|%s\n" "$BU_MODULE_LIST" "$BU_MODULE_DEPS" "${BU_MODULE_DEPS@a}"' \
+        _ "$MODULE_REQUIRE" "$root"
+    assert_success
+    assert_output "app:0.1.0:/fake/app.sh;b:0.1.0:/fake/b.sh;d:0.1.0:/fake/d.sh;c:0.1.0:/fake/c.sh;|app>b;b>d;app>c;c>d;|x"
+}
+

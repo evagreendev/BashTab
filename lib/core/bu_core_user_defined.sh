@@ -173,10 +173,101 @@ __bu_module_list_normalize()
 
 # ```
 # *Description*:
+# Order the BU_MODULE_LIST entries so that every module comes after the
+# modules it requires (BU_MODULE_DEPS, recorded by bu_module_require): a
+# depth-first topological sort, visiting modules and their requirements in
+# BU_MODULE_LIST order so unrelated modules keep their relative order. A
+# requirement that closes a cycle is ignored for the order, with a warning.
+# Requirements on modules that are not in the list are ignored. Pure Bash (no
+# subshells); the result is cached until either input changes, so the
+# entrypoint's three callers sort once per shell.
+#
+# *Params*: None
+#
+# *Returns*:
+# - `BU_RET`: the "name:version:preinit_path" entries, dependencies first
+# ```
+__bu_module_order()
+{
+    local -r key="${BU_MODULE_LIST:-}|${BU_MODULE_DEPS:-}"
+    if [[ "${__BU_MODULE_ORDER_KEY-}" == "$key" ]]
+    then
+        BU_RET=("${__BU_MODULE_ORDER[@]}")
+        return 0
+    fi
+    local entry name pair parent dep
+    local -a names=()
+    local -A entry_of=() deps=() state=()
+    local old_ifs=$IFS
+    IFS=';'
+    local -a entries=(${BU_MODULE_LIST:-})
+    local -a pairs=(${BU_MODULE_DEPS:-})
+    IFS=$old_ifs
+    for entry in "${entries[@]}"
+    do
+        [[ -n "$entry" ]] || continue
+        name=${entry%%:*}
+        [[ -v "entry_of[$name]" ]] && continue
+        entry_of[$name]=$entry
+        names+=("$name")
+    done
+    for pair in "${pairs[@]}"
+    do
+        [[ "$pair" == ?*'>'?* ]] || continue
+        parent=${pair%%>*}
+        dep=${pair#*>}
+        [[ -v "entry_of[$parent]" && -v "entry_of[$dep]" ]] || continue
+        deps[$parent]+="$dep "
+    done
+    BU_RET=()
+    for name in "${names[@]}"
+    do
+        __bu_module_order_visit "$name"
+    done
+    __BU_MODULE_ORDER=("${BU_RET[@]}")
+    __BU_MODULE_ORDER_KEY=$key
+    return 0
+}
+
+# Cycles already reported (once per shell), and the cached module order
+declare -p __BU_MODULE_CYCLE_WARNED &>/dev/null || declare -A -g __BU_MODULE_CYCLE_WARNED=()
+declare -p __BU_MODULE_ORDER &>/dev/null || declare -a -g __BU_MODULE_ORDER=()
+declare -g __BU_MODULE_ORDER_KEY=${__BU_MODULE_ORDER_KEY-}
+
+# Visit one module for __bu_module_order (uses its locals: entry_of, deps,
+# state; appends to BU_RET)
+__bu_module_order_visit()
+{
+    local -r module=$1
+    local dep
+    [[ "${state[$module]:-}" == done ]] && return 0
+    state[$module]=visiting
+    for dep in ${deps[$module]:-}
+    do
+        case "${state[$dep]:-}" in
+        done) ;;
+        visiting)
+            if [[ ! -v "__BU_MODULE_CYCLE_WARNED[$module>$dep]" ]]
+            then
+                __BU_MODULE_CYCLE_WARNED[$module>$dep]=1
+                bu_basic_log_warn "Module dependency cycle: $module requires $dep, which requires $module (directly or not); ignoring that requirement when ordering modules"
+            fi
+            ;;
+        *) __bu_module_order_visit "$dep" ;;
+        esac
+    done
+    state[$module]=done
+    BU_RET+=("${entry_of[$module]}")
+    return 0
+}
+
+# ```
+# *Description*:
 # Source each module's config registration file, found next to its preinit
 # (from BU_MODULE_LIST): NAME_bu_config.static.sh for the static config phase,
-# NAME_bu_config.sh for the main one. The entrypoint calls this while the
-# phase is open, so a module's settings are resolved with BashTab's own.
+# NAME_bu_config.sh for the main one, in dependency order (__bu_module_order).
+# The entrypoint calls this while the phase is open, so a module's settings
+# are resolved with BashTab's own.
 # While a file runs, BU_CURRENT_MODULE is the module's name and
 # BU_CURRENT_MODULE_DIR its directory (for defaults relative to it).
 #
@@ -192,13 +283,10 @@ __bu_source_module_configs()
     [[ "$kind" == static ]] && suffix=.static.sh
     local entry name path file
     local -r saved_module=${BU_CURRENT_MODULE:-}
-    local old_ifs=$IFS
-    IFS=';'
-    local -a entries=(${BU_MODULE_LIST:-})
-    IFS=$old_ifs
+    __bu_module_order
+    local -a entries=("${BU_RET[@]}")
     for entry in "${entries[@]}"
     do
-        [[ -n "$entry" ]] || continue
         name=${entry%%:*}
         path=${entry#*:}
         path=${path#*:}
@@ -227,8 +315,11 @@ __bu_source_module_configs()
 # bu_entrypoint.sh — no function call needed.
 #
 # *Side effects*:
-# - Populates BU_MODULE_REGISTRY (for bu get-module)
+# - Populates BU_MODULE_REGISTRY (for bu get-module) and BU_MODULE_RANK (list
+#   order: the top-level module first)
 # - Appends preinit paths to BU_USER_DEFINED_STATIC_PRE_INIT_ENTRYPOINT_CALLBACKS
+#   in dependency order (__bu_module_order), so a module's preinit runs after
+#   those of the modules it requires and the top-level module's runs last
 # ```
 __bu_parse_module_list()
 {
@@ -270,16 +361,23 @@ __bu_parse_module_list()
 
         # Register for bu get-module
         BU_MODULE_REGISTRY[$name]="$version:$path"
+    done
 
-        # Register preinit callback (dedup by path)
+    # Write back the deduped list
+    BU_MODULE_LIST=$deduped
+    export BU_MODULE_LIST
+
+    # Register preinit callbacks in dependency order (dedup by path)
+    __bu_module_order
+    for entry in "${BU_RET[@]}"
+    do
+        name=${entry%%:*}
+        path=${entry#*:}
+        path=${path#*:}
         if [[ -n "$path" && -z "${seen_paths[$path]:-}" ]]; then
             seen_paths[$path]=1
             BU_USER_DEFINED_STATIC_PRE_INIT_ENTRYPOINT_CALLBACKS+=("$path")
             BU_MODULE_PREINIT_MAP[$path]=$name
         fi
     done
-
-    # Write back the deduped list
-    BU_MODULE_LIST=$deduped
-    export BU_MODULE_LIST
 }
