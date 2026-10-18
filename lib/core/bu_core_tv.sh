@@ -40,9 +40,15 @@
 # Mouse (SGR reporting, on while the TUI is up; m toggles it so the
 # terminal can select text): click a cell to move the cursor, double-click
 # a row for its detail, click a header or sidebar entry to select the
-# column, wheel scrolls three rows, the scrollbar right of the table (shown
-# while the rows overflow) pages on a click and scrolls by its thumb.  In
-# an overlay the wheel scrolls and a click goes back.
+# column, wheel scrolls three rows (the sidebar list over a sidebar taller
+# than the screen), the scrollbar right of the table (shown while the rows
+# overflow) pages on a click and scrolls by its thumb.  The cursor
+# column's sidebar entry has ⇤ (freeze / unfreeze) and × (hide) buttons;
+# drag an entry to move its column, across the ╌ divider below the frozen
+# columns to freeze or unfreeze it, or onto the Hidden list to hide it;
+# click or drag a hidden entry out to bring it back.  Clicking a hint on
+# the status line presses its key.  In an overlay the wheel scrolls and a
+# click goes back (a hint presses its key).
 
 # ── Terminal escape sequences (computed once at source time) ─────────────
 declare -g -r __BU_TV_ESC=$'\e'
@@ -165,8 +171,20 @@ declare -g -i _TV_SB_ROOM=0         # Out-param: track rows the thumb top can mo
 declare -g -i _TV_SB_MAX_OFF=0      # Out-param: largest row offset
 declare -g    _TV_SB_GRABBED=false  # The thumb is being dragged
 declare -g -i _TV_SB_GRAB_DY=0      # Pointer row minus thumb top when grabbed
-declare -g -i _TV_SIDEBAR_START=0   # Sidebar entry window [start, end) drawn last frame
+declare -g -i _TV_SIDEBAR_START=0   # Sidebar list window [start, end) drawn last frame
 declare -g -i _TV_SIDEBAR_END=0
+declare -g -i _TV_SIDEBAR_NROWS=0   # Sidebar list length last frame
+declare -g -a _TV_SIDEBAR_LIST_KIND=()  # Sidebar list rows: col div title hid (__bu_tv_sidebar_list)
+declare -g -a _TV_SIDEBAR_LIST_ARG=()   # Parallel: column or hidden-stack index, else -1
+declare -g -a _TV_SIDEBAR_ROW_IDX=()    # Per data row: list row drawn, -1/-2 more up/down, -3 blank
+declare -g -i _TV_SIDEBAR_SCROLL=-1 # Sidebar list start set by the wheel, -1 = follow the viewport
+declare -g    _TV_SIDEBAR_DRAG=     # Sidebar entry pressed for a drag: col or hid, empty = none
+declare -g    _TV_SIDEBAR_DRAG_ID=  # Its column key, or hidden-stack index
+declare -g -i _TV_SIDEBAR_DRAG_ROW=0    # Data row it was pressed on
+declare -g -i _TV_SIDEBAR_DROP_ROW=-99  # Data row under the pointer once dragged (< 0: title rows), -99 = not moved
+declare -g    _TV_FOUND_LABEL=      # Out-param: __bu_tv_hidden_label
+declare -g    _TV_STATUS_HINTS=     # Hints on the status line last drawn (clickable)
+declare -g -i _TV_STATUS_HINTS_X=0  # Their first screen column
 # Signal flags: the traps only set these; __bu_tv_process_signals does the
 # work from the event loop (see __bu_tv_install_traps for why)
 declare -g    _TV_RESIZE_PENDING=false   # SIGWINCH
@@ -175,7 +193,9 @@ declare -g    _TV_RESUME_PENDING=false   # SIGCONT (fg)
 # Blocking key reads wake this often (seconds) so a deferred WINCH trap runs
 declare -g -r __BU_TV_KEY_POLL=0.1
 
-declare -g -r __BU_TV_HINTS_TABLE='q:quit /:search s:sort w:wide Enter:detail H:help'
+# Table hints, dropped right to left (H:help last) as the status line fills;
+# __bu_tv_render_status puts the keys for the current state in front
+declare -g -r __BU_TV_HINTS_TABLE='q:quit /:search s:sort w:wide Enter:detail m:mouse &:filter H:help'
 declare -g -r __BU_TV_HINTS_DETAIL='j/k:scroll J/K:record n/N:match q:back H:help'
 declare -g -r __BU_TV_HINTS_HELP='j/k:scroll q:back'
 
@@ -208,7 +228,13 @@ declare -g -r -a __BU_TV_HELP_LINES=(
     '  double-click       record detail'
     '  header click       select the column'
     '  sidebar click      select the column (or scroll the list)'
-    '  wheel              scroll three rows'
+    '  sidebar ⇤ ×        freeze / hide the cursor column'
+    '  sidebar drag       move a column; across ╌ to (un)freeze,'
+    '                     onto Hidden to hide, out to unhide'
+    '  Hidden click       bring that column back'
+    '  status hint click  press its key'
+    '  wheel              scroll three rows (over a long sidebar:'
+    '                     scroll its list)'
     '  scrollbar          click to page, drag the thumb'
     '  in an overlay      wheel scrolls, click goes back'
     ''
@@ -1012,6 +1038,11 @@ __bu_tv_update_layout()
         do
             (( ${#_TV_HEADERS[j]} > name_w )) && name_w=${#_TV_HEADERS[j]}
         done
+        for j in "${!_TV_HIDDEN[@]}"
+        do
+            __bu_tv_hidden_label "$j"
+            (( ${#_TV_FOUND_LABEL} > name_w )) && name_w=${#_TV_FOUND_LABEL}
+        done
         (( name_w > __BU_TV_SIDEBAR_MAX_NAME )) && name_w=$__BU_TV_SIDEBAR_MAX_NAME
 
         # "│ " + marker + name + " ↑"
@@ -1599,21 +1630,87 @@ __bu_tv_render_col_markers()
 
 # ```
 # *Description*:
+# Build the sidebar's list, top to bottom: the frozen columns, a divider
+# (only while some are frozen), the scrolling columns, a "Hidden" title
+# (always, as a drop target) and the hidden columns in the order they were
+# hidden.
+#
+# *Returns*:
+# - `_TV_SIDEBAR_LIST_KIND`: per row: col, div, title or hid
+# - `_TV_SIDEBAR_LIST_ARG`: column index (col), hidden-stack index (hid),
+#   else -1
+# ```
+__bu_tv_sidebar_list()
+{
+    _TV_SIDEBAR_LIST_KIND=()
+    _TV_SIDEBAR_LIST_ARG=()
+    local -i j
+    for (( j = 0; j < _TV_NUM_COLS; j++ ))
+    do
+        if (( j == _TV_FROZEN_N && j > 0 ))
+        then
+            _TV_SIDEBAR_LIST_KIND+=(div)
+            _TV_SIDEBAR_LIST_ARG+=(-1)
+        fi
+        _TV_SIDEBAR_LIST_KIND+=(col)
+        _TV_SIDEBAR_LIST_ARG+=("$j")
+    done
+    _TV_SIDEBAR_LIST_KIND+=(title)
+    _TV_SIDEBAR_LIST_ARG+=(-1)
+    for j in "${!_TV_HIDDEN[@]}"
+    do
+        _TV_SIDEBAR_LIST_KIND+=(hid)
+        _TV_SIDEBAR_LIST_ARG+=("$j")
+    done
+    return 0
+}
+
+# ```
+# *Description*:
+# Label of a hidden column (the fourth field of its _TV_HIDDEN entry).
+#
+# *Params*:
+# - `$1`: Hidden-stack index
+#
+# *Returns*:
+# - `_TV_FOUND_LABEL`
+# ```
+__bu_tv_hidden_label()
+{
+    local rest=${_TV_HIDDEN[$1]}
+    rest=${rest#*$'\x1f'}
+    rest=${rest#*$'\x1f'}
+    rest=${rest#*$'\x1f'}
+    _TV_FOUND_LABEL=${rest%%$'\x1f'*}
+}
+
+# ```
+# *Description*:
 # Append the column sidebar to a frame: a "Columns" title and separator on
-# screen rows 1-2, then one entry per column on the data rows.  Columns in
-# the viewport are drawn in reverse video (in their --colors color), the
-# rest dimmed; ▸ marks the cursor column (the one s/S sort) and ↑/↓ the
-# sorted column.  When the list is taller than the data rows it scrolls to
-# keep the viewport's columns and the cursor column on screen, with
-# "↑ N more" / "↓ N more" rows standing in for the hidden ends.
+# screen rows 1-2, then the list (__bu_tv_sidebar_list) on the data rows.
+# Columns in the viewport are drawn in reverse video (in their --colors
+# color), the rest dimmed; ▸ marks the cursor column (the one s/S sort),
+# whose entry ends in the mouse buttons ⇤ (freeze / unfreeze) and × (hide)
+# where other entries show the sort arrow ↑/↓.  The frozen columns sit
+# above a dim ╌ divider; hidden columns are listed dimmed under the
+# Hidden title, each with a +.
+# When the list is taller than the data rows it scrolls to keep the
+# viewport's columns and the cursor column on screen (or where the wheel
+# put it, until the next key), with "↑ N more" / "↓ N more" rows standing
+# in for the hidden ends (counting columns; just "more" when only the
+# divider or the Hidden title is cut off).  While an entry is dragged off
+# its row, the row under the pointer (the title, above the list) is
+# underlined.
 #
 # *Params*:
 # - `$1`: Nameref to the frame variable (appended to)
 # - `$2`: Number of data rows
 #
 # *Returns*:
-# - `_TV_SIDEBAR_START`, `_TV_SIDEBAR_END`: the entry window [start, end)
-#   drawn, for mouse hit-testing
+# - `_TV_SIDEBAR_START`, `_TV_SIDEBAR_END`: the list window [start, end)
+#   drawn, and `_TV_SIDEBAR_NROWS` the list length
+# - `_TV_SIDEBAR_ROW_IDX`: per data row, the list row drawn there, -1 for
+#   "↑ N more", -2 for "↓ N more", -3 for blank — for mouse hit-testing
 # ```
 __bu_tv_render_sidebar()
 {
@@ -1624,13 +1721,31 @@ __bu_tv_render_sidebar()
     local -i inner_w=$((_TV_SIDEBAR_W - 2))
     (( inner_w > ${#__BU_TV_SPACES} )) && __bu_tv_ensure_pools $inner_w
 
-    __sb_frame+=$'\e[1;'$col'H│ '$__BU_TV_BOLD'Columns'$__BU_TV_RESET$__BU_TV_CLEAR_LINE
+    # Underline the drop target while an entry is dragged
+    local drop=
+    [[ -n "$_TV_SIDEBAR_DRAG" ]] && (( _TV_SIDEBAR_DROP_ROW != -99 )) && drop=$'\e[4m'
+
+    local title=$__BU_TV_BOLD
+    [[ -n "$drop" ]] && (( _TV_SIDEBAR_DROP_ROW < 0 )) && title+=$drop
+    __sb_frame+=$'\e[1;'$col'H│ '$title'Columns'$__BU_TV_RESET$__BU_TV_CLEAR_LINE
     __sb_frame+=$'\e[2;'$col'H│ '${__BU_TV_DASHES:0:inner_w}$__BU_TV_CLEAR_LINE
 
+    __bu_tv_sidebar_list
+    local -i n=${#_TV_SIDEBAR_LIST_KIND[@]}
+    # A list too long for the screen, with nothing hidden, leaves out the
+    # Hidden title rather than spend an indicator row on it
+    if (( n > avail && ${#_TV_HIDDEN[@]} == 0 ))
+    then
+        n=$((n - 1))
+        unset '_TV_SIDEBAR_LIST_KIND[n]' '_TV_SIDEBAR_LIST_ARG[n]'
+    fi
+
     # Visible columns need not be contiguous (frozen ones come first); the
-    # window follows the first scrolling one
+    # window follows the first scrolling one.  A scrolling column's list
+    # row is one past its index while the divider is shown.
     local -a is_vis=()
-    local -i first_vis=-1 v
+    local -i first_vis=-1 v div=0
+    (( _TV_FROZEN_N > 0 )) && div=1
     for v in "${_TV_VIS_COLS[@]}"
     do
         is_vis[v]=1
@@ -1642,75 +1757,135 @@ __bu_tv_render_sidebar()
     then
         first_vis=${_TV_VIS_COLS[0]}
     fi
+    (( first_vis >= _TV_FROZEN_N )) && first_vis=$((first_vis + div))
+    local -i cur_row=$_TV_CUR_COL
+    (( cur_row >= _TV_FROZEN_N )) && cur_row=$((cur_row + div))
 
-    # Window [start, start + cap) of entries; the rest of avail is taken
+    # Window [start, start + cap) of list rows; the rest of avail is taken
     # by the overflow indicator rows
-    local -i start=0 cap=$_TV_NUM_COLS
-    if (( _TV_NUM_COLS > avail ))
+    local -i start=0 cap=$n
+    if (( n > avail ))
     then
         cap=$((avail - 2))
         (( cap < 1 )) && cap=1
-        start=$((first_vis - 1))
-        (( _TV_CUR_COL >= start + cap )) && start=$((_TV_CUR_COL - cap + 1))
-        (( start > _TV_NUM_COLS - cap )) && start=$((_TV_NUM_COLS - cap))
+        if (( _TV_SIDEBAR_SCROLL >= 0 ))
+        then
+            start=$_TV_SIDEBAR_SCROLL
+        else
+            start=$((first_vis - 1))
+            (( cur_row >= start + cap )) && start=$((cur_row - cap + 1))
+        fi
+        (( start > n - cap )) && start=$((n - cap))
         (( start < 0 )) && start=0
         # Reclaim an indicator row the window doesn't need
         if (( start == 0 ))
         then
             cap=$((cap + 1))
-        elif (( start + cap == _TV_NUM_COLS ))
+        elif (( start + cap == n ))
         then
             start=$((start - 1))
             cap=$((cap + 1))
         fi
     fi
     local -i end=$((start + cap))
-    (( end > _TV_NUM_COLS )) && end=$_TV_NUM_COLS
+    (( end > n )) && end=$n
     _TV_SIDEBAR_START=$start
     _TV_SIDEBAR_END=$end
+    _TV_SIDEBAR_NROWS=$n
+    _TV_SIDEBAR_ROW_IDX=()
 
-    local -i i j=$start screen_row
-    local entry name marker suffix style
+    local -i i li=$start screen_row arg count nw
+    local entry name marker suffix style kind divider
     local -i name_len
+    printf -v divider '%*s' "$inner_w" ''
+    divider=${divider// /╌}
     for (( i = 0; i < avail; i++ ))
     do
         screen_row=$((i + 3))
         if (( i == 0 && start > 0 ))
         then
-            entry="${__BU_TV_DIM}↑ $start more${__BU_TV_RESET}"
-        elif (( j >= end ))
+            count=0
+            for (( v = 0; v < start; v++ ))
+            do
+                [[ "${_TV_SIDEBAR_LIST_KIND[v]}" == col || "${_TV_SIDEBAR_LIST_KIND[v]}" == hid ]] && count=$((count + 1))
+            done
+            entry="${__BU_TV_DIM}↑ $count more${__BU_TV_RESET}"
+            (( count )) || entry="${__BU_TV_DIM}↑ more${__BU_TV_RESET}"
+            _TV_SIDEBAR_ROW_IDX[i]=-1
+        elif (( li >= end ))
         then
-            if (( j < _TV_NUM_COLS ))
+            if (( li < n ))
             then
-                entry="${__BU_TV_DIM}↓ $((_TV_NUM_COLS - j)) more${__BU_TV_RESET}"
-                j=$_TV_NUM_COLS
+                count=0
+                for (( v = li; v < n; v++ ))
+                do
+                    [[ "${_TV_SIDEBAR_LIST_KIND[v]}" == col || "${_TV_SIDEBAR_LIST_KIND[v]}" == hid ]] && count=$((count + 1))
+                done
+                entry="${__BU_TV_DIM}↓ $count more${__BU_TV_RESET}"
+                (( count )) || entry="${__BU_TV_DIM}↓ more${__BU_TV_RESET}"
+                _TV_SIDEBAR_ROW_IDX[i]=-2
+                li=$n
             else
                 entry=
+                [[ -n "$drop" ]] && (( i == _TV_SIDEBAR_DROP_ROW )) \
+                    && entry=$drop${__BU_TV_SPACES:0:inner_w}$__BU_TV_RESET
+                _TV_SIDEBAR_ROW_IDX[i]=-3
             fi
         else
-            name=${_TV_HEADERS[j]}
-            name_len=${#name}
-            if (( name_len > name_w ))
-            then
-                name="${name:0:name_w-1}…"
-                name_len=$name_w
-            fi
-            marker=' '
-            (( j == _TV_CUR_COL )) && marker='▸'
-            suffix='  '
-            if [[ "${_TV_COLUMNS[j]}" == "$_TV_SORT_COL" ]]
-            then
-                suffix=' ↑'
-                [[ "$_TV_SORT_DIR" == desc ]] && suffix=' ↓'
-            fi
-            if [[ -n "${is_vis[j]:-}" ]]
-            then
-                style=${_TV_COLORS[${_TV_COLUMNS[j]}]:-}$__BU_TV_REVERSE
-            else
-                style=$__BU_TV_DIM
-            fi
-            entry="${style}${marker}${name}${__BU_TV_SPACES:0:name_w-name_len}${suffix}${__BU_TV_RESET}"
-            j=$((j + 1))
+            _TV_SIDEBAR_ROW_IDX[i]=$li
+            kind=${_TV_SIDEBAR_LIST_KIND[li]}
+            arg=${_TV_SIDEBAR_LIST_ARG[li]}
+            li=$((li + 1))
+            case "$kind" in
+            div)
+                entry=$__BU_TV_DIM$divider$__BU_TV_RESET
+                ;;
+            title)
+                entry="${__BU_TV_DIM}Hidden ${__BU_TV_DASHES:0:inner_w-7}${__BU_TV_RESET}"
+                ;;
+            hid)
+                __bu_tv_hidden_label "$arg"
+                name=$_TV_FOUND_LABEL
+                name_len=${#name}
+                if (( name_len > name_w ))
+                then
+                    name="${name:0:name_w-1}…"
+                    name_len=$name_w
+                fi
+                entry="${__BU_TV_DIM} ${name}${__BU_TV_SPACES:0:name_w-name_len} +${__BU_TV_RESET}"
+                ;;
+            col)
+                # The cursor entry gives two name cells to its buttons
+                nw=$name_w
+                (( arg == _TV_CUR_COL )) && nw=$((name_w - 2))
+                name=${_TV_HEADERS[arg]}
+                name_len=${#name}
+                if (( name_len > nw ))
+                then
+                    name="${name:0:nw-1}…"
+                    name_len=$nw
+                fi
+                marker=' '
+                suffix='  '
+                if (( arg == _TV_CUR_COL ))
+                then
+                    marker='▸'
+                    suffix=' ⇤ ×'
+                elif [[ "${_TV_COLUMNS[arg]}" == "$_TV_SORT_COL" ]]
+                then
+                    suffix=' ↑'
+                    [[ "$_TV_SORT_DIR" == desc ]] && suffix=' ↓'
+                fi
+                if [[ -n "${is_vis[arg]:-}" ]]
+                then
+                    style=${_TV_COLORS[${_TV_COLUMNS[arg]}]:-}$__BU_TV_REVERSE
+                else
+                    style=$__BU_TV_DIM
+                fi
+                entry="${style}${marker}${name}${__BU_TV_SPACES:0:nw-name_len}${suffix}${__BU_TV_RESET}"
+                ;;
+            esac
+            [[ -n "$drop" ]] && (( i == _TV_SIDEBAR_DROP_ROW )) && entry=$drop$entry
         fi
         __sb_frame+=$'\e['$screen_row';'$col'H│ '$entry$__BU_TV_CLEAR_LINE
     done
@@ -1744,16 +1919,20 @@ __bu_tv_render_scrollbar()
 # ```
 # *Description*:
 # Join informational status parts with " | " and append the key hints that
-# fit: the full set, else the short set, else none.  Hints are dropped last
-# and never cut mid-word; only the informational text is ever truncated.
+# fit.  Hint words are dropped one at a time from the right, skipping the
+# short set, so the leftmost hints last longest; if even the short set
+# doesn't fit there are none.  Hints are never cut mid-word; only the
+# informational text is ever truncated.
 #
 # *Params*:
-# - `$1`: Full hint set
-# - `$2`: Short hint set
+# - `$1`: Full hint set (space-separated words)
+# - `$2`: Short hint set (words of `$1` that are dropped last)
 # - `$3...`: Informational parts
 #
 # *Returns*:
 # - `_TV_STATUS`: Dimmed status line
+# - `_TV_STATUS_HINTS`, `_TV_STATUS_HINTS_X`: the hints shown and their
+#   first screen column, for clicks
 # ```
 __bu_tv_compose_status()
 {
@@ -1767,17 +1946,33 @@ __bu_tv_compose_status()
 
     # Never write the bottom-right cell
     local -r -i room=$((_TV_TERM_COLS - 1))
+    local -i avail=$room
+    [[ -n "$info" ]] && avail=$((room - ${#info} - 3))
+
+    local IFS=' '
+    local -a words=()
+    read -r -a words <<<"$full"
+    local hints=$full
+    local -i i=${#words[@]}
+    while (( ${#hints} > avail && i > 0 ))
+    do
+        i=$((i - 1))
+        [[ " $short " == *" ${words[i]} "* ]] && continue
+        unset 'words[i]'
+        hints="${words[*]}"
+    done
+    (( ${#hints} > avail )) && hints=
+
     local result=$info
+    _TV_STATUS_HINTS=$hints
+    _TV_STATUS_HINTS_X=1
     if [[ -z "$info" ]]
     then
-        result=$full
-        (( ${#result} > room )) && result=$short
-    elif (( ${#info} + 3 + ${#full} <= room ))
+        result=$hints
+    elif [[ -n "$hints" ]]
     then
-        result+=" | $full"
-    elif (( ${#info} + 3 + ${#short} <= room ))
-    then
-        result+=" | $short"
+        result+=" | $hints"
+        _TV_STATUS_HINTS_X=$((${#info} + 4))
     elif (( ${#info} > room ))
     then
         result=${info:0:room}
@@ -1818,7 +2013,9 @@ __bu_tv_search_status()
 # *Description*:
 # Build the table status line: `Row r/N | Col name (c/n)[ wide][ frozen]
 # | K hidden | &filter v/N | Sorted: key ↑ | <search> | <hints>`, the
-# middle parts only when they apply.
+# middle parts only when they apply.  The hints start with the keys that
+# undo or follow up the current state: + with hidden columns, n/N with
+# search matches, Esc with a search or filter.
 #
 # *Returns*:
 # - `_TV_STATUS`
@@ -1853,7 +2050,12 @@ __bu_tv_render_status()
     __bu_tv_search_status
     [[ -n "$_TV_SEARCH_STATUS" ]] && parts+=("$_TV_SEARCH_STATUS")
 
-    __bu_tv_compose_status "$__BU_TV_HINTS_TABLE" 'H:help' "${parts[@]}"
+    # Keys for the current state lead, so they outlast the general ones
+    local hints=
+    (( ${#_TV_HIDDEN[@]} )) && hints+='+:unhide '
+    (( ${#_TV_MATCHED_ROWS[@]} )) && hints+='n/N:match '
+    [[ -n "$_TV_SEARCH_QUERY$_TV_FILTER_QUERY" ]] && hints+='Esc:clear '
+    __bu_tv_compose_status "$hints$__BU_TV_HINTS_TABLE" 'H:help' "${parts[@]}"
 }
 
 # ```
@@ -2966,13 +3168,19 @@ __bu_tv_toggle_freeze()
 
 # ```
 # *Description*:
-# -: hide the cursor column (search and filter skip it too).  The last
-# column can't be hidden.  + brings hidden columns back.
+# -: hide the cursor column, or the given one (search and filter skip it
+# too).  The last column can't be hidden.  + brings hidden columns back.
+# The cursor stays on its column (on the next one when it was hidden).
+#
+# *Params*:
+# - `$1` (optional): Column index (default: the cursor column)
 # ```
 __bu_tv_hide_col()
 {
     (( _TV_NUM_COLS < 2 )) && return 0
-    local -r -i j=$_TV_CUR_COL
+    local -r -i j=${1:-$_TV_CUR_COL}
+    local cur_key=
+    (( j != _TV_CUR_COL )) && cur_key=${_TV_COLUMNS[_TV_CUR_COL]}
     local frozen=false
     (( j < _TV_FROZEN_N )) && frozen=true
     _TV_HIDDEN+=("$j"$'\x1f'"$frozen"$'\x1f'"${_TV_COLUMNS[j]}"$'\x1f'"${_TV_HEADERS[j]}"$'\x1f'"${_TV_COL_EXPANDED[j]:-false}")
@@ -2990,6 +3198,89 @@ __bu_tv_hide_col()
     "$frozen" && _TV_FROZEN_N=$((_TV_FROZEN_N - 1))
     # At least one column keeps scrolling
     (( _TV_FROZEN_N > _TV_NUM_COLS - 1 )) && _TV_FROZEN_N=$((_TV_NUM_COLS - 1))
+    [[ -n "$cur_key" ]] && __bu_tv_cursor_to_key "$cur_key"
+    __bu_tv_clamp_offsets
+}
+
+# ```
+# *Description*:
+# Put the cursor on the column with the given key (unchanged if none has
+# it).
+#
+# *Params*:
+# - `$1`: Column key
+# ```
+__bu_tv_cursor_to_key()
+{
+    local -i j
+    for (( j = 0; j < _TV_NUM_COLS; j++ ))
+    do
+        if [[ "${_TV_COLUMNS[j]}" == "$1" ]]
+        then
+            _TV_CUR_COL=$j
+            break
+        fi
+    done
+    return 0
+}
+
+# ```
+# *Description*:
+# Bring one hidden column back (a click or drop on its sidebar entry) and
+# put the cursor on it: by default at the index it was hidden from and
+# frozen if it was, else where given.  The index is clamped into its block
+# (frozen columns, or scrolling ones).  Columns hidden after it have their
+# saved index shifted past it, so + still puts them back in place.
+#
+# *Params*:
+# - `$1`: Hidden-stack index
+# - `$2` (optional): Index to insert at
+# - `$3` (optional): true to freeze it, false not to
+# ```
+__bu_tv_restore_col()
+{
+    local -r -i h=$1
+    [[ -n "${_TV_HIDDEN[h]:-}" ]] || return 0
+    local -a f=()
+    IFS=$'\x1f' read -r -a f <<<"${_TV_HIDDEN[h]}"
+    local -i at=${2:-${f[0]}}
+    local -r frozen=${3:-${f[1]}}
+    local -r -i k=$_TV_FROZEN_N
+    if [[ "$frozen" == true ]]
+    then
+        (( at > k )) && at=$k
+        (( at < 0 )) && at=0
+    else
+        (( at < k )) && at=$k
+        (( at > _TV_NUM_COLS )) && at=$_TV_NUM_COLS
+    fi
+
+    local -a keys=("${_TV_COLUMNS[@]}") headers=("${_TV_HEADERS[@]}") expanded=()
+    local -i j
+    for (( j = 0; j < _TV_NUM_COLS; j++ ))
+    do
+        expanded+=("${_TV_COL_EXPANDED[j]:-false}")
+    done
+    keys=("${keys[@]:0:at}" "${f[2]}" "${keys[@]:at}")
+    headers=("${headers[@]:0:at}" "${f[3]}" "${headers[@]:at}")
+    expanded=("${expanded[@]:0:at}" "${f[4]:-false}" "${expanded[@]:at}")
+    __bu_tv_set_cols keys headers expanded || return 0
+    [[ "$frozen" == true ]] && _TV_FROZEN_N=$((k + 1))
+
+    local -a rest=()
+    local -i g
+    for (( g = 0; g < ${#_TV_HIDDEN[@]}; g++ ))
+    do
+        (( g == h )) && continue
+        IFS=$'\x1f' read -r -a f <<<"${_TV_HIDDEN[g]}"
+        if (( g > h && f[0] >= at ))
+        then
+            f[0]=$((f[0] + 1))
+        fi
+        rest+=("${f[0]}"$'\x1f'"${f[1]}"$'\x1f'"${f[2]}"$'\x1f'"${f[3]}"$'\x1f'"${f[4]:-false}")
+    done
+    _TV_HIDDEN=("${rest[@]}")
+    _TV_CUR_COL=$at
     __bu_tv_clamp_offsets
 }
 
@@ -3023,14 +3314,7 @@ __bu_tv_restore_cols()
     __bu_tv_set_cols keys headers expanded || return 0
     _TV_HIDDEN=()
     _TV_FROZEN_N=$frozen_n
-    for (( j = 0; j < _TV_NUM_COLS; j++ ))
-    do
-        if [[ "${_TV_COLUMNS[j]}" == "$cur_key" ]]
-        then
-            _TV_CUR_COL=$j
-            break
-        fi
-    done
+    __bu_tv_cursor_to_key "$cur_key"
     __bu_tv_clamp_offsets
 }
 
@@ -3080,6 +3364,7 @@ __bu_tv_toggle_mouse()
         printf '%s' "$__BU_TV_MOUSE_ON"
     fi
     _TV_SB_GRABBED=false
+    _TV_SIDEBAR_DRAG=
     return 0
 }
 
@@ -3113,27 +3398,267 @@ __bu_tv_col_at()
 
 # ```
 # *Description*:
-# Left press in the column sidebar: select the entry's column (the clamp
-# scrolls the viewport by the minimum).  Uses the window the last frame
-# drew: "↑ N more" selects the column before it, "↓ N more" the one after.
+# Left press in the column sidebar, hit-tested against the rows the last
+# frame drew.  On the cursor column's entry, ⇤ (and the cell before it)
+# freezes / unfreezes it and × (and the cell before it) hides it.  Any
+# other column entry selects its column (the clamp scrolls the viewport by
+# the minimum); column and hidden entries can then be dragged (see
+# __bu_tv_sidebar_release).  "↑ N more" / "↓ N more" select the column
+# just past them, or scroll the list one row when that row isn't a column.
 #
 # *Params*:
-# - `$1`: 1-based screen row
+# - `$1`: 1-based screen column
+# - `$2`: 1-based screen row
 # ```
 __bu_tv_sidebar_press()
 {
-    local -i i=$(($1 - 3)) j
-    (( i < 0 )) && return 0
-    if (( _TV_SIDEBAR_START > 0 ))
+    local -r -i x=$1 i=$(($2 - 3))
+    (( i < 0 || i >= ${#_TV_SIDEBAR_ROW_IDX[@]} )) && return 0
+    local -r -i li=${_TV_SIDEBAR_ROW_IDX[i]}
+    local -i next
+    if (( li == -1 || li == -2 ))
     then
-        j=$((_TV_SIDEBAR_START + i - 1))
-    else
-        j=$((_TV_SIDEBAR_START + i))
+        next=$((_TV_SIDEBAR_START - 1))
+        (( li == -2 )) && next=$_TV_SIDEBAR_END
+        if [[ "${_TV_SIDEBAR_LIST_KIND[next]:-}" == col ]]
+        then
+            _TV_SIDEBAR_SCROLL=-1
+            _TV_CUR_COL=${_TV_SIDEBAR_LIST_ARG[next]}
+            __bu_tv_clamp_offsets
+        elif (( li == -1 ))
+        then
+            _TV_SIDEBAR_SCROLL=$((_TV_SIDEBAR_START - 1))
+        else
+            _TV_SIDEBAR_SCROLL=$((_TV_SIDEBAR_START + 1))
+        fi
+        return 0
     fi
-    # Past the "↓ N more" row: blank rows
-    (( j > _TV_SIDEBAR_END || j >= _TV_NUM_COLS )) && return 0
-    _TV_CUR_COL=$j
+    (( li < 0 )) && return 0
+
+    local -r -i arg=${_TV_SIDEBAR_LIST_ARG[li]}
+    # First cell of the cursor entry's " ⇤ ×"
+    local -r -i btn=$((_TV_TABLE_COLS + _TV_SCROLLBAR_W + 1 + _TV_SIDEBAR_NAME_W + 1))
+    case "${_TV_SIDEBAR_LIST_KIND[li]}" in
+    col)
+        if (( arg == _TV_CUR_COL && x >= btn ))
+        then
+            if (( x <= btn + 1 ))
+            then
+                __bu_tv_toggle_freeze
+            else
+                __bu_tv_hide_col
+            fi
+            return 0
+        fi
+        _TV_SIDEBAR_DRAG=col
+        _TV_SIDEBAR_DRAG_ID=${_TV_COLUMNS[arg]}
+        _TV_CUR_COL=$arg
+        __bu_tv_clamp_offsets
+        ;;
+    hid)
+        _TV_SIDEBAR_DRAG=hid
+        _TV_SIDEBAR_DRAG_ID=$arg
+        ;;
+    *)
+        return 0
+        ;;
+    esac
+    _TV_SIDEBAR_DRAG_ROW=$i
+    _TV_SIDEBAR_DROP_ROW=-99
+    return 0
+}
+
+# ```
+# *Description*:
+# Drag of a pressed sidebar entry: once the pointer leaves the entry's row
+# it tracks the row under it (drawn underlined as the drop target).
+# ```
+__bu_tv_sidebar_drag()
+{
+    local -r -i row=$((_TV_MOUSE_Y - 3))
+    (( row != _TV_SIDEBAR_DRAG_ROW || _TV_SIDEBAR_DROP_ROW != -99 )) \
+        && _TV_SIDEBAR_DROP_ROW=$row
+    return 0
+}
+
+# ```
+# *Description*:
+# Release after a sidebar press.  Without a drag, a hidden entry comes
+# back (__bu_tv_restore_col); a column entry was already selected by the
+# press.  After a drag, the entry is dropped on the row released over
+# (__bu_tv_sidebar_drop).
+# ```
+__bu_tv_sidebar_release()
+{
+    [[ -n "$_TV_SIDEBAR_DRAG" ]] || return 0
+    local -r kind=$_TV_SIDEBAR_DRAG id=$_TV_SIDEBAR_DRAG_ID
+    local -r -i dropped=$((_TV_SIDEBAR_DROP_ROW != -99))
+    _TV_SIDEBAR_DRAG=
+    _TV_SIDEBAR_DROP_ROW=-99
+    if (( dropped ))
+    then
+        __bu_tv_sidebar_drop "$kind" "$id" $((_TV_MOUSE_Y - 3))
+    elif [[ "$kind" == hid ]]
+    then
+        __bu_tv_restore_col "$id"
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
+# Drop a dragged sidebar entry on a data row (as the last frame drew it).
+# The row picks a block and a place in it: a frozen column's row, or the
+# title rows above the list (first place), freeze there; a scrolling
+# column's row moves there; the divider is the border, so it unfreezes a
+# frozen column (first scrolling place) and freezes any other (last
+# frozen place); the Hidden title, a hidden entry or the blank rows below
+# hide.  A column takes the dropped-on row's place; a hidden column comes
+# back there.  "N more" rows do nothing, and at least one column keeps
+# scrolling.  The cursor follows the column.
+#
+# *Params*:
+# - `$1`: col or hid
+# - `$2`: Column key (col) or hidden-stack index (hid)
+# - `$3`: Data row (< 0 for the title rows)
+# ```
+__bu_tv_sidebar_drop()
+{
+    local -r kind=$1 id=$2
+    local -r -i row=$3 k=$_TV_FROZEN_N n=$_TV_NUM_COLS
+    local -i src=-1 j li=-3 pos=0
+    if [[ "$kind" == col ]]
+    then
+        for (( j = 0; j < n; j++ ))
+        do
+            [[ "${_TV_COLUMNS[j]}" == "$id" ]] && src=$j && break
+        done
+        (( src < 0 )) && return 0
+    fi
+
+    # Target block (frozen, scroll or hide) and place in it
+    local zone=
+    if (( row < 0 ))
+    then
+        zone=frozen
+    else
+        (( row < ${#_TV_SIDEBAR_ROW_IDX[@]} )) && li=${_TV_SIDEBAR_ROW_IDX[row]}
+        if (( li == -3 ))
+        then
+            zone=hide
+        elif (( li < 0 ))
+        then
+            return 0
+        else
+            case "${_TV_SIDEBAR_LIST_KIND[li]}" in
+            col)
+                pos=${_TV_SIDEBAR_LIST_ARG[li]}
+                if (( pos < k ))
+                then
+                    zone=frozen
+                else
+                    zone=scroll
+                    pos=$((pos - k))
+                fi
+                ;;
+            div)
+                if (( src >= 0 && src < k ))
+                then
+                    zone=scroll
+                else
+                    zone=frozen
+                    pos=$k
+                fi
+                ;;
+            *)
+                zone=hide
+                ;;
+            esac
+        fi
+    fi
+
+    if [[ "$kind" == hid ]]
+    then
+        case "$zone" in
+        frozen) __bu_tv_restore_col "$id" "$pos" true ;;
+        scroll) __bu_tv_restore_col "$id" $((k + pos)) false ;;
+        esac
+        return 0
+    fi
+
+    local -i to
+    case "$zone" in
+    hide)
+        __bu_tv_hide_col "$src"
+        return 0
+        ;;
+    frozen)
+        if (( src < k ))
+        then
+            to=$pos
+            (( to > k - 1 )) && to=$((k - 1))
+            __bu_tv_move_col "$src" "$to" || return 0
+        else
+            (( k + 1 >= n )) && return 0
+            __bu_tv_move_col "$src" "$pos" || return 0
+            _TV_FROZEN_N=$((k + 1))
+        fi
+        ;;
+    scroll)
+        if (( src < k ))
+        then
+            to=$((k - 1 + pos))
+            (( to > n - 1 )) && to=$((n - 1))
+            __bu_tv_move_col "$src" "$to" || return 0
+            _TV_FROZEN_N=$((k - 1))
+        else
+            to=$((k + pos))
+            (( to > n - 1 )) && to=$((n - 1))
+            __bu_tv_move_col "$src" "$to" || return 0
+        fi
+        ;;
+    esac
+    __bu_tv_cursor_to_key "$id"
     __bu_tv_clamp_offsets
+}
+
+# ```
+# *Description*:
+# Key of the status-line hint under a screen column, as last drawn: the
+# key before the ":" ("Enter" and "Esc" by name), for "a/b" pairs the one
+# clicked (a when the label is).
+#
+# *Params*:
+# - `$1`: 1-based screen column
+#
+# *Returns*:
+# - `_TV_KEY`: The key, or "none" off the hints
+# ```
+__bu_tv_status_hint_key()
+{
+    _TV_KEY=none
+    local -r hints=$_TV_STATUS_HINTS
+    local -r -i p=$(($1 - _TV_STATUS_HINTS_X))
+    (( p < 0 || p >= ${#hints} )) && return 0
+    [[ "${hints:p:1}" == ' ' ]] && return 0
+    local pre=${hints:0:p} rest=${hints:p}
+    pre=${pre##* }
+    local -r word=$pre${rest%% *}
+    local -r keys=${word%%:*}
+    local -i off=${#pre}
+    (( off > ${#keys} )) && off=0
+    local key=$keys
+    if [[ "$keys" == ?*/?* ]]
+    then
+        key=${keys%%/*}
+        (( off > ${#key} )) && key=${keys#*/}
+    fi
+    case "$key" in
+    Enter) key=$'\x0a' ;;
+    Esc)   key=escape ;;
+    esac
+    _TV_KEY=$key
+    return 0
 }
 
 # ```
@@ -3179,8 +3704,8 @@ __bu_tv_scrollbar_drag()
 
 # ```
 # *Description*:
-# Left press in table mode, by screen region: status row ignored; sidebar
-# and scrollbar as above; header or separator selects the column under x;
+# Left press in table mode, by screen region: a status-line hint presses
+# its key; sidebar and scrollbar as above; header or separator selects the column under x;
 # a data cell moves the cursor there (right of the last visible column the
 # cursor column stays), and a second press on the same row within
 # __BU_TV_DOUBLE_CLICK_MS opens the record-detail overlay.
@@ -3188,10 +3713,17 @@ __bu_tv_scrollbar_drag()
 __bu_tv_mouse_press()
 {
     local -r -i x=$_TV_MOUSE_X y=$_TV_MOUSE_Y
-    (( y >= _TV_TERM_ROWS || y < 1 )) && return 0
+    _TV_SIDEBAR_DRAG=
+    if (( y == _TV_TERM_ROWS ))
+    then
+        __bu_tv_status_hint_key "$x"
+        [[ "$_TV_KEY" != none ]] && __bu_tv_dispatch_key
+        return 0
+    fi
+    (( y > _TV_TERM_ROWS || y < 1 )) && return 0
     if (( _TV_SIDEBAR_W > 0 && x > _TV_TABLE_COLS + _TV_SCROLLBAR_W ))
     then
-        __bu_tv_sidebar_press "$y"
+        __bu_tv_sidebar_press "$x" "$y"
         return 0
     fi
     if (( _TV_SCROLLBAR_W > 0 && x == _TV_TABLE_COLS + 2 ))
@@ -3232,16 +3764,39 @@ __bu_tv_mouse_press()
 # ```
 # *Description*:
 # A mouse event (key "mouse") in table mode: the wheel scrolls three rows
-# (offset-driven), a left press acts by region, drags move a grabbed
-# scrollbar thumb, a release ends the grab.  Other buttons are ignored.
+# (offset-driven), or the sidebar list over a sidebar taller than the
+# screen; a left press acts by region; drags move a grabbed scrollbar
+# thumb or a pressed sidebar entry; a release ends the grab or drops the
+# entry.  Other buttons are ignored.
 # ```
 __bu_tv_mouse_table()
 {
+    local -i step=3
     case "$_TV_MOUSE_EVENT" in
-    wheel_up)   __bu_tv_scroll_to $((_TV_ROW_OFFSET - 3)) ;;
-    wheel_down) __bu_tv_scroll_to $((_TV_ROW_OFFSET + 3)) ;;
-    release)    _TV_SB_GRABBED=false ;;
-    drag)       "$_TV_SB_GRABBED" && __bu_tv_scrollbar_drag ;;
+    wheel_up|wheel_down)
+        [[ "$_TV_MOUSE_EVENT" == wheel_up ]] && step=-3
+        if (( _TV_SIDEBAR_W > 0 && _TV_MOUSE_X > _TV_TABLE_COLS + _TV_SCROLLBAR_W
+            && _TV_SIDEBAR_NROWS > _TV_DATA_ROWS ))
+        then
+            _TV_SIDEBAR_SCROLL=$((_TV_SIDEBAR_START + step))
+            (( _TV_SIDEBAR_SCROLL < 0 )) && _TV_SIDEBAR_SCROLL=0
+        else
+            __bu_tv_scroll_to $((_TV_ROW_OFFSET + step))
+        fi
+        ;;
+    release)
+        _TV_SB_GRABBED=false
+        __bu_tv_sidebar_release
+        ;;
+    drag)
+        if "$_TV_SB_GRABBED"
+        then
+            __bu_tv_scrollbar_drag
+        elif [[ -n "$_TV_SIDEBAR_DRAG" ]]
+        then
+            __bu_tv_sidebar_drag
+        fi
+        ;;
     press)      (( _TV_MOUSE_BUTTON == 0 )) && __bu_tv_mouse_press ;;
     esac
     return 0
@@ -3372,6 +3927,8 @@ __bu_tv_apply_sort()
 # ```
 __bu_tv_dispatch_key()
 {
+    # A key hands the sidebar list back to following the viewport
+    [[ "$_TV_KEY" != mouse ]] && _TV_SIDEBAR_SCROLL=-1
     __bu_tv_data_rows
     local -r -i page=$_TV_DATA_ROWS
     local -i half=$((page / 2))
@@ -3469,7 +4026,7 @@ __bu_tv_overlay_close()
 # Dispatch one keypress in the detail or help overlay.  Both scroll (also
 # with the wheel); the detail overlay also steps through records (J / K)
 # and matches (n / N) without closing.  q, Q, Esc, Enter and a left click
-# go back.
+# go back, except on a status-line hint, which presses its key.
 # ```
 __bu_tv_dispatch_overlay()
 {
@@ -3499,7 +4056,18 @@ __bu_tv_dispatch_overlay()
         wheel_up)   __do_off=$((__do_off - 3)) ;;
         wheel_down) __do_off=$((__do_off + 3)) ;;
         release)    _TV_SB_GRABBED=false ;;
-        press)      (( _TV_MOUSE_BUTTON == 0 )) && __bu_tv_overlay_close ;;
+        press)
+            if (( _TV_MOUSE_BUTTON != 0 ))
+            then
+                :
+            elif (( _TV_MOUSE_Y == _TV_TERM_ROWS ))
+            then
+                __bu_tv_status_hint_key "$_TV_MOUSE_X"
+                [[ "$_TV_KEY" != none ]] && __bu_tv_dispatch_overlay
+            else
+                __bu_tv_overlay_close
+            fi
+            ;;
         esac
         ;;
     m)               __bu_tv_toggle_mouse ;;

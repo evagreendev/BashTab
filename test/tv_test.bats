@@ -66,7 +66,7 @@ function test_tv_frame_plain_matches_golden { #@test
         $'\e[1mverb\e[0m' \
         $'\e[3;1H\e[1;4mget-command            \e[0m\e[7m  get                  \e[0m\e[K' \
         $'\e[4;1Hformat-table             format\e[K' \
-        $'\e[20;1H\e[2mRow 1/5 | Col name (1/5) | H:help\e[0m\e[K\e[?25l'
+        $'\e[20;1H\e[2mRow 1/5 | Col name (1/5) | q:quit /:search s:sort H:help\e[0m\e[K\e[?25l'
 }
 
 function test_tv_frame_scrolled_matches_golden { #@test
@@ -166,20 +166,22 @@ function test_tv_frame_nosidebar_matches_golden { #@test
 
 function test_tv_frame_sorted_sidebar_matches_golden { #@test
     # The cursor followed get-command through the sort; the sidebar shows
-    # the sort arrow and ▸ on the cursor column
+    # the sort arrow, and ▸ and the ⇤ × buttons on the cursor column (its
+    # name gives up two cells to them)
     __tv_check_golden sorted \
         $'\e[1;1H\e[1mverb ↓\e[0m' \
         $'\e[5;1H\e[7mget ' \
-        $'\e[7m▸namespace' \
+        $'\e[7m▸namesp… ⇤ ×' \
+        $'\e[7m verb      ↓' \
         'Sorted: verb ↓'
 }
 
 function test_tv_frame_sidebar_overflow_matches_golden { #@test
     # More columns than data rows: the list scrolls to the viewport with
-    # "↑ N more" / "↓ N more" rows
+    # "↑ N more" / "↓ N more" rows (and leaves out the empty Hidden title)
     __tv_check_golden overflow \
         $'\e[1;1H\e[1mcol06\e[0m' \
-        $'\e[7m▸col11' \
+        $'\e[7m▸co… ⇤ ×' \
         '↑ 4 more' \
         '↓ 3 more'
 }
@@ -241,9 +243,12 @@ function test_tv_frame_markers_matches_golden { #@test
 }
 
 function test_tv_frame_hidden_matches_golden { #@test
+    # The sidebar lists the hidden column, dimmed, under the Hidden title
     __tv_check_golden hidden \
         $'\e[1;1H\e[1mname\e[0m                     \e[1;4mnoun\e[0m' \
-        'Col noun (2/4) | 1 hidden'
+        $'\e[7;47H│ \e[2mHidden -----\e[0m' \
+        $'\e[8;47H│ \e[2m verb      +\e[0m' \
+        'Col noun (2/4) | 1 hidden | +:unhide'
 }
 
 function test_tv_frame_independent_of_term { #@test
@@ -829,13 +834,37 @@ function test_tv_status_hints_degrade_whole { #@test
     local result
     result=$(__tv_in_child "$(__tv_rows 5)" '
         __bu_tv_rebuild_cache
-        for w in 120 60 20; do
+        for w in 120 60 40 20; do
             _TV_TERM_COLS=$w; __bu_tv_render_status
             s=$_TV_STATUS; __bu_tv_strip_ansi s; echo "[$s]"
         done')
-    assert_equal "$result" '[Row 1/5 | Col name (1/2) | q:quit /:search s:sort w:wide Enter:detail H:help]
+    # Words drop from the right, H:help last
+    assert_equal "$result" '[Row 1/5 | Col name (1/2) | q:quit /:search s:sort w:wide Enter:detail m:mouse &:filter H:help]
+[Row 1/5 | Col name (1/2) | q:quit /:search s:sort H:help]
 [Row 1/5 | Col name (1/2) | H:help]
 [Row 1/5 | Col name ]'
+}
+
+function test_tv_status_hints_follow_state { #@test
+    # The keys that undo or follow up the current state lead the hints:
+    # + with hidden columns, n/N with search matches (not with no match),
+    # Esc with a search or a filter
+    local result
+    result=$(__tv_in_child "$(__tv_rows 30)" '
+        __bu_tv_rebuild_cache; _TV_TERM_COLS=200
+        h() { __bu_tv_render_status; s=$_TV_STATUS; __bu_tv_strip_ansi s; echo "${s##* | }"; }
+        _TV_KEY=-; __bu_tv_dispatch_key; h
+        _TV_KEY=+; __bu_tv_dispatch_key
+        _TV_SEARCH_QUERY=zzz; __bu_tv_update_search_matches; h
+        _TV_SEARCH_QUERY=cmd-2; __bu_tv_update_search_matches; h
+        _TV_KEY=escape; __bu_tv_dispatch_key
+        __bu_tv_filter_to 2 -1 0; h
+        _TV_KEY=escape; __bu_tv_dispatch_key; h')
+    assert_equal "$result" '+:unhide q:quit /:search s:sort w:wide Enter:detail m:mouse &:filter H:help
+Esc:clear q:quit /:search s:sort w:wide Enter:detail m:mouse &:filter H:help
+n/N:match Esc:clear q:quit /:search s:sort w:wide Enter:detail m:mouse &:filter H:help
+Esc:clear q:quit /:search s:sort w:wide Enter:detail m:mouse &:filter H:help
+q:quit /:search s:sort w:wide Enter:detail m:mouse &:filter H:help'
 }
 
 # ── Overlays ─────────────────────────────────────────────────────────────
@@ -1139,6 +1168,164 @@ wheel_down/0: help d3 h3
 press/0: table d3 h3'
 }
 
+# Snippet prefix for 3 rows of columns a..e in a 20x80 terminal: the
+# sidebar is 9 wide at column 72 (names from 75, the cursor entry's ⇤ at 78
+# and × at 80) and its list starts on screen row 3.  m() dispatches a
+# mouse event and redraws (the event loop's order); st() prints the state.
+__TV_SIDEBAR_STUBS='
+    __bu_tv_rebuild_cache
+    _TV_TERM_ROWS=20; _TV_TERM_COLS=80
+    __bu_tv_compute_widths; __bu_tv_clamp_offsets
+    __bu_tv_render >/dev/null
+    m() { # event x y
+        _TV_KEY=mouse _TV_MOUSE_EVENT=$1 _TV_MOUSE_X=$2 _TV_MOUSE_Y=$3 _TV_MOUSE_BUTTON=0
+        __bu_tv_dispatch; __bu_tv_render >/dev/null
+    }
+    drag() { m press 76 "$1"; m drag 76 "$2"; m release 76 "$2"; }
+    st() { echo "$1: ${_TV_COLUMNS[*]} f$_TV_FROZEN_N c$_TV_CUR_COL h${#_TV_HIDDEN[@]}"; }
+'
+__TV_ABCDE='{"a":"1","b":"2","c":"3","d":"4","e":"5"}'
+
+function test_tv_sidebar_buttons_and_hidden_click { #@test
+    # ⇤ / × act on the cursor entry only; a click on a hidden entry (press
+    # and release, no drag) brings it back with the cursor on it
+    local result
+    result=$(__tv_in_child "$__TV_ABCDE
+$__TV_ABCDE" "$__TV_SIDEBAR_STUBS"'
+        echo "sidebar=$_TV_SIDEBAR_W at $((_TV_TABLE_COLS + _TV_SCROLLBAR_W + 1))"
+        m press 78 4; st other-entry
+        m press 78 4; st freeze
+        m press 77 3; st unfreeze
+        m press 80 3; st hide
+        m press 76 8; st hidden-press
+        m release 76 8; st hidden-release')
+    assert_equal "$result" 'sidebar=9 at 72
+other-entry: a b c d e f0 c1 h0
+freeze: b a c d e f1 c0 h0
+unfreeze: b a c d e f0 c0 h0
+hide: a c d e f0 c0 h1
+hidden-press: a c d e f0 c0 h1
+hidden-release: b a c d e f0 c0 h0'
+}
+
+function test_tv_sidebar_drag_moves_freezes_and_hides { #@test
+    # A drop takes the target row's place; the title rows freeze, the
+    # divider unfreezes, the Hidden title and blank rows below hide
+    local result
+    result=$(__tv_in_child "$__TV_ABCDE
+$__TV_ABCDE" "$__TV_SIDEBAR_STUBS"'
+        drag 7 4; st e-onto-b
+        m press 76 6; m drag 76 2; m release 76 1; st c-to-top
+        drag 3 4; st c-onto-divider
+        drag 4 6; st a-onto-b
+        m press 76 7; m release 76 7; st no-drag
+        drag 7 12; st d-below
+        drag 4 7; st e-onto-title
+        drag 3 3; st c-onto-itself
+        m press 76 4; m drag 76 6; m drag 76 4; m release 76 4; st back-to-own-row')
+    assert_equal "$result" 'e-onto-b: a e b c d f0 c1 h0
+c-to-top: c a e b d f1 c0 h0
+c-onto-divider: c a e b d f0 c0 h0
+a-onto-b: c e b a d f0 c3 h0
+no-drag: c e b a d f0 c4 h0
+d-below: c e b a f0 c3 h1
+e-onto-title: c b a f0 c1 h2
+c-onto-itself: c b a f0 c0 h2
+back-to-own-row: c b a f0 c1 h2'
+}
+
+function test_tv_sidebar_drag_underlines_drop_target { #@test
+    # Nothing is underlined until the entry leaves its row; then the row
+    # under the pointer is (the title above the list, the blank rows below)
+    local result
+    result=$(__tv_in_child "$__TV_ABCDE" "$__TV_SIDEBAR_STUBS"'
+        u() { __bu_tv_render | sed -E "s/$(printf "\033")\\[4m/<u>/g; s/$(printf "\033")\\[[0-9;?]*[A-Za-z]/|/g" \
+            | grep -o "<u>|*[^|]*" | tr "\n" " "; echo "($1)"; }
+        m press 76 4; u pressed
+        m drag 76 6; u over-d
+        m drag 76 1; u over-title
+        m drag 76 12; u below
+        m release 76 12; u released')
+    assert_equal "$result" '(pressed)
+<u>| d      (over-d)
+<u>Columns (over-title)
+<u>        (below)
+(released)'
+}
+
+function test_tv_sidebar_drag_hidden_back_and_restore_order { #@test
+    # A hidden entry dropped on a column row comes back in its place (onto
+    # a frozen row: frozen); the saved index of columns hidden after it
+    # shifts, so + still restores the rest in place
+    local result
+    result=$(__tv_in_child "$__TV_ABCDE
+$__TV_ABCDE" "$__TV_SIDEBAR_STUBS"'
+        _TV_KEY=-; __bu_tv_dispatch_key; _TV_KEY=-; __bu_tv_dispatch_key
+        __bu_tv_render >/dev/null; st hid-a-b
+        drag 7 4; st a-onto-d
+        _TV_KEY=+; __bu_tv_dispatch_key; st plus
+        # a frozen, then b hidden from the scrolling block
+        _TV_KEY=f; __bu_tv_dispatch_key; _TV_KEY=l; __bu_tv_dispatch_key
+        _TV_KEY=-; __bu_tv_dispatch_key; __bu_tv_render >/dev/null; st frozen-hid-b
+        drag 9 3; st b-onto-frozen
+        __bu_tv_restore_col 7; st bad-index')
+    assert_equal "$result" 'hid-a-b: c d e f0 c0 h2
+a-onto-d: c a d e f0 c1 h1
+plus: b c a d e f0 c2 h0
+frozen-hid-b: a c d e f1 c1 h1
+b-onto-frozen: b a c d e f2 c0 h0
+bad-index: b a c d e f2 c0 h0'
+}
+
+function test_tv_status_hint_clicks { #@test
+    # A click on a hint presses its key: "a/b" by the half clicked (a on
+    # the label), Enter and Esc by name; a click off the hints does nothing
+    local result
+    result=$(__tv_in_child "$__TV_ABCDE
+$__TV_ABCDE" "$__TV_SIDEBAR_STUBS"'
+        _TV_STATUS_HINTS="n/N:match Esc:clear /:search Enter:detail"; _TV_STATUS_HINTS_X=11
+        for x in 10 11 12 13 15 20 21 31 32 41; do
+            __bu_tv_status_hint_key "$x"; printf "%s=%q " "$x" "$_TV_KEY"
+        done; echo
+        _TV_KEY=-; __bu_tv_dispatch_key; __bu_tv_render >/dev/null; st hidden
+        s=$_TV_STATUS; __bu_tv_strip_ansi s
+        pre=${s%%+:unhide*}
+        m press $((${#pre} + 1)) 20; st clicked-unhide
+        _TV_KEY=$TV_ENTER; __bu_tv_dispatch; __bu_tv_render >/dev/null
+        s=$_TV_STATUS; __bu_tv_strip_ansi s; pre=${s%%q:back*}
+        m press $((${#pre} + 1)) 20; echo "detail q:back -> $_TV_MODE"')
+    assert_equal "$result" "10=none 11=n 12=n 13=N 15=n 20=none 21=escape 31=/ 32=/ 41=\$'\\n' 
+hidden: b c d e f0 c0 h1
+clicked-unhide: a b c d e f0 c1 h0
+detail q:back -> table"
+}
+
+function test_tv_sidebar_wheel_scrolls_long_list_until_a_key { #@test
+    # 14 columns in a 70x12 terminal: 14 list rows (no Hidden title, as
+    # nothing is hidden) for 9 data rows.  The
+    # wheel over the sidebar scrolls its list (clamped), over the table the
+    # rows; a key returns the list to following the viewport
+    local result
+    result=$(__tv_in_child "$(__tv_wide_row)
+$(__tv_wide_row)
+$(__tv_wide_row)" '
+        __bu_tv_rebuild_cache
+        _TV_TERM_ROWS=12; _TV_TERM_COLS=70
+        __bu_tv_compute_widths; __bu_tv_clamp_offsets
+        __bu_tv_render >/dev/null
+        wheel() { _TV_KEY=mouse _TV_MOUSE_EVENT=$1 _TV_MOUSE_X=$2 _TV_MOUSE_Y=5 _TV_MOUSE_BUTTON=0
+            __bu_tv_dispatch; __bu_tv_render >/dev/null
+            echo "$1@$2: window $_TV_SIDEBAR_START..$_TV_SIDEBAR_END of $_TV_SIDEBAR_NROWS scroll $_TV_SIDEBAR_SCROLL"; }
+        wheel wheel_down 65; wheel wheel_down 65; wheel wheel_down 65; wheel wheel_up 65
+        _TV_KEY=j; __bu_tv_dispatch; __bu_tv_render >/dev/null
+        echo "key: window $_TV_SIDEBAR_START..$_TV_SIDEBAR_END scroll $_TV_SIDEBAR_SCROLL"')
+    assert_equal "$result" 'wheel_down@65: window 3..10 of 14 scroll 3
+wheel_down@65: window 6..13 of 14 scroll 6
+wheel_down@65: window 6..14 of 14 scroll 9
+wheel_up@65: window 3..10 of 14 scroll 3
+key: window 0..8 scroll -1'
+}
+
 # ── Filter ───────────────────────────────────────────────────────────────
 
 function test_tv_filter_view_smart_case { #@test
@@ -1222,12 +1409,12 @@ function test_tv_filter_with_search_sort_and_status { #@test
         _TV_SEARCH_QUERY=cmd-2; __bu_tv_update_search_matches
         echo "matches=${_TV_MATCHED_ROWS[*]}"
         _TV_KEY=n; __bu_tv_dispatch_key; __bu_tv_cursor_data; echo "n: view $_TV_CUR_ROW data $_TV_FOUND_IDX"
-        __bu_tv_render_status; s=$_TV_STATUS; __bu_tv_strip_ansi s; echo "${s%% | H:help}"
+        __bu_tv_render_status; s=$_TV_STATUS; __bu_tv_strip_ansi s; echo "$s"
         _TV_KEY=S; __bu_tv_dispatch_key; __bu_tv_cursor_data
         echo "sorted: view $_TV_CUR_ROW ${_TV_ROWS[_TV_FOUND_IDX]} first ${_TV_ROWS[_TV_VIEW[0]]} n=$_TV_NUM_VIEW"')
     assert_equal "$result" 'matches=0 2 3 4 5 6 7 8 9 10 11
 n: view 2 data 19
-Row 3/12 | Col name (1/2) | &2 12/30 | /cmd-2 2/11 [name]
+Row 3/12 | Col name (1/2) | &2 12/30 | /cmd-2 2/11 [name] | n/N:match H:help
 sorted: view 9 {"name":"cmd-20","version":"1.0"} first {"name":"cmd-29","version":"1.0"} n=12'
 }
 

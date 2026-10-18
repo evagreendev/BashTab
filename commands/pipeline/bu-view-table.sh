@@ -115,7 +115,11 @@ q quits.  Numeric columns are right-aligned and null shows as ∅.
 Mouse: click a cell to move the cursor, double-click a row for its record,
 click a header or sidebar entry to select that column, scroll with the
 wheel, and click or drag the scrollbar (shown while the rows overflow the
-screen).  Press m to turn mouse reporting off and select text.
+screen).  In the sidebar, the cursor column's ⇤ and × freeze and hide it;
+drag an entry to move its column, across the ╌ divider to freeze or
+unfreeze it, or onto the Hidden list to hide it, and click a hidden entry
+to bring it back.  Click a key hint on the status line to press it.  Press
+m to turn mouse reporting off and select text.
 " \
         --example "View all commands" "" \
         --example "Select columns" "--columns name,type,namespace" \
