@@ -65,12 +65,21 @@ fi
 
 source ./bu_custom_source.sh --__bu-once
 
+# Settings precedence: exported variables > settings files > registered
+# defaults. Save the user's values now (and reset what an earlier activation
+# in this shell applied), let the settings files below assign plain VAR=value,
+# then restore the saved values once the settings are registered. Each file's
+# assignments are attributed to it for `bu get-config`.
+__bu_config_save_user_values || true
+__bu_config_track_begin || true
+
 # Machine-local settings (uncommitted, managed by `bu set-config`). Sourced
 # early so BU_BOOTSTRAP_VERBOSE applies to the sourcing logs below, and before
 # bu_config_dynamic.sh, whose ${VAR:-default} assignments yield to these.
 # Intentionally NOT --__bu-once: re-activation should re-read edited settings.
 if [[ -f ./config/bu_config_local.sh ]]; then
     source ./config/bu_config_local.sh
+    __bu_config_track_end "$BU_DIR/config/bu_config_local.sh" local || true
 fi
 
 # Embedder-redirected settings file. `bu set-config` writes to
@@ -96,6 +105,7 @@ if [[ -n "${BU_CONFIG_LOCAL_FILE:-}" && -f "$BU_CONFIG_LOCAL_FILE" ]]; then
     if [[ "$_bu_embedder_config_file" != "$BU_DIR/config/bu_config_local.sh" ]]; then
         # shellcheck disable=SC1090
         source "$BU_CONFIG_LOCAL_FILE"
+        __bu_config_track_end "$_bu_embedder_config_file" local || true
     fi
     unset _bu_embedder_config_file
 fi
@@ -118,6 +128,7 @@ if [[ -d ./site ]]; then
     do
         [[ -f "$_bu_site_file" ]] || continue
         source "$_bu_site_file"
+        __bu_config_track_end "$BU_DIR/${_bu_site_file#./}" site || true
     done
     unset _bu_site_file
 fi
@@ -146,6 +157,11 @@ source ./config/bu_config_dynamic.sh
 BU_CURRENT_MODULE=$_bu_cur_module_prev
 
 bu_source_user_defined_configs
+
+# Core and module-config settings are registered now: exported values win
+# over the settings files sourced above (repeated at the end of activation
+# for settings registered by preinit callbacks).
+__bu_config_restore_user_values || true
 
 source ./lib/core/bu_core_var.sh --__bu-once
 source ./lib/core/bu_core_base.sh --__bu-once
@@ -207,6 +223,9 @@ fi
 popd &>/dev/null
 
 bu_source_user_defined_post_entrypoint_callbacks
+
+__bu_config_restore_user_values || true
+__bu_config_record_applied || true
 
 bu_log_info "Bash utils: fully set up"
 

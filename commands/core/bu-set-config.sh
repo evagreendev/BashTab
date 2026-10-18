@@ -410,6 +410,7 @@ then
         unset "$var"
         source "$BU_DIR"/config/bu_config_dynamic.sh
     fi
+    __bu_config_mark_applied "$var" default
     printf 'Unset %s in %s (default applies)\n' "$var" "$file"
     bu_scope_pop_function
     return 0
@@ -443,6 +444,23 @@ __bu_set_config_write_block "$_new_body"
 
 # Take effect immediately in the current shell (this command is sourced).
 declare -g "$var=$value"
+
+# Provenance: the checkout-local or embedder settings file is "local" (sourced
+# on activation); any other target (--layer, --file) is "layer".
+local _abs_file=$file
+[[ "$_abs_file" == /* ]] || _abs_file=$PWD/${_abs_file#./}
+local _origin=layer
+if [[ "$file" == "${BU_CONFIG_LOCAL_FILE:-"$BU_DIR"/config/bu_config_local.sh}" ]]
+then
+    _origin=local
+fi
+__bu_config_mark_applied "$var" "$_origin" "$_abs_file"
+
+# Exported values win over settings files on activation
+if [[ "${!var@a}" == *x* ]]
+then
+    bu_log_warn "$var is exported: this shell now uses the new value, but an activation where $var is exported (e.g. from your shell profile) keeps the exported value instead"
+fi
 
 printf 'Set %s=%s in %s\n' "$var" "$value" "$file"
 bu_scope_pop_function

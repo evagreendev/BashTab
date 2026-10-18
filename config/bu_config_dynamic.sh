@@ -4,7 +4,9 @@ source "$BU_NULL"
 # Each setting is first declared with `bu_config_register` (metadata driving
 # `bu set-config` validation/completion/listing), then assigned with
 # ${VAR:-registered-default}: values set earlier (environment, or the
-# machine-local config/bu_config_local.sh via `bu set-config`) take precedence.
+# machine-local config/bu_config_local.sh via `bu set-config`) take precedence,
+# and exported values beat the settings files (see "Settings precedence and
+# provenance" in docs/technical_reference.md).
 
 # ```
 # Whether to ignore cache when running bu_cached_execute

@@ -3,7 +3,7 @@
 # Dispatch: source
 # Synopsis: List BashTab configuration settings
 # Help-Topic: config
-# Fields: name value default allowed module description
+# Fields: name value origin default allowed module description location
 function __bu_bu_get_config_main()
 {
 # --is-compatible: no external dependencies
@@ -49,7 +49,7 @@ do
         ;;
     --columns)# COLUMNS
         # Fields to display, in order (comma-separated)
-        bu_parse_positional $# --hint "Comma-separated fields: name value default allowed module description"
+        bu_parse_positional $# --hint "Comma-separated fields: name value origin default allowed module description location"
         columns=${!shift_by}
         ;;
     -h|--help)# _FLAG
@@ -85,24 +85,62 @@ then
     return 0
 fi
 
+# Last assignment line of each setting in the settings files that set one,
+# for the location column (each file read once, in-process).
+local -A assign_line=()
+local -a file_lines=()
+local -r assign_re='^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)='
+local file i
+for file in "${BU_CONFIG_SOURCE_FILE[@]}"
+do
+    [[ -v "assign_line[$file,]" ]] && continue
+    assign_line[$file,]=scanned
+    [[ -r "$file" ]] || continue
+    mapfile -t file_lines < "$file"
+    for i in "${!file_lines[@]}"
+    do
+        if [[ "${file_lines[i]}" =~ $assign_re ]]
+        then
+            assign_line[$file,${BASH_REMATCH[2]}]=$((i + 1))
+        fi
+    done
+done
+
 # Stream TSV records (zero forks in the loop), recordify once, then
 # let bu_out decide presentation (table on a terminal, JSONL when piped).
 {
-    local key name current
+    local key name current origin location
     for key in "${!BU_CONFIG_PROPERTIES[@]}"
     do
         [[ "$key" == *,registered ]] || continue
         name=${key%,registered}
         current=${!name:-}
-        printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+        # Origin: changed in the shell since activation, else who set it on
+        # activation (env, shell, local, site, layer), else the default.
+        if [[ -v "__BU_CONFIG_APPLIED[$name]" && "${!name-}" != "${__BU_CONFIG_APPLIED[$name]}" ]]
+        then
+            origin=shell
+            location=
+        elif [[ -n "${BU_CONFIG_ORIGIN[$name]:-}" ]]
+        then
+            origin=${BU_CONFIG_ORIGIN[$name]}
+            file=${BU_CONFIG_SOURCE_FILE[$name]:-}
+            location=$file${assign_line[$file,$name]:+:${assign_line[$file,$name]}}
+        else
+            origin=default
+            location=${BU_CONFIG_PROPERTIES[$name,defined_at]:-}
+        fi
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "$name" \
             "${current:-(unset)}" \
+            "$origin" \
             "${BU_CONFIG_PROPERTIES[$name,default]:-}" \
             "${BU_CONFIG_PROPERTIES[$name,enum]:-${BU_CONFIG_PROPERTIES[$name,bool]:+true|false}}" \
             "${BU_CONFIG_PROPERTIES[$name,module]:-}" \
-            "${BU_CONFIG_PROPERTIES[$name,hint]:-}"
+            "${BU_CONFIG_PROPERTIES[$name,hint]:-}" \
+            "$location"
     done
-} | bu_out_from_tsv --columns name,value,default,allowed,module,description | bu_out --format "$format" ${columns:+--columns "$columns"}
+} | bu_out_from_tsv --columns name,value,origin,default,allowed,module,description,location | bu_out --format "$format" ${columns:+--columns "$columns"}
 
 bu_scope_pop_function
 }

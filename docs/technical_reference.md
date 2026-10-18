@@ -101,6 +101,39 @@ This populates:
 
 `bu get-module` reads `BU_MODULE_LIST` to display loaded modules with name, version, and path.
 
+### Settings precedence and provenance
+
+Settings registered with `bu_config_register` resolve, highest first:
+
+1. **Exported variables**, including one-off overrides such as
+   `BU_LOG_LVL=1 source ./activate`.
+2. **Settings files**: the checkout-local `config/bu_config_local.sh`, the
+   embedder's `BU_CONFIG_LOCAL_FILE`, then `site/*.sh`. They use plain
+   `VAR=value` assignments, so the last file sourced wins, and sourcing a
+   file by hand applies it.
+3. **Registered defaults** (`VAR=${VAR:-default}` after the register call).
+
+`bu_entrypoint.sh` saves the exported values before sourcing the settings
+files and restores them afterwards (registered settings only). On
+re-activation in the same shell, unexported values of registered settings
+are reset first, so an edited settings file or default applies again. A
+value you set in the shell survives re-activation only if you `export` it.
+An unexported value set before the *first* activation in a shell is kept.
+
+`bu get-config` reports where each value came from:
+
+| `origin` | Meaning | `location` |
+|---|---|---|
+| `env` | Exported before activation | empty |
+| `shell` | Set unexported before the first activation, or changed in the shell after activation | empty |
+| `local` | The checkout-local or embedder settings file (including `bu set-config`) | `file:line` of the last assignment |
+| `site` | A `site/*.sh` file | `file:line` when the assignment is a plain `VAR=`/`export VAR=` line, else `file` |
+| `layer` | `bu set-config --layer`/`--file` in this shell | `file:line` |
+| `default` | None of the above | where the setting is registered |
+
+`bu set-config` warns when the variable is exported, since an exported value
+keeps winning on later activations.
+
 ### Initialization callable functions
 Another point of customization are the pre-init functions. They are found in [bu_core_preinit.sh][bu_core_preinit]. They all have the `bu_preinit_` prefix.
 

@@ -72,7 +72,14 @@ bu_basic_log_debug()
     # Bootstrap debug logs (e.g. "sourcing(--__bu-once) ...") fire before the
     # repo configs are loaded, so they gate on a dedicated boolean rather than
     # BU_LOG_LVL. Enable via `bu set-config BU_BOOTSTRAP_VERBOSE true`.
-    [[ "${BU_BOOTSTRAP_VERBOSE:-false}" == true ]] || return 0
+    local verbose=${BU_BOOTSTRAP_VERBOSE:-false}
+    # Until the entrypoint restores exported values over the settings files,
+    # an exported BU_BOOTSTRAP_VERBOSE must already win here.
+    if [[ "${__BU_CONFIG_RESTORE_PENDING:-}" == true && -v '__BU_CONFIG_USER[BU_BOOTSTRAP_VERBOSE]' ]]
+    then
+        verbose=${__BU_CONFIG_USER[BU_BOOTSTRAP_VERBOSE]}
+    fi
+    [[ "$verbose" == true ]] || return 0
     __bu_basic_log DEBUG "$*"
 }
 
@@ -136,6 +143,25 @@ declare -A -g BU_CONFIG_PROPERTIES=()
 # function that prints the layer's settings file path for the current context.
 # The "local" layer is built-in (the machine-local settings file).
 declare -A -g BU_CONFIG_LAYER_RESOLVERS=()
+
+# Settings provenance. Exported values belong to the user: the entrypoint
+# saves them before sourcing the settings files and restores them afterwards,
+# so the environment beats persisted settings while the files keep plain
+# VAR=value assignments (re-sourcing a file by hand still applies it).
+#   __BU_CONFIG_USER       name -> value the user supplied before activation
+#   __BU_CONFIG_USER_KIND  name -> env (exported) or shell (unexported, only
+#                          kept on the first activation in a shell)
+#   BU_CONFIG_ORIGIN       name -> local | site | layer: who set the value
+#   BU_CONFIG_SOURCE_FILE  name -> absolute path of the file that set it
+#   __BU_CONFIG_APPLIED    name -> value at the end of activation (or the last
+#                          `bu set-config`), to spot later edits in the shell
+#   __BU_CONFIG_SNAP       scratch snapshot for attributing file assignments
+declare -A -g __BU_CONFIG_USER=()
+declare -A -g __BU_CONFIG_USER_KIND=()
+declare -A -g BU_CONFIG_ORIGIN=()
+declare -A -g BU_CONFIG_SOURCE_FILE=()
+declare -A -g __BU_CONFIG_APPLIED=()
+declare -A -g __BU_CONFIG_SNAP=()
 
 # ```
 # *Description*:
@@ -336,6 +362,214 @@ bu_config_register()
     then
         BU_CONFIG_PROPERTIES[$name,module]=$BU_CURRENT_MODULE
     fi
+    # Where the setting is declared (first line of the register call), for
+    # the location of a defaulted setting in `bu get-config`.
+    local src=${BASH_SOURCE[1]:-}
+    if [[ -n "$src" ]]
+    then
+        [[ "$src" == /* ]] || src=$PWD/${src#./}
+        BU_CONFIG_PROPERTIES[$name,defined_at]=$src:${BASH_LINENO[0]}
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
+# Collect the names of all variables matching BU_CONFIG_NAME_PREFIXES.
+# Uses ${!PREFIX@} (via eval on a validated identifier), so no subshells.
+#
+# *Params*: None
+#
+# *Returns*:
+# - `BU_RET`: the variable names
+# ```
+__bu_config_prefixed_names()
+{
+    local prefix
+    local -a names=()
+    BU_RET=()
+    for prefix in "${BU_CONFIG_NAME_PREFIXES[@]}"
+    do
+        [[ "$prefix" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+        eval 'names=(${!'"$prefix"'@})'
+        BU_RET+=("${names[@]}")
+    done
+    return 0
+}
+
+# ```
+# *Description*:
+# Save the setting values the user supplied, before the entrypoint sources
+# the settings files. Exported variables are the user's. Unexported values
+# of settings registered by an earlier activation in this shell are what
+# that activation applied, so they are unset to let the settings files and
+# defaults apply again; other unexported values (first activation) are kept
+# as the user's too.
+#
+# *Params*: None
+#
+# *Returns*: None (always 0)
+# ```
+__bu_config_save_user_values()
+{
+    local name attrs
+    __BU_CONFIG_USER=()
+    __BU_CONFIG_USER_KIND=()
+    BU_CONFIG_ORIGIN=()
+    BU_CONFIG_SOURCE_FILE=()
+    __BU_CONFIG_RESTORE_PENDING=true
+    __bu_config_prefixed_names
+    for name in "${BU_RET[@]}"
+    do
+        [[ -v "$name" ]] || continue
+        attrs=${!name@a}
+        # Settings are scalars
+        [[ "$attrs" == *[aAn]* ]] && continue
+        if [[ "$attrs" == *x* ]]
+        then
+            __BU_CONFIG_USER[$name]=${!name}
+            __BU_CONFIG_USER_KIND[$name]=env
+        elif [[ "${BU_CONFIG_PROPERTIES[$name,registered]:-}" == true ]]
+        then
+            [[ "$attrs" == *r* ]] || unset "$name"
+        else
+            __BU_CONFIG_USER[$name]=${!name}
+            __BU_CONFIG_USER_KIND[$name]=shell
+        fi
+    done
+    return 0
+}
+
+# ```
+# *Description*:
+# Snapshot the prefixed variables, so __bu_config_track_end can tell which
+# ones the next settings file assigned.
+#
+# *Params*: None
+#
+# *Returns*: None (always 0)
+# ```
+__bu_config_track_begin()
+{
+    local name
+    __BU_CONFIG_SNAP=()
+    __bu_config_prefixed_names
+    for name in "${BU_RET[@]}"
+    do
+        [[ -v "$name" ]] && __BU_CONFIG_SNAP[$name]=${!name}
+    done
+    return 0
+}
+
+# ```
+# *Description*:
+# Attribute the variables assigned since the last snapshot to a settings
+# file, then update the snapshot for the next file.
+#
+# *Params*:
+# - `$1`: Absolute path of the settings file just sourced
+# - `$2`: Origin to record (`local` or `site`)
+#
+# *Returns*: None (always 0)
+# ```
+__bu_config_track_end()
+{
+    local -r file=$1
+    local -r origin=$2
+    local name
+    __bu_config_prefixed_names
+    for name in "${BU_RET[@]}"
+    do
+        [[ -v "$name" ]] || continue
+        if [[ ! -v "__BU_CONFIG_SNAP[$name]" || "${__BU_CONFIG_SNAP[$name]}" != "${!name}" ]]
+        then
+            BU_CONFIG_ORIGIN[$name]=$origin
+            BU_CONFIG_SOURCE_FILE[$name]=$file
+            __BU_CONFIG_SNAP[$name]=${!name}
+        fi
+    done
+    return 0
+}
+
+# ```
+# *Description*:
+# Put the user's saved values back over whatever the settings files
+# assigned. Only registered settings are restored, so a settings file that
+# extends a non-setting variable (e.g. BU_MODULE_LIST) is not undone.
+# Idempotent: the entrypoint runs it once the core settings are registered
+# and again at the end for settings that modules register later.
+#
+# *Params*: None
+#
+# *Returns*: None (always 0)
+# ```
+__bu_config_restore_user_values()
+{
+    local key name
+    for key in "${!BU_CONFIG_PROPERTIES[@]}"
+    do
+        [[ "$key" == *,registered ]] || continue
+        name=${key%,registered}
+        [[ -v "__BU_CONFIG_USER[$name]" ]] || continue
+        if [[ "${!name-}" != "${__BU_CONFIG_USER[$name]}" ]]
+        then
+            printf -v "$name" '%s' "${__BU_CONFIG_USER[$name]}" || true
+        fi
+        BU_CONFIG_ORIGIN[$name]=${__BU_CONFIG_USER_KIND[$name]}
+        unset 'BU_CONFIG_SOURCE_FILE[$name]'
+    done
+    __BU_CONFIG_RESTORE_PENDING=false
+    return 0
+}
+
+# ```
+# *Description*:
+# Record the value of every registered setting at the end of activation,
+# so `bu get-config` can tell when one was changed in the shell afterwards.
+#
+# *Params*: None
+#
+# *Returns*: None (always 0)
+# ```
+__bu_config_record_applied()
+{
+    local key name
+    __BU_CONFIG_APPLIED=()
+    for key in "${!BU_CONFIG_PROPERTIES[@]}"
+    do
+        [[ "$key" == *,registered ]] || continue
+        name=${key%,registered}
+        __BU_CONFIG_APPLIED[$name]=${!name-}
+    done
+    return 0
+}
+
+# ```
+# *Description*:
+# Record a value `bu set-config` just applied in this shell, so provenance
+# follows it instead of reporting a change in the shell.
+#
+# *Params*:
+# - `$1`: Setting name
+# - `$2`: Origin: `local`, `layer`, or `default` (after --unset)
+# - `$3`: Settings file written (ignored for `default`)
+#
+# *Returns*: None (always 0)
+# ```
+__bu_config_mark_applied()
+{
+    local -r name=$1
+    local -r origin=$2
+    local -r file=${3:-}
+    unset '__BU_CONFIG_USER[$name]' '__BU_CONFIG_USER_KIND[$name]'
+    if [[ "$origin" == default ]]
+    then
+        unset 'BU_CONFIG_ORIGIN[$name]' 'BU_CONFIG_SOURCE_FILE[$name]'
+    else
+        BU_CONFIG_ORIGIN[$name]=$origin
+        BU_CONFIG_SOURCE_FILE[$name]=$file
+    fi
+    __BU_CONFIG_APPLIED[$name]=${!name-}
     return 0
 }
 

@@ -522,6 +522,166 @@ SCRIPT_EOF
 }
 
 # ===========================================================================
+# Settings precedence and provenance
+#
+# Exported variables > settings files > registered defaults. The entrypoint
+# saves exported values before sourcing the settings files and restores them
+# afterwards; on re-activation it resets unexported values of registered
+# settings so edited files and defaults apply again.
+# ===========================================================================
+
+# Throwaway BU_DIR without the developer's config/bu_config_local.sh (see
+# test_config_local_file_sourced_once_when_default)
+__config_test_minrepo()
+{
+    local -r minrepo=$1
+    mkdir -p "$minrepo/config" "$minrepo/site"
+    ln -s "$DIR/../bu_entrypoint.sh" "$minrepo/bu_entrypoint.sh"
+    ln -s "$DIR/../bu_custom_source.sh" "$minrepo/bu_custom_source.sh"
+    ln -s "$DIR/../lib" "$minrepo/lib"
+    ln -s "$DIR/../config/bu_config_static.sh" "$minrepo/config/bu_config_static.sh"
+    ln -s "$DIR/../config/bu_config_dynamic.sh" "$minrepo/config/bu_config_dynamic.sh"
+}
+
+function test_config_exported_value_beats_settings_file { #@test
+    local settings="$BATS_TEST_TMPDIR/settings.sh"
+    printf 'BU_TABLE_PAGER=preset:never\n' > "$settings"
+
+    run env BU_CONFIG_LOCAL_FILE="$settings" BU_TABLE_PAGER=preset:less bash -c \
+        'source "$1"/bu_entrypoint.sh >/dev/null 2>&1; printf "%s|%s" "$BU_TABLE_PAGER" "${BU_CONFIG_ORIGIN[BU_TABLE_PAGER]}"' \
+        _ "$DIR/.."
+    assert_success
+    assert_output "preset:less|env"
+}
+
+function test_config_exported_bootstrap_verbose_wins_during_bootstrap { #@test
+    # BU_BOOTSTRAP_VERBOSE is read before the restore point, so the exported
+    # value must already win while the remaining files are being sourced.
+    local settings="$BATS_TEST_TMPDIR/settings.sh"
+    printf 'BU_BOOTSTRAP_VERBOSE=true\n' > "$settings"
+
+    # Control: the settings file alone turns bootstrap logging on
+    env -u BU_BOOTSTRAP_VERBOSE BU_CONFIG_LOCAL_FILE="$settings" bash -c \
+        'source "$1"/bu_entrypoint.sh >/dev/null 2>"$2"' _ "$DIR/.." "$BATS_TEST_TMPDIR/on.log"
+    grep -q '^DEBUG' "$BATS_TEST_TMPDIR/on.log"
+
+    env BU_CONFIG_LOCAL_FILE="$settings" BU_BOOTSTRAP_VERBOSE=false bash -c \
+        'source "$1"/bu_entrypoint.sh >/dev/null 2>"$2"' _ "$DIR/.." "$BATS_TEST_TMPDIR/off.log"
+    ! grep -q '^DEBUG' "$BATS_TEST_TMPDIR/off.log"
+}
+
+function test_config_first_activation_keeps_unexported_value { #@test
+    run env -u BU_QUERY_EXECUTOR bash -c \
+        'BU_QUERY_EXECUTOR=combined; source "$1"/bu_entrypoint.sh >/dev/null 2>&1; printf "%s|%s" "$BU_QUERY_EXECUTOR" "${BU_CONFIG_ORIGIN[BU_QUERY_EXECUTOR]}"' \
+        _ "$DIR/.."
+    assert_success
+    assert_output "combined|shell"
+}
+
+function test_config_reactivation_rereads_settings_file { #@test
+    local minrepo="$BATS_TEST_TMPDIR/minrepo"
+    __config_test_minrepo "$minrepo"
+    local settings="$minrepo/config/bu_config_local.sh"
+    printf 'BU_TABLE_PAGER=preset:never\n' > "$settings"
+
+    # Edited value applies, then a removed line falls back to the default
+    run env -u BU_TABLE_PAGER BU_CONFIG_LOCAL_FILE="$settings" bash -c '
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        printf "BU_TABLE_PAGER=bat\n" > "$BU_CONFIG_LOCAL_FILE"
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        edited=$BU_TABLE_PAGER
+        : > "$BU_CONFIG_LOCAL_FILE"
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        [[ "$BU_TABLE_PAGER" == "${BU_CONFIG_PROPERTIES[BU_TABLE_PAGER,default]}" ]] && removed=default
+        printf "%s|%s" "$edited" "${removed:-$BU_TABLE_PAGER}"' \
+        _ "$minrepo"
+    assert_success
+    assert_output "bat|default"
+}
+
+function test_config_reactivation_keeps_exported_resets_unexported { #@test
+    local settings="$BATS_TEST_TMPDIR/settings.sh"
+    printf 'BU_TABLE_PAGER=preset:never\nBU_QUERY_EXECUTOR=pipeline\n' > "$settings"
+
+    run env -u BU_TABLE_PAGER -u BU_QUERY_EXECUTOR BU_CONFIG_LOCAL_FILE="$settings" bash -c '
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        export BU_TABLE_PAGER=preset:less
+        BU_QUERY_EXECUTOR=combined
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        printf "%s|%s|%s|%s" "$BU_TABLE_PAGER" "${BU_CONFIG_ORIGIN[BU_TABLE_PAGER]}" \
+            "$BU_QUERY_EXECUTOR" "${BU_CONFIG_ORIGIN[BU_QUERY_EXECUTOR]}"' \
+        _ "$DIR/.."
+    assert_success
+    assert_output "preset:less|env|pipeline|local"
+}
+
+function test_config_set_config_twice_then_reactivate_and_resource { #@test
+    local settings="$BATS_TEST_TMPDIR/settings.sh"
+
+    run env -u BU_TABLE_PAGER BU_CONFIG_LOCAL_FILE="$settings" bash -c '
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        bu set-config BU_TABLE_PAGER preset:less >/dev/null 2>&1
+        bu set-config BU_TABLE_PAGER preset:never >/dev/null 2>&1
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        reactivated=$BU_TABLE_PAGER
+        BU_TABLE_PAGER=other
+        source "$BU_CONFIG_LOCAL_FILE"
+        printf "%s|%s" "$reactivated" "$BU_TABLE_PAGER"' \
+        _ "$DIR/.."
+    assert_success
+    assert_output "preset:never|preset:never"
+}
+
+function test_config_site_file_provenance { #@test
+    local minrepo="$BATS_TEST_TMPDIR/minrepo"
+    __config_test_minrepo "$minrepo"
+    printf '# site glue\nBU_TABLE_PAGER=preset:never\n' > "$minrepo/site/10-test.sh"
+
+    run env -u BU_TABLE_PAGER -u BU_CONFIG_LOCAL_FILE bash -c \
+        'source "$1/bu_entrypoint.sh" >/dev/null 2>&1; printf "%s|%s|%s" "$BU_TABLE_PAGER" "${BU_CONFIG_ORIGIN[BU_TABLE_PAGER]}" "${BU_CONFIG_SOURCE_FILE[BU_TABLE_PAGER]}"' \
+        _ "$minrepo"
+    assert_success
+    assert_output "preset:never|site|$minrepo/site/10-test.sh"
+
+    # An exported value beats site glue too
+    run env -u BU_CONFIG_LOCAL_FILE BU_TABLE_PAGER=preset:less bash -c \
+        'source "$1/bu_entrypoint.sh" >/dev/null 2>&1; printf "%s|%s" "$BU_TABLE_PAGER" "${BU_CONFIG_ORIGIN[BU_TABLE_PAGER]}"' \
+        _ "$minrepo"
+    assert_success
+    assert_output "preset:less|env"
+}
+
+function test_get_config_origin_and_location { #@test
+    local out
+
+    # local: the managed block line (line 1 is the opener)
+    bu set-config BU_TABLE_PAGER preset:never >/dev/null 2>&1
+    # shell: changed after activation
+    if [[ "$BU_QUERY_EXECUTOR" == combined ]]; then BU_QUERY_EXECUTOR=pipeline; else BU_QUERY_EXECUTOR=combined; fi
+    # default: registered and assigned outside any settings file
+    bu_config_register BU_TEST_PROVENANCE --default x --hint "provenance test"
+    BU_TEST_PROVENANCE=x
+
+    out=$(bu get-config --format jsonl 2>/dev/null)
+    assert_equal "$(jq -r 'select(.name == "BU_TABLE_PAGER") | "\(.origin)|\(.location)"' <<<"$out")" \
+        "local|$BU_CONFIG_LOCAL_FILE:2"
+    assert_equal "$(jq -r 'select(.name == "BU_QUERY_EXECUTOR") | "\(.origin)|\(.location)"' <<<"$out")" \
+        "shell|"
+    assert_equal "$(jq -r 'select(.name == "BU_TEST_PROVENANCE") | .origin' <<<"$out")" default
+    [[ "$(jq -r 'select(.name == "BU_TEST_PROVENANCE") | .location' <<<"$out")" == *:[0-9]* ]]
+
+    # A core setting's declaration is the first line of its register call
+    local line
+    line=$(grep -n '^bu_config_register BU_QUERY_EXECUTOR' "$BU_DIR/config/bu_config_dynamic.sh" | cut -d: -f1)
+    assert_equal "${BU_CONFIG_PROPERTIES[BU_QUERY_EXECUTOR,defined_at]}" "$BU_DIR/config/bu_config_dynamic.sh:$line"
+
+    # --unset returns provenance to the default
+    bu set-config --unset BU_TABLE_PAGER >/dev/null 2>&1
+    out=$(bu get-config --format jsonl 2>/dev/null)
+    assert_equal "$(jq -r 'select(.name == "BU_TABLE_PAGER") | .origin' <<<"$out")" default
+}
+
+# ===========================================================================
 # Documentation/registry default consistency
 # ===========================================================================
 
