@@ -62,11 +62,15 @@ source ./activate --__bu-inline ./inline.sh
 ### Initialization Flow
 
 1. `bu_entrypoint.sh` - Main entry point that orchestrates loading
-2. Parses `BU_MODULE_LIST` (the sole module registry)
-3. Loads static config (`config/bu_config_static.sh`)
-4. Loads dynamic config (`config/bu_config_dynamic.sh`)
-5. Sources all core modules
-6. Runs pre-init callbacks, then main init, then post-entrypoint callbacks
+2. Config phase `static` (`config/bu_config_static.sh` + modules' `NAME_bu_config.static.sh`): resolved once per shell, exported, final (re-activation only restores changed values). Includes `BU_OUT_DIR` and the env-only `BU_MODULE_LIST`, `BU_TOP_LEVEL_MODULE`, `BU_CONFIG_LOCAL_FILE`
+3. Config phase `main` (`config/bu_config_dynamic.sh` + modules' `NAME_bu_config.sh`): registrations only; resolved every activation from exported values > settings files > defaults (a generated vars file)
+4. Sources all core modules, parses `BU_MODULE_LIST` (the sole module registry)
+5. Runs pre-init callbacks, then main init, then post-entrypoint callbacks
+
+Register settings only inside a config phase (`bu_config_register` in those
+files, or between `bu_config_phase_begin`/`bu_config_phase_end` for a phase
+of your own, e.g. profiles via `--variant`); never assign their defaults by
+hand. See "Settings precedence and provenance" in `docs/technical_reference.md`.
 
 ### ⚠️ Custom `source` Function (read this before writing sourced files)
 
@@ -443,6 +447,12 @@ BU_MODULE_LIST+="libname:0.1.0:/path/to/lib_preinit.sh;"
 `bu_entrypoint.sh` calls `__bu_parse_module_list` which dedupes by name,
 populates `BU_MODULE_REGISTRY` for `bu get-module`, and registers each
 preinit callback to be sourced during init.
+
+A module registers its settings in `NAME_bu_config.sh` (main config phase)
+and `NAME_bu_config.static.sh` (static phase) next to its preinit; the
+entrypoint sources them while those phases are open, with
+`BU_CURRENT_MODULE_DIR` set to the module's directory. Registering settings
+from the preinit instead warns.
 
 - `bu new-module --name myapp` — scaffold a module
 - `bu get-module` — list loaded modules with name, version, path

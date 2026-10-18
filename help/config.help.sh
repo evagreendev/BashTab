@@ -48,11 +48,28 @@ ${BU_TPUT_BOLD}DESCRIPTION${BU_TPUT_RESET}
     Settings live in a small cascade; the first source that defines a value
     wins:
 
-        environment  >  machine-local file  >  registered default
+        exported variable  >  settings file  >  registered default
 
-    The machine-local file is managed by bu set-config inside a "managed
-    block" so hand-written lines outside it are never clobbered (and are
-    warned about when they would shadow or override the managed value).
+    A value set in the shell without export does not beat the settings file:
+    it is reset the next time its config phase runs. Settings files are
+    managed by bu set-config inside a "managed block" so hand-written lines
+    outside it are never clobbered (and are warned about when they would
+    shadow or override the managed value).
+
+${BU_TPUT_BOLD}PHASES${BU_TPUT_RESET}
+    Every setting belongs to one config phase, which owns its settings file:
+
+        static    bu_config_local.static.sh   once per shell, then exported
+                                               and final until a new shell
+        main      bu_config_local.sh, site/   every activation
+        NAME      bu_config_local.NAME.sh     phases a project adds
+                  (+ .NAME.VARIANT.sh)        (e.g. profiles, as variants)
+
+    bu set-config writes a setting to its phase's file. A file that assigns
+    another phase's setting is ignored with a warning. Env-only settings
+    (BU_CONFIG_LOCAL_FILE, BU_TOP_LEVEL_MODULE, BU_MODULE_LIST) come only from
+    the environment. Modules register settings in NAME_bu_config.sh (main) and
+    NAME_bu_config.static.sh (static) next to their preinit.
 
 ${BU_TPUT_BOLD}LAYERS${BU_TPUT_RESET}
     A "layer" is a named settings file resolved for the current context. The
@@ -84,8 +101,13 @@ ${BU_TPUT_BOLD}TYPICAL FLOWS${BU_TPUT_RESET}
     Read the whole surface:
         bu get-config
 
-    Change a setting (takes effect in the current shell immediately):
+    Change a setting (takes effect in the current shell immediately; a
+    static setting takes effect in a new shell):
         bu set-config BU_LOG_LVL debug
+
+    Change it for one variant of a phase, or for all of them:
+        bu set-config --variant prod MYAPP_URL https://prod.example
+        bu set-config --all-variants MYAPP_REGION eu
 
     Revert to the registered default:
         bu set-config --unset BU_LOG_LVL
@@ -114,6 +136,17 @@ ${BU_TPUT_BOLD}FAILURE SIGNATURES${BU_TPUT_RESET}
         The settings file's managed block was hand-edited. Restore exactly one
         opener+closer pair (or delete both markers) and retry.
 
+    "...: ignoring assignment to BU_X, a setting of config phase 'static'"
+        The settings file belongs to another phase. Set it in that phase's
+        file (bu set-config does this for you).
+
+    "BU_X is a static setting, final for this shell: keeping ..."
+        A static value changed after the shell activated. Open a new shell
+        (or bu import-environment --reset-source) to apply it.
+
+    "BU_X can only be set in the environment ..."
+        An env-only setting: export it before activating.
+
     "note: BU_X is also assigned AFTER the managed block ..."
         A hand-written assignment outside the managed block overrides (after)
         or is shadowed by (before) the value just set. File order wins.
@@ -121,5 +154,6 @@ ${BU_TPUT_BOLD}FAILURE SIGNATURES${BU_TPUT_RESET}
 ${BU_TPUT_BOLD}SEE ALSO${BU_TPUT_RESET}
     bu get-command          list commands and their output fields
     bu get-module           list loaded modules
-    config/bu_config_dynamic.sh   the built-in settings and their declarations
+    config/bu_config_static.sh    the built-in static settings
+    config/bu_config_dynamic.sh   the built-in main-phase settings
 EOF

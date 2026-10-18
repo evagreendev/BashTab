@@ -107,38 +107,86 @@ Settings registered with `bu_config_register` resolve, highest first:
 
 1. **Exported variables**, including one-off overrides such as
    `BU_LOG_LVL=1 source ./activate`.
-2. **Settings files**: the checkout-local `config/bu_config_local.sh`, the
-   embedder's `BU_CONFIG_LOCAL_FILE`, then `site/*.sh`. They use plain
+2. **Settings files** of the setting's config phase (below). They use plain
    `VAR=value` assignments, so the last file sourced wins, and sourcing a
    file by hand applies it.
 3. **Registered defaults** (`bu_config_register --default`).
 
-Settings are resolved in **config phases**. Every setting belongs to the
-phase that was open when it was registered (`bu_config_phase_begin NAME` …
-`bu_config_phase_end NAME`); `config/bu_config_dynamic.sh` registers the
-built-in `main` phase. Resolving a phase saves the exported values of its
-settings, resets their unexported values, sources the phase's settings files
-(`main`: the files above; phase `NAME`: `bu_config_local.NAME.sh`), restores
-the exported values, then applies the registered defaults by sourcing a vars
-file generated from the registry:
-`$BU_OUT_DIR/cache/config-vars/<top-level module>/<BashTab dir>/<phase>.sh`,
+#### Config phases
+
+Every setting belongs to exactly one **config phase**: the phase open when it
+was registered (`bu_config_phase_begin NAME` … `bu_config_phase_end NAME`).
+Resolving a phase saves the exported values of its settings, resets their
+unexported values, sources the phase's settings files (attributing each
+assignment to its file), restores the exported values, then applies the
+registered defaults by sourcing a vars file generated from the registry:
+`$BU_OUT_DIR/cache/config-vars/<top-level module>/<BashTab dir>/<phase>[.<variant>].sh`,
 one documented `NAME=${NAME:-default}` line per setting, rewritten only when
 the registrations change. A settings file that assigns a setting of another,
 already resolved phase is ignored with a warning.
+
+| Phase | Registered in | Settings files | Runs |
+|---|---|---|---|
+| `static` | `config/bu_config_static.sh`, modules' `NAME_bu_config.static.sh` | `bu_config_local.static.sh` | Once per shell, before almost all of BashTab |
+| `main` | `config/bu_config_dynamic.sh`, modules' `NAME_bu_config.sh` | `bu_config_local.sh`, then `site/*.sh` | Every activation |
+| `NAME` | Your code, between `bu_config_phase_begin NAME` and `bu_config_phase_end NAME` | `bu_config_local.NAME.sh`, then `bu_config_local.NAME.VARIANT.sh` | Whenever you run it |
+
+Each settings file exists in the checkout (`config/…`) and, when an embedder
+sets `BU_CONFIG_LOCAL_FILE`, next to it (`${BU_CONFIG_LOCAL_FILE%.sh}.NAME.sh`,
+read after the checkout's). `bu set-config` writes each setting to its phase's
+file.
 
 Only exported values beat the settings files: a value you set in the shell
 without `export` is reset whenever its phase runs (every activation for
 `main`).
 
-`bu get-config` reports where each value came from:
+**Static settings** (`bu_config_phase_begin NAME --static`) are final for the
+life of the shell. A value set before the phase runs counts as yours, exported
+or not; once resolved, the values are exported, so child processes (execute-type
+commands, nested shells) share them. On re-activation a static phase only
+restores any value that changed, with a warning; `bu set-config` stores a
+static setting for new shells without changing the live value, and
+`bu import-environment --reset-source` resolves the static phases again
+(keeping the values you supplied). **Env-only** static settings
+(`--env-only`: `BU_CONFIG_LOCAL_FILE`, `BU_TOP_LEVEL_MODULE`, `BU_MODULE_LIST`)
+choose the settings files and modules themselves, so only the environment can
+set them: settings files are ignored and `bu set-config` refuses them.
+
+**Variants** model profiles: `bu_config_phase_begin profile --variant dev`
+sources `bu_config_local.profile.sh` (all profiles) and then
+`bu_config_local.profile.dev.sh`, and uses `--default-for dev VALUE` defaults.
+Settings registered only for some variants appear and disappear as the phase
+runs again, `--prefix PREFIX` keeps a phase's names apart, and
+`bu_config_phase_unload` drops a phase. `bu set-config` writes the active
+variant's file (applied live); `--variant NAME` and `--all-variants` target
+another variant or the shared file, applied the next time the phase runs.
+
+```sh
+bu_config_phase_begin profile --variant "$MYAPP_PROFILE" --prefix MYAPP_
+bu_config_register MYAPP_API_URL --default-for dev https://dev.example \
+    --default-for prod https://prod.example --hint "API endpoint"
+[[ "$MYAPP_PROFILE" == dev ]] && bu_config_register MYAPP_MOCK_PORT --default 8080
+bu_config_phase_end profile
+```
+
+**Modules** register their settings in `NAME_bu_config.sh` (main phase) and
+`NAME_bu_config.static.sh` (static phase) next to their preinit, found from
+`BU_MODULE_LIST`; `BU_CURRENT_MODULE_DIR` is the module's directory while they
+run. Registering from a module's preinit instead (outside any phase) warns:
+the environment and settings files do not apply to such a setting.
+
+#### Provenance
+
+`bu get-config` reports each setting's `phase` (`profile[dev]` for a variant)
+and where its value came from:
 
 | `origin` | Meaning | `location` |
 |---|---|---|
-| `env` | Exported before activation | empty |
-| `shell` | Changed in the shell after its phase ran | empty |
-| `local` | The checkout-local or embedder settings file of the phase (including `bu set-config`) | `file:line` of the last assignment |
-| `callback` | A user-defined config callback (`BU_USER_DEFINED_*_CONFIGS`) | empty |
+| `env` | Exported before its phase ran | empty |
+| `shell` | Changed in the shell after its phase ran; for a static setting, set unexported before the phase ran | empty |
+| `local` | A settings file of its phase (including `bu set-config`) | `file:line` of the last assignment |
 | `site` | A `site/*.sh` file | `file:line` when the assignment is a plain `VAR=`/`export VAR=` line, else `file` |
+| `callback` | A user-defined config callback (`BU_USER_DEFINED_*_CONFIGS`) | empty |
 | `layer` | `bu set-config --layer`/`--file` in this shell | `file:line` |
 | `default` | None of the above | where the setting is registered |
 
