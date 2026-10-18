@@ -64,6 +64,7 @@ then
 fi
 
 source ./bu_custom_source.sh --__bu-once
+source ./lib/core/bu_core_config.sh --__bu-once
 
 # Settings precedence: exported variables > settings files > registered
 # defaults. Save the user's values now (and reset what an earlier activation
