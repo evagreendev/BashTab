@@ -139,6 +139,40 @@ bu_user_defined_autocomplete_lazy()
 
 # ```
 # *Description*:
+# Normalize BU_MODULE_LIST in place: drop empty and repeated entries (by
+# module name, first wins). BU_MODULE_LIST is a static setting, so the
+# entrypoint normalizes it before the static config phase finalizes it (and
+# before re-checking it on re-activation).
+#
+# *Params*: None
+#
+# *Returns*: None (always 0)
+# ```
+__bu_module_list_normalize()
+{
+    local entry name normalized=
+    local -A seen=()
+    local old_ifs=$IFS
+    IFS=';'
+    local -a entries=(${BU_MODULE_LIST:-})
+    IFS=$old_ifs
+    for entry in "${entries[@]}"
+    do
+        [[ -n "$entry" ]] || continue
+        name=${entry%%:*}
+        [[ -v "seen[$name]" ]] && continue
+        seen[$name]=1
+        normalized+="$entry;"
+    done
+    if [[ "${BU_MODULE_LIST-}" != "$normalized" ]]
+    then
+        BU_MODULE_LIST=$normalized
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
 # Parse BU_MODULE_LIST and register preinit callbacks + module registry entries.
 #
 # BU_MODULE_LIST is an exported scalar of the form:

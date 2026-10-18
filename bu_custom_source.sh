@@ -72,14 +72,7 @@ bu_basic_log_debug()
     # Bootstrap debug logs (e.g. "sourcing(--__bu-once) ...") fire before the
     # repo configs are loaded, so they gate on a dedicated boolean rather than
     # BU_LOG_LVL. Enable via `bu set-config BU_BOOTSTRAP_VERBOSE true`.
-    local verbose=${BU_BOOTSTRAP_VERBOSE:-false}
-    # Until the entrypoint restores exported values over the settings files,
-    # an exported BU_BOOTSTRAP_VERBOSE must already win here.
-    if [[ "${__BU_CONFIG_RESTORE_PENDING:-}" == true && -v '__BU_CONFIG_USER[BU_BOOTSTRAP_VERBOSE]' ]]
-    then
-        verbose=${__BU_CONFIG_USER[BU_BOOTSTRAP_VERBOSE]}
-    fi
-    [[ "$verbose" == true ]] || return 0
+    [[ "${BU_BOOTSTRAP_VERBOSE:-false}" == true ]] || return 0
     __bu_basic_log DEBUG "$*"
 }
 

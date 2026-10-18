@@ -8,15 +8,17 @@ setup() {
     # use $BATS_TEST_FILENAME instead of ${BASH_SOURCE[0]} or $0,
     # as those will point to the bats executable's location or the preprocessed file respectively
     DIR="$( cd "$( dirname "$BATS_TEST_FILENAME" )" >/dev/null 2>&1 && pwd )"
+    # Isolate the local settings file from the real repo config. Exported
+    # before activation: BU_CONFIG_LOCAL_FILE is a static setting, final once
+    # activated.
+    export BU_CONFIG_LOCAL_FILE="$BATS_TEST_TMPDIR/bu_config_local.sh"
+    rm -f "$BU_CONFIG_LOCAL_FILE"
+
     # shellcheck source=../bu_entrypoint.sh
     source "$DIR"/../bu_entrypoint.sh
 
     # shellcheck source=./test_helper/bu_bats_decl.sh
     source "$BU_NULL"
-
-    # Isolate the local settings file from the real repo config
-    BU_CONFIG_LOCAL_FILE="$BATS_TEST_TMPDIR/bu_config_local.sh"
-    rm -f "$BU_CONFIG_LOCAL_FILE"
 }
 
 function test_config_register_and_validate { #@test
@@ -555,10 +557,10 @@ function test_config_exported_value_beats_settings_file { #@test
 }
 
 function test_config_exported_bootstrap_verbose_wins_during_bootstrap { #@test
-    # BU_BOOTSTRAP_VERBOSE is read before the restore point, so the exported
-    # value must already win while the remaining files are being sourced.
+    # BU_BOOTSTRAP_VERBOSE is a static setting (bu_config_local.static.sh):
+    # final before the rest of BashTab is sourced, and an exported value wins.
     local settings="$BATS_TEST_TMPDIR/settings.sh"
-    printf 'BU_BOOTSTRAP_VERBOSE=true\n' > "$settings"
+    printf 'BU_BOOTSTRAP_VERBOSE=true\n' > "$BATS_TEST_TMPDIR/settings.static.sh"
 
     # Control: the settings file alone turns bootstrap logging on
     env -u BU_BOOTSTRAP_VERBOSE BU_CONFIG_LOCAL_FILE="$settings" bash -c \
@@ -745,6 +747,104 @@ function test_config_custom_phase { #@test
     assert_equal "${BU_CONFIG_PROPERTIES[BU_TEST_EXTRA_B,registered]:-}" ""
     [[ ! -v BU_TEST_EXTRA_B ]]
     assert_equal "$BU_TEST_EXTRA_C" exported
+}
+
+# ===========================================================================
+# Static config phase: resolved once per shell, exported, final
+# ===========================================================================
+
+function test_config_static_setting_from_static_file { #@test
+    local settings="$BATS_TEST_TMPDIR/settings.sh"
+    printf 'BU_EXIT_HANDLER_VSCODE_POPUP=true\n' > "$BATS_TEST_TMPDIR/settings.static.sh"
+    # A static setting in the regular settings file is ignored, with a warning
+    printf 'BU_OUT_DIR=/tmp/not-here\n' > "$settings"
+
+    run --separate-stderr env -u BU_EXIT_HANDLER_VSCODE_POPUP BU_CONFIG_LOCAL_FILE="$settings" bash -c '
+        source "$1"/bu_entrypoint.sh >/dev/null
+        printf "%s|%s|%s|%s" "$BU_EXIT_HANDLER_VSCODE_POPUP" "${BU_CONFIG_ORIGIN[BU_EXIT_HANDLER_VSCODE_POPUP]}" \
+            "${BU_EXIT_HANDLER_VSCODE_POPUP@a}" "$BU_OUT_DIR"' \
+        _ "$DIR/.."
+    assert_success
+    assert_output "true|local|x|${BU_OUT_DIR}"
+    [[ "$stderr" == *"ignoring assignment to BU_OUT_DIR, a setting of config phase 'static'"* ]]
+}
+
+function test_config_static_setting_final_for_the_shell { #@test
+    run --separate-stderr env BU_CONFIG_LOCAL_FILE="$BATS_TEST_TMPDIR/settings.sh" bash -c '
+        source "$1"/bu_entrypoint.sh >/dev/null
+        first=$BU_OUT_DIR
+        export BU_OUT_DIR=/tmp/changed-later
+        source "$1"/bu_entrypoint.sh >/dev/null
+        [[ "$BU_OUT_DIR" == "$first" ]] && echo kept' \
+        _ "$DIR/.."
+    assert_success
+    assert_output kept
+    [[ "$stderr" == *"BU_OUT_DIR is a static setting, final for this shell"* ]]
+}
+
+function test_config_static_unexported_value_counts { #@test
+    # Set before the static phase, without export: still the user's (statics
+    # are exported once final, so child processes see the same value)
+    run env -u BU_EXIT_HANDLER_VSCODE_POPUP bash -c '
+        BU_EXIT_HANDLER_VSCODE_POPUP=true
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        printf "%s|%s|%s" "$BU_EXIT_HANDLER_VSCODE_POPUP" "${BU_CONFIG_ORIGIN[BU_EXIT_HANDLER_VSCODE_POPUP]}" \
+            "$(bash -c "printf %s \"\$BU_EXIT_HANDLER_VSCODE_POPUP\"")"' \
+        _ "$DIR/.."
+    assert_success
+    assert_output "true|shell|true"
+}
+
+function test_config_env_only_settings { #@test
+    # Settings files cannot set them...
+    printf 'BU_TOP_LEVEL_MODULE=from-file\n' > "$BATS_TEST_TMPDIR/settings.static.sh"
+    run --separate-stderr env BU_TOP_LEVEL_MODULE=from-env BU_CONFIG_LOCAL_FILE="$BATS_TEST_TMPDIR/settings.sh" bash -c '
+        source "$1"/bu_entrypoint.sh >/dev/null
+        printf "%s|%s" "$BU_TOP_LEVEL_MODULE" "${BU_CONFIG_ORIGIN[BU_TOP_LEVEL_MODULE]}"' \
+        _ "$DIR/.."
+    assert_success
+    assert_output "from-env|env"
+    [[ "$stderr" == *"ignoring assignment to BU_TOP_LEVEL_MODULE, which only the environment can set"* ]]
+
+    # ...and neither can bu set-config
+    run bu set-config BU_CONFIG_LOCAL_FILE /tmp/x
+    assert_failure
+    assert_output --partial "can only be set in the environment"
+}
+
+function test_set_config_static_setting_writes_static_file { #@test
+    local live=$BU_BOOTSTRAP_VERBOSE
+    run bu set-config BU_BOOTSTRAP_VERBOSE true
+    assert_success
+    assert_output --partial "takes effect in a new shell"
+    grep -qx 'BU_BOOTSTRAP_VERBOSE=true' "${BU_CONFIG_LOCAL_FILE%.sh}.static.sh"
+    ! grep -q BU_BOOTSTRAP_VERBOSE "$BU_CONFIG_LOCAL_FILE" 2>/dev/null
+    bu set-config BU_BOOTSTRAP_VERBOSE true >/dev/null
+    assert_equal "$BU_BOOTSTRAP_VERBOSE" "$live"
+}
+
+function test_config_module_list_normalized_before_final { #@test
+    run env BU_MODULE_LIST='a:1:/nonexistent/a.sh;b:1:/nonexistent/b.sh;a:1:/nonexistent/a.sh;;' bash -c '
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        printf "%s|%s" "$BU_MODULE_LIST" "${__BU_CONFIG_APPLIED[BU_MODULE_LIST]}"' \
+        _ "$DIR/.."
+    assert_success
+    assert_output "a:1:/nonexistent/a.sh;b:1:/nonexistent/b.sh;|a:1:/nonexistent/a.sh;b:1:/nonexistent/b.sh;"
+}
+
+function test_config_static_reset_resolves_again { #@test
+    # bu import-environment --reset-source: BashTab-set statics are dropped,
+    # user-supplied ones kept, and the static phase runs again
+    run env -u BU_EXIT_HANDLER_VSCODE_POPUP BU_CONFIG_LOCAL_FILE="$BATS_TEST_TMPDIR/settings.sh" bash -c '
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        printf "BU_EXIT_HANDLER_VSCODE_POPUP=true\n" > "${BU_CONFIG_LOCAL_FILE%.sh}.static.sh"
+        __bu_config_static_reset
+        source "$1"/bu_entrypoint.sh >/dev/null 2>&1
+        printf "%s|%s|%s" "$BU_EXIT_HANDLER_VSCODE_POPUP" "${BU_CONFIG_ORIGIN[BU_EXIT_HANDLER_VSCODE_POPUP]}" \
+            "${BU_CONFIG_ORIGIN[BU_CONFIG_LOCAL_FILE]}"' \
+        _ "$DIR/.."
+    assert_success
+    assert_output "true|local|env"
 }
 
 # ===========================================================================

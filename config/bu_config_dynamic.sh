@@ -36,14 +36,6 @@ bu_config_register BU_AUTOCOMPLETE_BIND_TAB_TO_FZF --bool --default true \
     --hint "Bind Tab to fzf completion (Alt-Z toggles per session)"
 
 # ```
-# Verbose bootstrap logging ("sourcing ..." lines during activation).
-# Read before this file is loaded, so it only takes effect from the
-# environment or config/bu_config_local.sh, not from editing this file.
-# ```
-bu_config_register BU_BOOTSTRAP_VERBOSE --bool --default false \
-    --hint "Verbose logging during activation bootstrap (set via bu set-config)"
-
-# ```
 # Use tree-sitter-bash (via node daemon) for command-line parsing
 # in fzf autocomplete instead of the built-in bash parser.
 # Provides more accurate cursor-position tracking and syntax awareness.

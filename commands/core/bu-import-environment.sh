@@ -185,6 +185,14 @@ then
     opt_force=(--__bu-force)
 fi
 
+# Static settings are final for the shell; re-initializing it (new sources
+# or a new module list) resolves them again, keeping the user-supplied ones
+if "$is_reset_source" || "$is_reset_module_path"
+then
+    bu_log_info "Resetting static settings"
+    __bu_config_static_reset
+fi
+
 if "$is_reset_source"
 then
     bu_log_info "Resetting source once cache"

@@ -18,23 +18,34 @@ then
 fi
 
 # Storage mirrors BU_COMMAND_PROPERTIES: keys are "$name,field".
-declare -A -g BU_CONFIG_PROPERTIES=()
+# The registry, phase state and provenance below are declared guarded, so
+# re-sourcing this file (`source ./activate -f`) keeps them: static settings
+# stay final. `bu import-environment --reset-source` resets the static phases
+# explicitly (__bu_config_static_reset).
+declare -p BU_CONFIG_PROPERTIES &>/dev/null || declare -A -g BU_CONFIG_PROPERTIES=()
 
 # Named persistence layers. Each entry maps a layer name to a resolver
 # function that prints the layer's settings file path for the current context.
 # The "local" layer is built-in (the machine-local settings file).
-declare -A -g BU_CONFIG_LAYER_RESOLVERS=()
+declare -p BU_CONFIG_LAYER_RESOLVERS &>/dev/null || declare -A -g BU_CONFIG_LAYER_RESOLVERS=()
 
 # Config phases. Every setting belongs to exactly one phase, the one open
 # when it was registered. A phase resolves its settings in one step
 # (bu_config_phase_end): exported values win, then the phase's own settings
 # files, then registered defaults, written to a generated file and sourced.
-# The entrypoint runs the built-in "main" phase; projects can add their own.
-#   BU_CONFIG_PHASE_STATE    phase -> open | final
-#   __BU_CONFIG_OPEN_PHASE   the phase registrations currently go to
-#   __BU_CONFIG_PHASE_NAMES  settings of the phase being resolved
-declare -A -g BU_CONFIG_PHASE_STATE=()
+# The entrypoint runs the built-in "static" and "main" phases; projects can
+# add their own. A static phase (--static) is resolved once per shell: its
+# values are exported and stay final, so running it again (re-activation) only
+# restores any that changed.
+#   BU_CONFIG_PHASE_STATE     phase -> open | final
+#   __BU_CONFIG_PHASE_STATIC  phase -> true for static phases
+#   __BU_CONFIG_OPEN_PHASE    the phase registrations currently go to
+#   __BU_CONFIG_RECHECK       true while re-running a final static phase
+#   __BU_CONFIG_PHASE_NAMES   settings of the phase being resolved
+declare -p BU_CONFIG_PHASE_STATE &>/dev/null || declare -A -g BU_CONFIG_PHASE_STATE=()
+declare -p __BU_CONFIG_PHASE_STATIC &>/dev/null || declare -A -g __BU_CONFIG_PHASE_STATIC=()
 declare -g __BU_CONFIG_OPEN_PHASE=
+declare -g __BU_CONFIG_RECHECK=false
 declare -a -g __BU_CONFIG_PHASE_NAMES=()
 
 # Settings provenance. Exported values belong to the user: a phase saves them
@@ -42,17 +53,18 @@ declare -a -g __BU_CONFIG_PHASE_NAMES=()
 # environment beats persisted settings while the files keep plain VAR=value
 # assignments (re-sourcing a file by hand still applies it).
 #   __BU_CONFIG_USER       name -> value the user exported before the phase ran
-#   __BU_CONFIG_USER_KIND  name -> env
+#                          (for a static phase, also an unexported value)
+#   __BU_CONFIG_USER_KIND  name -> env (exported) or shell (unexported, static)
 #   BU_CONFIG_ORIGIN       name -> local | site | callback | layer: who set it
 #   BU_CONFIG_SOURCE_FILE  name -> absolute path of the file that set it
 #   __BU_CONFIG_APPLIED    name -> value when its phase finished (or after the
 #                          last `bu set-config`), to spot later shell edits
 #   __BU_CONFIG_SNAP       scratch snapshot for attributing file assignments
-declare -A -g __BU_CONFIG_USER=()
-declare -A -g __BU_CONFIG_USER_KIND=()
-declare -A -g BU_CONFIG_ORIGIN=()
-declare -A -g BU_CONFIG_SOURCE_FILE=()
-declare -A -g __BU_CONFIG_APPLIED=()
+declare -p __BU_CONFIG_USER &>/dev/null || declare -A -g __BU_CONFIG_USER=()
+declare -p __BU_CONFIG_USER_KIND &>/dev/null || declare -A -g __BU_CONFIG_USER_KIND=()
+declare -p BU_CONFIG_ORIGIN &>/dev/null || declare -A -g BU_CONFIG_ORIGIN=()
+declare -p BU_CONFIG_SOURCE_FILE &>/dev/null || declare -A -g BU_CONFIG_SOURCE_FILE=()
+declare -p __BU_CONFIG_APPLIED &>/dev/null || declare -A -g __BU_CONFIG_APPLIED=()
 declare -A -g __BU_CONFIG_SNAP=()
 
 # ```
@@ -152,6 +164,8 @@ bu_config_layer_file()
 #   - `--enum a b:2 c enum--`: allowed values; optional `name:mapped` form
 #     accepts `name` but stores `mapped` (e.g. warn:2)
 #   - `--hint "text"`: description shown by `bu set-config --list`
+#   - `--env-only`: (static phases) only the environment can set it, never a
+#     settings file or `bu set-config`
 #
 # *Examples*:
 # ```bash
@@ -172,6 +186,7 @@ bu_config_register()
     fi
     local default= enum= hint= layer= complete_values_fn=
     local is_bool=false
+    local is_env_only=false
     local presets=
     while (($#))
     do
@@ -228,6 +243,10 @@ bu_config_register()
             hint=$2
             shift 2
             ;;
+        --env-only)
+            is_env_only=true
+            shift
+            ;;
         *)
             bu_basic_log_err "bu_config_register: unrecognized specifier[$1]"
             return 1
@@ -243,6 +262,20 @@ bu_config_register()
         bu_basic_log_err "bu_config_register: $name already belongs to config phase '$owner', cannot register it in '$phase'"
         return 1
     fi
+    if "$__BU_CONFIG_RECHECK" && [[ "$phase" == "$__BU_CONFIG_OPEN_PHASE" ]]
+    then
+        # Re-running a final static phase: its settings are already known
+        if [[ -z "$owner" ]]
+        then
+            bu_basic_log_err "bu_config_register: $name registered after static config phase '$phase' was finalized for this shell; it takes effect in a new shell"
+        fi
+        return 0
+    fi
+    if "$is_env_only" && [[ "${__BU_CONFIG_PHASE_STATIC[$phase]:-}" != true ]]
+    then
+        bu_basic_log_err "bu_config_register: --env-only requires a static config phase ($name is in '$phase')"
+        return 1
+    fi
     BU_CONFIG_PROPERTIES[$name,registered]=true
     BU_CONFIG_PROPERTIES[$name,phase]=$phase
     [[ -n "$default" ]] && BU_CONFIG_PROPERTIES[$name,default]=$default
@@ -250,6 +283,7 @@ bu_config_register()
     [[ -n "$hint" ]] && BU_CONFIG_PROPERTIES[$name,hint]=$hint
     [[ -n "$presets" ]] && BU_CONFIG_PROPERTIES[$name,presets]=$presets
     "$is_bool" && BU_CONFIG_PROPERTIES[$name,bool]=true
+    "$is_env_only" && BU_CONFIG_PROPERTIES[$name,env_only]=true
     [[ -n "$layer" ]] && BU_CONFIG_PROPERTIES[$name,layer]=$layer
     [[ -n "$complete_values_fn" ]] && BU_CONFIG_PROPERTIES[$name,complete_values_fn]=$complete_values_fn
     # Stamp the owning module (mirrors __bu_stamp_command_module and the
@@ -318,12 +352,26 @@ __bu_config_phase_settings()
 #
 # *Params*:
 # - `$1`: Phase name (lowercase letters, digits, `_` and `-`)
+# - `--static` (optional): resolve once per shell; values are exported and
+#   final. Beginning a static phase that is already final re-checks it
+#   instead: registrations are ignored and bu_config_phase_end restores any
+#   changed value.
 #
 # *Returns*: None (always 0; errors are logged)
 # ```
 bu_config_phase_begin()
 {
     local -r phase=$1
+    shift
+    local is_static=false
+    while (($#))
+    do
+        case "$1" in
+        --static) is_static=true ;;
+        *) bu_basic_log_err "bu_config_phase_begin: unrecognized option[$1]" ;;
+        esac
+        shift
+    done
     if [[ ! "$phase" =~ ^[a-z0-9][a-z0-9_-]*$ ]]
     then
         bu_basic_log_err "bu_config_phase_begin: invalid phase name[$phase]"
@@ -332,6 +380,17 @@ bu_config_phase_begin()
     if [[ -n "$__BU_CONFIG_OPEN_PHASE" && "$__BU_CONFIG_OPEN_PHASE" != "$phase" ]]
     then
         bu_basic_log_err "bu_config_phase_begin: config phase '$__BU_CONFIG_OPEN_PHASE' is still open; closing it without resolving"
+    fi
+    __BU_CONFIG_RECHECK=false
+    if "$is_static"
+    then
+        __BU_CONFIG_PHASE_STATIC[$phase]=true
+        if [[ "${BU_CONFIG_PHASE_STATE[$phase]:-}" == final ]]
+        then
+            __BU_CONFIG_RECHECK=true
+            __BU_CONFIG_OPEN_PHASE=$phase
+            return 0
+        fi
     fi
 
     # Drop the phase's previous registrations
@@ -406,7 +465,8 @@ __bu_config_phase_files()
 # ```
 # *Description*:
 # First half of resolving a config phase: save the phase's exported values,
-# reset its unexported ones, and snapshot every registered setting so the
+# reset its unexported ones (a static phase keeps them as the user's too), and
+# snapshot every registered setting so the
 # settings files sourced next can be attributed (__bu_config_phase_track).
 # bu_config_phase_end calls the three steps; the entrypoint calls them itself
 # to source the main phase's files at top level.
@@ -422,7 +482,7 @@ __bu_config_phase_prepare()
     local name attrs
     __bu_config_phase_settings "$phase"
     __BU_CONFIG_PHASE_NAMES=("${BU_RET[@]}")
-    __BU_CONFIG_RESTORE_PENDING=true
+    local -r is_static=${__BU_CONFIG_PHASE_STATIC[$phase]:-false}
     for name in "${__BU_CONFIG_PHASE_NAMES[@]}"
     do
         unset '__BU_CONFIG_USER[$name]' '__BU_CONFIG_USER_KIND[$name]' \
@@ -433,6 +493,12 @@ __bu_config_phase_prepare()
         then
             __BU_CONFIG_USER[$name]=${!name}
             __BU_CONFIG_USER_KIND[$name]=env
+        elif "$is_static"
+        then
+            # Static values are exported once final, so a value set before
+            # the phase reaches child processes too: it counts as the user's
+            __BU_CONFIG_USER[$name]=${!name}
+            __BU_CONFIG_USER_KIND[$name]=shell
         elif [[ "$attrs" != *r* ]]
         then
             unset "$name"
@@ -485,7 +551,16 @@ __bu_config_phase_track()
             [[ -v "__BU_CONFIG_SNAP[$name]" ]] || continue
         fi
         owner=${BU_CONFIG_PROPERTIES[$name,phase]:-}
-        if [[ "$owner" == "$phase" || "${BU_CONFIG_PHASE_STATE[$owner]:-}" != final ]]
+        if [[ "$owner" == "$phase" && "${BU_CONFIG_PROPERTIES[$name,env_only]:-}" == true ]]
+        then
+            bu_basic_log_warn "${file:-$origin}: ignoring assignment to $name, which only the environment can set"
+            if [[ -v "__BU_CONFIG_SNAP[$name]" ]]
+            then
+                printf -v "$name" '%s' "${__BU_CONFIG_SNAP[$name]}" || true
+            else
+                unset "$name"
+            fi
+        elif [[ "$owner" == "$phase" || "${BU_CONFIG_PHASE_STATE[$owner]:-}" != final ]]
         then
             # Ours, or a later phase's (that phase resets it when it runs)
             [[ "$owner" == "$phase" && -v "$name" ]] || continue
@@ -536,7 +611,6 @@ __bu_config_phase_complete()
         BU_CONFIG_ORIGIN[$name]=${__BU_CONFIG_USER_KIND[$name]}
         unset 'BU_CONFIG_SOURCE_FILE[$name]'
     done
-    __BU_CONFIG_RESTORE_PENDING=false
 
     # Settings registered while the files ran (callbacks) count too
     __bu_config_phase_settings "$phase"
@@ -550,6 +624,10 @@ __bu_config_phase_complete()
     for name in "${__BU_CONFIG_PHASE_NAMES[@]}"
     do
         __BU_CONFIG_APPLIED[$name]=${!name-}
+        if [[ "${__BU_CONFIG_PHASE_STATIC[$phase]:-}" == true ]]
+        then
+            export "$name"
+        fi
     done
 
     BU_CONFIG_PHASE_STATE[$phase]=final
@@ -664,6 +742,11 @@ bu_config_phase_end()
         bu_basic_log_err "bu_config_phase_end: config phase '$phase' is not open"
         return 0
     fi
+    if "$__BU_CONFIG_RECHECK"
+    then
+        __bu_config_static_recheck "$phase"
+        return 0
+    fi
     __bu_config_phase_prepare "$phase"
     local entry
     __bu_config_phase_files "$phase"
@@ -675,6 +758,64 @@ bu_config_phase_end()
         __bu_config_phase_track "${entry#*:}" "${entry%%:*}"
     done
     __bu_config_phase_complete "$phase"
+    return 0
+}
+
+# ```
+# *Description*:
+# Re-check a final static phase (re-activation): its values are final for
+# the shell, so any that changed since are restored, with a warning.
+#
+# *Params*:
+# - `$1`: Phase name
+#
+# *Returns*: None (always 0)
+# ```
+__bu_config_static_recheck()
+{
+    local -r phase=$1
+    local name
+    __bu_config_phase_settings "$phase"
+    for name in "${BU_RET[@]}"
+    do
+        [[ -v "__BU_CONFIG_APPLIED[$name]" ]] || continue
+        if [[ "${!name-}" != "${__BU_CONFIG_APPLIED[$name]}" ]]
+        then
+            bu_basic_log_warn "$name is a static setting, final for this shell: keeping '${__BU_CONFIG_APPLIED[$name]}', ignoring '${!name-}' (open a new shell to change it)"
+            printf -v "$name" '%s' "${__BU_CONFIG_APPLIED[$name]}" || true
+        fi
+        export "$name"
+    done
+    __BU_CONFIG_RECHECK=false
+    __BU_CONFIG_OPEN_PHASE=
+    return 0
+}
+
+# ```
+# *Description*:
+# Make the static phases resolvable again, for re-initializing a shell
+# (`bu import-environment --reset-source`): unset the static values BashTab
+# set, keeping the ones the user supplied, and forget that the phases ran.
+#
+# *Params*: None
+#
+# *Returns*: None (always 0)
+# ```
+__bu_config_static_reset()
+{
+    local phase name
+    for phase in "${!__BU_CONFIG_PHASE_STATIC[@]}"
+    do
+        __bu_config_phase_settings "$phase"
+        for name in "${BU_RET[@]}"
+        do
+            case "${BU_CONFIG_ORIGIN[$name]:-}" in
+            env|shell) ;;
+            *) unset "$name" ;;
+            esac
+        done
+        unset 'BU_CONFIG_PHASE_STATE[$phase]'
+    done
     return 0
 }
 

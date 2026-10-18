@@ -120,6 +120,21 @@ then
     return 1
 fi
 
+# ── Phase routing ───────────────────────────────────────────
+# Each setting is stored in its config phase's settings file:
+# bu_config_local.sh for "main", bu_config_local.PHASE.sh otherwise.
+if [[ "${BU_CONFIG_PROPERTIES[$var,env_only]:-}" == true ]]
+then
+    bu_log_err "$var can only be set in the environment (export it before activating); bu set-config does not store it"
+    bu_scope_pop_function
+    return 1
+fi
+local -r phase=${BU_CONFIG_PROPERTIES[$var,phase]:-main}
+local -r is_static=${__BU_CONFIG_PHASE_STATIC[$phase]:-false}
+local phase_file=$file
+[[ "$phase" == main ]] || phase_file=${file%.sh}.$phase.sh
+"$file_explicit" || file=$phase_file
+
 # ── Registry-driven value validation ─────────────────────────
 # Validate BEFORE touching the file.
 if ! "$is_unset" && [[ -z "$value" ]]
@@ -403,6 +418,13 @@ then
 
     __bu_set_config_write_block "$_new_body"
 
+    if "$is_static"
+    then
+        printf 'Unset %s in %s (static setting: the default applies in a new shell)\n' "$var" "$file"
+        bu_scope_pop_function
+        return 0
+    fi
+
     # The registered default, as the phase's generated vars file applies it
     if [[ "${BU_CONFIG_PROPERTIES[$var,registered]:-}" == true ]]
     then
@@ -442,15 +464,23 @@ fi
 
 __bu_set_config_write_block "$_new_body"
 
+# Static settings are final for the shell: only a new shell picks this up
+if "$is_static"
+then
+    printf 'Set %s=%s in %s (static setting: takes effect in a new shell)\n' "$var" "$value" "$file"
+    bu_scope_pop_function
+    return 0
+fi
+
 # Take effect immediately in the current shell (this command is sourced).
 declare -g "$var=$value"
 
-# Provenance: the checkout-local or embedder settings file is "local" (sourced
-# on activation); any other target (--layer, --file) is "layer".
+# Provenance: the phase's settings file is "local" (sourced when the phase
+# runs); any other target (--layer, --file) is "layer".
 local _abs_file=$file
 [[ "$_abs_file" == /* ]] || _abs_file=$PWD/${_abs_file#./}
 local _origin=layer
-if [[ "$file" == "${BU_CONFIG_LOCAL_FILE:-"$BU_DIR"/config/bu_config_local.sh}" ]]
+if [[ "$file" == "$phase_file" ]]
 then
     _origin=local
 fi

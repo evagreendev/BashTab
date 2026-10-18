@@ -68,17 +68,24 @@ source ./lib/core/bu_core_config.sh --__bu-once
 
 source ./lib/core/bu_core_user_defined.sh --__bu-once
 
-# BU_MODULE_LIST is the sole module registry — an exported scalar of the form
-# "name:version:preinit_path;...".  Top-level projects set it in their activate
-# script.  Library dependencies append to it in their module scripts.
-# __bu_parse_module_list dedupes, populates BU_MODULE_REGISTRY, and registers
-# preinit callbacks.  Runs after bu_core_var.sh so the registry arrays exist.
-if [[ -z "${BU_MODULE_LIST:-}" ]]
-then
-    export BU_MODULE_LIST=
-fi
-
-source ./config/bu_config_static.sh --__bu-once
+# ── Config phase "static" ───────────────────────────────────────────────────
+# Settings final for the life of the shell, resolved before almost all of
+# BashTab runs: exported values > bu_config_local.static.sh > registered
+# defaults, then exported so child processes share them. On re-activation
+# the registrations are no-ops and the phase only restores any value that
+# changed.
+#
+# BU_MODULE_LIST (a static, env-only setting) is the sole module registry: an
+# exported scalar "name:version:preinit_path;...". Top-level projects set it
+# in their activate script, library dependencies append to it in their module
+# scripts. It is normalized (repeated modules dropped) before it is final.
+bu_config_phase_begin static --static || true
+_bu_cur_module_prev=${BU_CURRENT_MODULE:-}
+BU_CURRENT_MODULE=bu
+source ./config/bu_config_static.sh
+BU_CURRENT_MODULE=$_bu_cur_module_prev
+__bu_module_list_normalize || true
+bu_config_phase_end static || true
 
 # ── Config phase "main" ─────────────────────────────────────────────────────
 # Precedence: exported variables > settings files > registered defaults.

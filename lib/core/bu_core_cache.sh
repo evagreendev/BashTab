@@ -30,10 +30,7 @@ declare -g BU_COMMAND_CACHE_LOADED=false
 # is re-sourced mid-session (e.g. by bu import-environment).
 declare -g __BU_COMMAND_CACHE_CHECKED=false
 
-# Set to false to force a full command scan on every activation.
-# Use in environments where available commands change per shell
-# (dynamic module systems, rapid development).
-BU_COMMAND_CACHE_ENABLED=${BU_COMMAND_CACHE_ENABLED:-true}
+# BU_COMMAND_CACHE_ENABLED is a static setting (config/bu_config_static.sh).
 
 # Opt-in deferred --is-compatible probing. When true, gated commands
 # (scripts declaring --is-compatible) register as available immediately at
