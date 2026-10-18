@@ -33,6 +33,9 @@ local columns=
 local colors=
 local is_sidebar=true
 local max_width=40
+local -a actions=()
+local reload_cmd=
+local key_col=
 local is_help=false
 local error_msg=
 local autocompletion=()
@@ -58,6 +61,24 @@ do
         # cursor column past the cap, W all columns
         bu_parse_positional $# --hint "Maximum column width (default 40)"
         max_width=${!shift_by}
+        ;;
+    --action)# KEY[:LABEL]=COMMAND
+        # Bind KEY to a row action: COMMAND is eval'd in the viewer's shell
+        # with the cursor record (JSON) in BU_TV_RECORD; its last output line
+        # shows on the status line. Repeatable. q, Q and H are reserved.
+        bu_parse_positional $# --hint "KEY[:LABEL]=COMMAND"
+        actions+=("${!shift_by}")
+        ;;
+    --reload)# COMMAND
+        # After each action, replace the rows with COMMAND's JSONL output
+        # (run in the viewer's shell), keeping the cursor on its record
+        bu_parse_positional $# --hint "Command producing the JSONL rows"
+        reload_cmd=${!shift_by}
+        ;;
+    --key)# COLUMN
+        # Column identifying a record across reloads (default: the row index)
+        bu_parse_positional $# --hint "Key column"
+        key_col=${!shift_by}
         ;;
     --no-sidebar)# _FLAG
         # Start with the column sidebar hidden (toggle it with c)
@@ -125,7 +146,8 @@ m to turn mouse reporting off and select text.
         --example "Select columns" "--columns name,type,namespace" \
         --example "Without colors" "--colors none" \
         --example "Narrower columns" "--max-width 20" \
-        --example "Color only some columns" "--colors name=green,type=yellow"
+        --example "Color only some columns" "--colors name=green,type=yellow" \
+        --example "Row action with reload (see bu edit-config)" "--key name --reload 'bu get-config --format jsonl' --action 'x:default=bu set-config --unset \"\$(jq -r .name <<<\"\$BU_TV_RECORD\")\"'"
     return 0
 fi
 
@@ -140,6 +162,32 @@ fi
 # Source the table viewer engine
 # shellcheck source=../../lib/core/bu_core_tv.sh
 source "$BU_DIR/lib/core/bu_core_tv.sh"
+
+# Row actions: KEY[:LABEL]=COMMAND
+local spec action_key action_label
+for spec in "${actions[@]}"
+do
+    if [[ "$spec" != ?*=* ]]
+    then
+        bu_log_err_usage "--action expects KEY[:LABEL]=COMMAND, got [$spec]"
+        bu_scope_pop_function
+        return 1
+    fi
+    action_key=${spec%%=*}
+    action_label=
+    if [[ "$action_key" == *:* ]]
+    then
+        action_label=${action_key#*:}
+        action_key=${action_key%%:*}
+    fi
+    if ! bu_tv_set_action "$action_key" "$action_label" "${spec#*=}"
+    then
+        bu_scope_pop_function
+        return 1
+    fi
+done
+_TV_RELOAD_CMD=$reload_cmd
+_TV_KEY_COL=$key_col
 
 # Enter the interactive viewer (reads stdin, renders TUI)
 bu_tv_enter "$columns" "$colors" "$is_sidebar" "$max_width"

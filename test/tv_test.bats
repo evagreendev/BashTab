@@ -311,6 +311,56 @@ function __tv_rows {
     done
 }
 
+# ── Row actions and reload ───────────────────────────────────────────────
+
+function test_tv_action_runs_in_process_and_reload_keeps_record { #@test
+    # The action changes in-process state (RENAMED), prints a message, and
+    # the reload re-derives the rows from that state in a new order: the
+    # cursor follows its record by the key column.
+    local result
+    result=$(__tv_in_child '{"name":"a","n":1}
+{"name":"b","n":2}
+{"name":"c","n":3}' '
+        _TV_TERM_COLS=80; _TV_TERM_ROWS=20
+        __bu_tv_rebuild_cache
+        __bu_tv_compute_widths
+        RENAMED=
+        reload() {
+            printf "{\"name\":\"%s\",\"n\":9}\n" z "${RENAMED:-b}" a
+        }
+        bu_tv_set_action r rename "RENAMED=bb; echo noise; echo \"renamed \$(jq -r .name <<<\"\$BU_TV_RECORD\")\""
+        _TV_RELOAD_CMD=reload
+        _TV_KEY_COL=name
+        _TV_CUR_ROW=1
+        _TV_KEY=r
+        __bu_tv_dispatch_key
+        __bu_tv_cursor_data
+        printf "%s|%s|%s|%s\n" "$_TV_MESSAGE" "$_TV_NUM_ROWS" "$_TV_CUR_ROW" "${_TV_ROWS[_TV_FOUND_IDX]}"
+        # The record is gone after this reload: same data row, clamped
+        RENAMED=
+        reload() { printf "{\"name\":\"x\",\"n\":1}\n"; }
+        _TV_KEY=r
+        __bu_tv_dispatch_key
+        printf "%s|%s\n" "$_TV_NUM_ROWS" "$_TV_CUR_ROW"
+        # Failure shows the last output line; help lists the action
+        bu_tv_set_action r rename "echo bad >&2; false"
+        _TV_KEY=r
+        __bu_tv_dispatch_key
+        printf "%s|%s\n" "$_TV_MESSAGE" "${_TV_HELP_LINES[-1]}"
+    ')
+    assert_equal "$result" $'renamed b|3|1|{"name":"bb","n":9}\n1|0\nfailed: bad|  r                  rename'
+}
+
+function test_tv_action_keys_reserved { #@test
+    local result
+    result=$(__tv_in_child '{"a":1}' '
+        for k in q Q H ab ""; do bu_tv_set_action "$k" x true 2>/dev/null && echo "bound $k"; done
+        bu_tv_set_action t toggle true && echo "bound t"
+        __bu_tv_render_status
+        [[ "$_TV_STATUS" == *"t:toggle"* ]] && echo hint')
+    assert_equal "$result" $'bound t\nhint'
+}
+
 # ── Cell cache ───────────────────────────────────────────────────────────
 
 function test_tv_cache_empty_cells_stay_aligned { #@test

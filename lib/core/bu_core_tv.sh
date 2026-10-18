@@ -28,6 +28,13 @@
 #     Enter              record detail      H F1             help
 #     c                  column sidebar     Ctrl-L           re-measure terminal
 #     m                  mouse reporting    q Q              quit
+#
+# Row actions (--action KEY[:LABEL]=COMMAND): KEY runs COMMAND in the
+# viewer's own shell (eval) with the cursor record in BU_TV_RECORD; its last
+# output line shows on the status line. With --reload COMMAND the rows are
+# then replaced by COMMAND's JSONL output, the cursor staying on its record
+# (matched by the --key column). Actions can ask for input with bu_tv_prompt
+# and run interactive programs with bu_tv_interactive.
 # The cursor row is reversed; its cursor cell is drawn un-reversed, bold
 # and underlined.  Numeric columns are right-aligned and null shows as a
 # dim ∅.  With the
@@ -148,6 +155,13 @@ declare -g -i _TV_DETAIL_OFFSET=0   # Detail overlay: first visible line
 declare -g -i _TV_HELP_OFFSET=0     # Help overlay: first visible line
 declare -g    _TV_PROMPT_ACTIVE=false  # Search prompt open on the status row
 declare -g    _TV_PROMPT_TEXT=      # Prompt shown while open ("/" or "?" + query)
+declare -g -a _TV_ACTION_KEYS=()    # Row action keys, in the order given
+declare -g -A _TV_ACTION_CMD=()     # Row action key -> command (eval'd in-process)
+declare -g -A _TV_ACTION_LABEL=()   # Row action key -> hint label
+declare -g    _TV_RELOAD_CMD=       # Command whose JSONL replaces the rows after an action
+declare -g    _TV_KEY_COL=          # Column identifying a record across reloads
+declare -g    _TV_MESSAGE=          # Status-line message from the last action
+declare -g    _TV_ACTION_OUT=       # File capturing a running action's output
 declare -g    _TV_KEY=              # Out-param: last key read (__bu_tv_read_key)
 declare -g    _TV_EOF=false         # The tty hit EOF (read_key reports it as "q")
 declare -g    _TV_QUIT=false        # Event-loop exit flag
@@ -257,6 +271,10 @@ declare -g -r -a __BU_TV_HELP_LINES=(
     '  n N                next / previous match'
     '  q Esc Enter        back to the table'
 )
+
+# Help shown by the overlay: the fixed lines plus the configured row actions
+# (bu_tv_set_action)
+declare -g -a _TV_HELP_LINES=("${__BU_TV_HELP_LINES[@]}")
 
 # Padding pools — slice with ${__BU_TV_SPACES:0:N} instead of per-cell append
 # loops.  Grown by doubling (__bu_tv_ensure_pools) if a column exceeds the pool.
@@ -909,6 +927,7 @@ __bu_tv_terminal_leave_tui()
 __bu_tv_terminal_restore()
 {
     trap - SIGINT SIGTERM SIGWINCH SIGTSTP SIGCONT SIGTTOU EXIT
+    [[ -n "$_TV_ACTION_OUT" ]] && rm -f "$_TV_ACTION_OUT"
     __bu_tv_terminal_leave_tui
 }
 
@@ -2023,6 +2042,7 @@ __bu_tv_search_status()
 __bu_tv_render_status()
 {
     local -a parts=()
+    [[ -n "$_TV_MESSAGE" ]] && parts+=("$_TV_MESSAGE")
     if (( _TV_NUM_VIEW > 0 ))
     then
         parts+=("Row $((_TV_CUR_ROW + 1))/$_TV_NUM_VIEW")
@@ -2055,6 +2075,11 @@ __bu_tv_render_status()
     (( ${#_TV_HIDDEN[@]} )) && hints+='+:unhide '
     (( ${#_TV_MATCHED_ROWS[@]} )) && hints+='n/N:match '
     [[ -n "$_TV_SEARCH_QUERY$_TV_FILTER_QUERY" ]] && hints+='Esc:clear '
+    local key
+    for key in "${_TV_ACTION_KEYS[@]}"
+    do
+        hints+="$key:${_TV_ACTION_LABEL[$key]} "
+    done
     __bu_tv_compose_status "$hints$__BU_TV_HINTS_TABLE" 'H:help' "${parts[@]}"
 }
 
@@ -2151,7 +2176,7 @@ __bu_tv_render_overlay()
     if [[ "$_TV_MODE" == help ]]
     then
         title=Keys
-        lines_var=__BU_TV_HELP_LINES
+        lines_var=_TV_HELP_LINES
         off_var=_TV_HELP_OFFSET
         full=$__BU_TV_HINTS_HELP
         plain=true
@@ -2228,7 +2253,7 @@ __bu_tv_overlay_clamp()
     local -i max=$((${#_TV_DETAIL_LINES[@]} - _TV_DATA_ROWS))
     (( _TV_DETAIL_OFFSET > max )) && _TV_DETAIL_OFFSET=$max
     (( _TV_DETAIL_OFFSET < 0 )) && _TV_DETAIL_OFFSET=0
-    max=$((${#__BU_TV_HELP_LINES[@]} - _TV_DATA_ROWS))
+    max=$((${#_TV_HELP_LINES[@]} - _TV_DATA_ROWS))
     (( _TV_HELP_OFFSET > max )) && _TV_HELP_OFFSET=$max
     (( _TV_HELP_OFFSET < 0 )) && _TV_HELP_OFFSET=0
     return 0
@@ -3918,6 +3943,264 @@ __bu_tv_apply_sort()
     return 0
 }
 
+# ── Row actions ──────────────────────────────────────────────────────────
+
+# ```
+# *Description*:
+# Bind a row action: KEY runs COMMAND, eval'd in the viewer's own shell (so
+# what it changes stays visible to later actions and to --reload) with the
+# cursor record (JSON) in BU_TV_RECORD, exported. Its stdout and stderr are
+# captured; the last non-empty line shows on the status line ("failed: ..."
+# when it returns non-zero). q, Q and H cannot be rebound.
+#
+# *Params*:
+# - `$1`: Key (one printable character)
+# - `$2`: Label for the status-line hint and the help
+# - `$3`: Command
+#
+# *Returns*:
+# - 1 (with an error logged) for an invalid or reserved key
+# ```
+bu_tv_set_action()
+{
+    local -r key=$1 label=$2 cmd=$3
+    if (( ${#key} != 1 )) || [[ "$key" != [[:graph:]] ]]
+    then
+        bu_log_err "bu view-table: an action key must be one printable character, got [$key]"
+        return 1
+    fi
+    case "$key" in
+    q|Q|H)
+        bu_log_err "bu view-table: $key cannot be bound to an action"
+        return 1
+        ;;
+    esac
+    [[ -v "_TV_ACTION_CMD[$key]" ]] || _TV_ACTION_KEYS+=("$key")
+    _TV_ACTION_CMD[$key]=$cmd
+    _TV_ACTION_LABEL[$key]=${label:-action}
+    __bu_tv_build_help
+    return 0
+}
+
+# Rebuild the help overlay: the fixed lines, then the row actions
+__bu_tv_build_help()
+{
+    _TV_HELP_LINES=("${__BU_TV_HELP_LINES[@]}")
+    (( ${#_TV_ACTION_KEYS[@]} )) || return 0
+    _TV_HELP_LINES+=('' 'Actions')
+    local key
+    for key in "${_TV_ACTION_KEYS[@]}"
+    do
+        _TV_HELP_LINES+=("  $(printf '%-19s' "$key")${_TV_ACTION_LABEL[$key]}")
+    done
+    return 0
+}
+
+# ```
+# *Description*:
+# Run the row action bound to KEY on the cursor record, then reload the rows
+# if a reload command is set.
+#
+# *Params*:
+# - `$1`: Action key
+# ```
+__bu_tv_run_action()
+{
+    local -r key=$1
+    __bu_tv_cursor_data
+    if (( _TV_FOUND_IDX < 0 ))
+    then
+        _TV_MESSAGE="No row for ${_TV_ACTION_LABEL[$key]}"
+        return 0
+    fi
+    local -r record=${_TV_ROWS[_TV_FOUND_IDX]}
+    local key_value=
+    if [[ -n "$_TV_KEY_COL" ]]
+    then
+        key_value=$("$BU_OUT_JQ" -r --arg k "$_TV_KEY_COL" '.[$k] // empty | tostring' <<<"$record" 2>/dev/null)
+    fi
+    [[ -n "$_TV_ACTION_OUT" ]] || _TV_ACTION_OUT=${BU_TMP_DIR:-/tmp}/tv-action.$$
+    local -i rc=0
+    __bu_tv_eval_action "${_TV_ACTION_CMD[$key]}" "$record" >"$_TV_ACTION_OUT" 2>&1 || rc=$?
+
+    # The last non-empty output line is the message
+    local -a out=()
+    local line message=
+    mapfile -t out < "$_TV_ACTION_OUT" 2>/dev/null
+    local -i i
+    for (( i = ${#out[@]} - 1; i >= 0; i-- ))
+    do
+        line=${out[i]}
+        __bu_tv_strip_ansi line
+        if [[ -n "${line//[[:space:]]/}" ]]
+        then
+            message=$line
+            break
+        fi
+    done
+    (( rc != 0 )) && message="failed: ${message:-${_TV_ACTION_LABEL[$key]} returned $rc}"
+    [[ -n "$_TV_RELOAD_CMD" ]] && __bu_tv_reload "$_TV_FOUND_IDX" "$key_value"
+    _TV_MESSAGE=$message
+    return 0
+}
+
+# Eval an action command with the record exported as BU_TV_RECORD
+__bu_tv_eval_action()
+{
+    local -x BU_TV_RECORD=$2
+    eval "$1"
+}
+
+# ```
+# *Description*:
+# Replace the rows with the reload command's JSONL output (run in the
+# viewer's shell, after the action), keep the sort, filter and columns, and
+# put the cursor back on its record: the row whose key column has the same
+# value, else the same data row (clamped).
+#
+# *Params*:
+# - `$1`: Data row of the cursor before the action
+# - `$2`: Its key column value (empty: none)
+# ```
+__bu_tv_reload()
+{
+    local -r -i prev_data=$1
+    local -r key_value=$2
+    local -r -i rel=$((_TV_CUR_ROW - _TV_ROW_OFFSET))
+    local -a lines=() rows=()
+    mapfile -t lines < <(eval "$_TV_RELOAD_CMD" 2>>"$_TV_ACTION_OUT")
+    local line
+    for line in "${lines[@]}"
+    do
+        [[ -n "$line" ]] && rows+=("$line")
+    done
+
+    local -a prev_rows=("${_TV_ROWS[@]}")
+    local -r -i prev_n=$_TV_NUM_ROWS
+    _TV_ROWS=("${rows[@]}")
+    _TV_NUM_ROWS=${#rows[@]}
+    if ! __bu_tv_rebuild_cache
+    then
+        _TV_ROWS=("${prev_rows[@]}")
+        _TV_NUM_ROWS=$prev_n
+        __bu_tv_rebuild_cache || true
+        _TV_MESSAGE="reload failed"
+        return 0
+    fi
+    __bu_tv_apply_sort || true
+
+    local -i target=$prev_data
+    if [[ -n "$key_value" && -n "$_TV_KEY_COL" ]] && (( _TV_NUM_ROWS > 0 ))
+    then
+        local -a keys=()
+        mapfile -t keys < <(printf '%s\n' "${_TV_ROWS[@]}" \
+            | "$BU_OUT_JQ" -r --arg k "$_TV_KEY_COL" '.[$k] // "" | tostring' 2>/dev/null)
+        local -i i
+        for (( i = 0; i < ${#keys[@]}; i++ ))
+        do
+            if [[ "${keys[i]}" == "$key_value" ]]
+            then
+                target=$i
+                break
+            fi
+        done
+    fi
+    (( target >= _TV_NUM_ROWS )) && target=$((_TV_NUM_ROWS - 1))
+    __bu_tv_compute_widths
+    __bu_tv_place_record "$target" "$rel"
+    __bu_tv_update_search_matches
+    return 0
+}
+
+# ```
+# *Description*:
+# For row actions: ask for a value on the status line (Enter accepts, Esc
+# cancels, Backspace / Ctrl-U edit).
+#
+# *Params*:
+# - `$1`: Prompt label
+# - `$2`: Initial value (optional)
+#
+# *Returns*:
+# - `BU_RET`: the value entered
+# - 1 if cancelled
+# ```
+bu_tv_prompt()
+{
+    __bu_tv_prompt_value "$@" </dev/tty >/dev/tty
+}
+
+__bu_tv_prompt_value()
+{
+    local -r label=$1
+    local buf=${2:-} commit=false redraw=true
+    _TV_PROMPT_ACTIVE=true
+    _TV_PROMPT_TEXT=$label$buf
+    while :
+    do
+        "$redraw" && __bu_tv_render
+        redraw=true
+        __bu_tv_read_key 1
+        if "$_TV_EOF"
+        then
+            _TV_QUIT=true
+            break
+        fi
+        case "$_TV_KEY" in
+        none)
+            __bu_tv_process_signals
+            "$_TV_QUIT" && break
+            ;;
+        $'\x0a') commit=true; break ;;
+        escape|$'\e') break ;;
+        $'\x7f'|$'\x08') buf=${buf%?} ;;
+        $'\x15') buf= ;;
+        *)
+            if (( ${#_TV_KEY} != 1 )) || [[ "$_TV_KEY" != [[:print:]] ]]
+            then
+                redraw=false
+                continue
+            fi
+            buf+=$_TV_KEY
+            ;;
+        esac
+        _TV_PROMPT_TEXT=$label$buf
+    done
+    _TV_PROMPT_ACTIVE=false
+    _TV_PROMPT_TEXT=
+    BU_RET=$buf
+    "$commit"
+}
+
+# ```
+# *Description*:
+# For row actions: run an interactive program (e.g. $EDITOR) on the real
+# terminal, leaving the viewer's screen while it runs.
+#
+# *Params*:
+# - `$@`: Command and arguments
+#
+# *Returns*:
+# - The command's exit status
+# ```
+bu_tv_interactive()
+{
+    local -i rc=0
+    __bu_tv_terminal_leave_tui >/dev/tty
+    # Ctrl-C reaches the program, not the viewer's quit trap
+    trap ':' SIGINT
+    "$@" </dev/tty >/dev/tty 2>&1 || rc=$?
+    trap '_TV_QUIT=true' SIGINT
+    stty -echo -icanon 2>/dev/null </dev/tty || true
+    {
+        printf '%s' "$__BU_TV_ALT_SCREEN_ON" "$__BU_TV_CURSOR_HIDE"
+        "$_TV_MOUSE" && printf '%s' "$__BU_TV_MOUSE_ON"
+        printf '%s%s' "$__BU_TV_CURSOR_HOME" "$__BU_TV_CLEAR_SCREEN"
+    } >/dev/tty
+    _TV_RESIZE_PENDING=true
+    return "$rc"
+}
+
 # ── Dispatch ─────────────────────────────────────────────────────────────
 
 # ```
@@ -3929,6 +4212,16 @@ __bu_tv_dispatch_key()
 {
     # A key hands the sidebar list back to following the viewport
     [[ "$_TV_KEY" != mouse ]] && _TV_SIDEBAR_SCROLL=-1
+    [[ "$_TV_KEY" != none && "$_TV_KEY" != mouse ]] && _TV_MESSAGE=
+    local action_key
+    for action_key in "${_TV_ACTION_KEYS[@]}"
+    do
+        if [[ "$_TV_KEY" == "$action_key" ]]
+        then
+            __bu_tv_run_action "$action_key"
+            return 0
+        fi
+    done
     __bu_tv_data_rows
     local -r -i page=$_TV_DATA_ROWS
     local -i half=$((page / 2))
@@ -4046,7 +4339,7 @@ __bu_tv_dispatch_overlay()
     $'\x04')         __do_off=$((__do_off + half)) ;;
     $'\x15')         __do_off=$((__do_off - half)) ;;
     g)               __do_off=0 ;;
-    G)               __do_off=$((${#_TV_DETAIL_LINES[@]} + ${#__BU_TV_HELP_LINES[@]})) ;;
+    G)               __do_off=$((${#_TV_DETAIL_LINES[@]} + ${#_TV_HELP_LINES[@]})) ;;
     q|Q|escape|$'\e'|$'\x0a')
         __bu_tv_overlay_close
         ;;
