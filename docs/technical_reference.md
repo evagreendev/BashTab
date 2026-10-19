@@ -222,10 +222,10 @@ and where its value came from:
 | `env` | Exported before its phase ran | empty |
 | `shell` | Changed in the shell after its phase ran; for a static setting, set unexported before the phase ran | empty |
 | `local` | A settings file of its phase (including `bu set-config`) | `file:line` of the last assignment |
-| *ORIGIN* | A file declared with `bu_config_phase_begin --settings-file ORIGIN:PATH` (or `bu set-config --file PATH` on it): the declared label | `file:line` of the last assignment |
+| *ORIGIN* | A file declared with `bu_config_phase_begin --settings-file ORIGIN:PATH` (or a `bu set-config` write that lands on it, via `--file`, `--layer` or the natural layer): the declared label | `file:line` of the last assignment |
 | `site` | A `site/*.sh` file | `file:line` when the assignment is a plain `VAR=`/`export VAR=` line, else `file` |
 | `callback` | A user-defined config callback (`BU_USER_DEFINED_*_CONFIGS`) | empty |
-| `layer` | `bu set-config --layer`/`--file` in this shell | `file:line` |
+| `layer` | `bu set-config --layer`/`--file` (or the natural layer) in this shell, to a file the phase does not read | `file:line` |
 | `default` | None of the above | where the setting is registered |
 
 `bu set-config` warns when the variable is exported, since an exported value

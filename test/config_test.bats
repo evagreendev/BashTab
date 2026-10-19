@@ -1116,6 +1116,49 @@ function test_set_config_declared_settings_file { #@test
     assert_equal "${BU_CONFIG_ORIGIN[BU_TEST_LAYER_UE]}" layer
 }
 
+__config_test_natural_layer_phase()
+{
+    bu_config_phase_begin layered --prefix BU_TEST_LAYER_ --variant dev --settings-file local \
+        --settings-file "profile:$BATS_TEST_TMPDIR/profile.sh"
+    bu_config_register BU_TEST_LAYER_P --default d --hint "Natural layer: the declared file" --layer prof
+    bu_config_register BU_TEST_LAYER_S --default d --hint "Natural layer: the shared built-in file" --layer shared
+    bu_config_register BU_TEST_LAYER_X --default d --hint "Natural layer: local"
+    bu_config_phase_end layered 2>/dev/null
+}
+
+function test_set_config_layer_to_phase_settings_file { #@test
+    local p=$BATS_TEST_TMPDIR/profile.sh shared=${BU_CONFIG_LOCAL_FILE%.sh}.layered.sh
+    : > "$p"
+    function _config_test_prof_layer() { echo "$BATS_TEST_TMPDIR/profile.sh"; }
+    function _config_test_shared_layer() { echo "${BU_CONFIG_LOCAL_FILE%.sh}.layered.sh"; }
+    bu_config_register_layer prof _config_test_prof_layer
+    bu_config_register_layer shared _config_test_shared_layer
+    __config_test_natural_layer_phase
+
+    # The natural layer resolves to a declared file: its origin, applied live
+    bu set-config BU_TEST_LAYER_P pval >/dev/null 2>&1
+    assert_equal "$BU_TEST_LAYER_P|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_P]}|${BU_CONFIG_SOURCE_FILE[BU_TEST_LAYER_P]}" "pval|profile|$p"
+    grep -q '^BU_TEST_LAYER_P=pval$' "$p"
+
+    # --layer to the same file records the same origin
+    bu set-config --layer prof BU_TEST_LAYER_X xval >/dev/null 2>&1
+    assert_equal "$BU_TEST_LAYER_X|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_X]}|${BU_CONFIG_SOURCE_FILE[BU_TEST_LAYER_X]}" "xval|profile|$p"
+
+    # The shared built-in file (not the active variant's own file) is local
+    bu set-config BU_TEST_LAYER_S sval >/dev/null 2>&1
+    assert_equal "$BU_TEST_LAYER_S|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_S]}|${BU_CONFIG_SOURCE_FILE[BU_TEST_LAYER_S]}" "sval|local|$shared"
+
+    # The next resolution reports the same
+    __config_test_natural_layer_phase
+    assert_equal "$BU_TEST_LAYER_P|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_P]}" "pval|profile"
+    assert_equal "$BU_TEST_LAYER_X|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_X]}" "xval|profile"
+    assert_equal "$BU_TEST_LAYER_S|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_S]}|${BU_CONFIG_SOURCE_FILE[BU_TEST_LAYER_S]}" "sval|local|$shared"
+
+    # A file the phase does not read is still a layer
+    bu set-config --file "$BATS_TEST_TMPDIR/other.sh" BU_TEST_LAYER_X oval >/dev/null 2>&1
+    assert_equal "$BU_TEST_LAYER_X|${BU_CONFIG_ORIGIN[BU_TEST_LAYER_X]}" "oval|layer"
+}
+
 function test_config_phase_unload_forgets_settings_files { #@test
     local p=$BATS_TEST_TMPDIR/profile.sh
     printf 'BU_TEST_LAYER_ALL=p\n' > "$p"

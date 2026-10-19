@@ -687,30 +687,29 @@ __bu_config_phase_files()
 
 # ```
 # *Description*:
-# Origin label of a file declared for a config phase with
-# `bu_config_phase_begin --settings-file`, for `bu set-config --file`.
+# Origin label of a file a config phase reads (bu_config_phase_files), for
+# `bu set-config`: "local" for its built-in files, ORIGIN for a file declared
+# with `bu_config_phase_begin --settings-file ORIGIN:PATH`.
 #
 # *Params*:
 # - `$1`: Phase name
 # - `$2`: Absolute path
 #
 # *Returns*:
-# - `BU_RET`: the declared ORIGIN, or empty if the file is not declared
-#   (the last declaration wins if it is declared more than once)
+# - `BU_RET`: the file's ORIGIN, or empty if the phase does not read it
+#   (the last entry wins if it is listed more than once)
 # ```
 __bu_config_phase_file_origin()
 {
     local -r phase=$1
     local -r file=$2
-    local -r declared=${__BU_CONFIG_PHASE_FILES[$phase]:-}
-    local -a entries=()
-    local entry
-    BU_RET=
-    [[ -n "$declared" ]] && mapfile -t entries <<<"${declared%$'\n'}"
-    for entry in "${entries[@]}"
+    local entry origin=
+    bu_config_phase_files "$phase"
+    for entry in "${BU_RET[@]}"
     do
-        [[ "$entry" == *:* && "${entry#*:}" == "$file" ]] && BU_RET=${entry%%:*}
+        [[ "${entry#*:}" == "$file" ]] && origin=${entry%%:*}
     done
+    BU_RET=$origin
     return 0
 }
 
