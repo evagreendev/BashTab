@@ -44,10 +44,10 @@ bu_config_register BU_AUTOCOMPLETE_USE_TREE_SITTER --bool --default false \
     --hint "Use tree-sitter-bash (node daemon) for command-line parsing in fzf autocomplete"
 
 # Default output format for `bu out` / `bu * --format auto` when stdout is
-# not a terminal can be overridden here. One of: table, list, json, jsonl, tsv
+# not a terminal can be overridden here. One of: table, list, json, jsonl, tsv, csv, markdown, html
 # Empty means: table on a terminal, jsonl otherwise.
 bu_config_register BU_OUTPUT_FORMAT \
-    --enum auto table list json jsonl tsv enum-- \
+    --enum auto table list json jsonl tsv csv markdown html enum-- \
     --hint "Default output format when stdout is not a terminal (empty: table on tty, jsonl when piped)"
 
 # query-object execution backend. Keep the original shell pipeline available;

@@ -59,7 +59,7 @@ producer → recordify → transform → sink
 |---|---|---|
 | Recordifiers | `bu_out_record`, `bu_out_from_tsv`, `bu_out_from_lines` | `bu new-record`, `bu convert-from-tsv`, `bu convert-from-lines` |
 | Transforms | `bu_out_where`, `bu_out_select`, `bu_out_sort_by`, `bu_out_group_by`, `bu_out_distinct` | `bu where`, `bu select`, `bu sort`, `bu query-object`, `bu distinct-object` |
-| Sinks | `bu_format_table`, `bu_format_list`, `bu_format_json`, `bu_format_jsonl`, `bu_format_tsv` | `bu format-table`, `bu format-list`, `bu convert-to-json`, `bu convert-to-jsonl`, `bu convert-to-tsv` |
+| Sinks | `bu_format_table`, `bu_format_list`, `bu_format_json`, `bu_format_jsonl`, `bu_format_tsv`, `bu_format_csv`, `bu_format_markdown`, `bu_format_html` | `bu format-table`, `bu format-list`, `bu convert-to-json`, `bu convert-to-jsonl`, `bu convert-to-tsv`, `bu convert-to-csv`, `bu convert-to-markdown`, `bu convert-to-html` |
 | Dispatcher | `bu_out` | `bu out-default` |
 
 The **functions** are the scripting API — pure JSONL in/out. The **cmdlets**
@@ -74,7 +74,7 @@ wrap them for interactive use and add two behaviors:
 
 First match wins:
 
-1. Explicit `--format` flag (`auto table list json jsonl tsv`)
+1. Explicit `--format` flag (`auto table list json jsonl tsv csv markdown html`)
 2. `BU_OUTPUT_FORMAT` environment variable
 3. stdout is a terminal → `table`; otherwise → `jsonl`
 
@@ -82,8 +82,8 @@ First match wins:
 
 | Behavior | Formatters / stages |
 |---|---|
-| Streams (O(1) latency) | `jsonl`, `tsv`, `list`, `where`, `select`, `distinct`¹, `table --stream` |
-| Buffers all input | `table` (auto-width), `json` (array envelope), `sort`, `group-by` |
+| Streams (O(1) latency) | `jsonl`, `tsv`, `csv --columns`, `markdown`, `html`, `list`, `where`, `select`, `distinct`¹, `table --stream` |
+| Buffers all input | `table` (auto-width), `json` (array envelope), `csv` (no `--columns`: union of keys), `sort`, `group-by` |
 
 ¹ `distinct` streams first occurrences but remembers keys seen so far —
 inherent to dedupe.
@@ -102,7 +102,7 @@ The pattern — zero forks in the record loop, exactly two jq processes:
 
 - Values must not contain tabs/newlines in TSV mode; for arbitrary strings use
   `bu_out_record key="$value"` per record (one jq fork each).
-- Expose `--format` (enum `auto table list json jsonl tsv`) and `--columns`
+- Expose `--format` (enum `auto table list json jsonl tsv csv markdown html`) and `--columns`
   (comma list, supports `key:Label` display labels) for free via the standard
   `bu_parse_positional` autocomplete DSL — see `commands/bu-get-command.sh`.
 - Hints for humans (e.g. "No modules registered") go to **stderr** via
@@ -367,6 +367,12 @@ assoc) and extended with `bu_register_table_style <name> <descriptor>`,
 e.g. from a module preinit script. A descriptor sets `left`/`vsep`/`right`
 (line wrappers) and optional `top`/`hsep`/`rsep`/`bottom` rule specs
 (`{left,char,join,right,min,pad}`) plus `header_bold`.
+
+The `markdown` style is for reading on a terminal: it is fitted to
+`$COLUMNS` (cells truncated, columns hidden) and does not escape `|` in cells.
+For a table to paste into a document (a GitHub Actions job summary, a wiki
+page) use `--format markdown` (`bu_format_markdown`) instead: every cell in
+full, `|` escaped as `\|`, line breaks as `<br>`, no padding or colour.
 
 `bu_format_list` renders `key : value` blocks — good for wide records on
 narrow terminals.

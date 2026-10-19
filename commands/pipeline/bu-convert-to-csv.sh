@@ -73,26 +73,10 @@ unless --columns is given, in which case it streams).
     return 0
 fi
 
-# Nested values can't be represented in CSV cells: serialize them to JSON text
-local sanitize='map_values(if type == "object" or type == "array" then tojson else . end)'
-
-if [[ -n "$columns" ]]
-then
-    __bu_out_cols_to_json "$columns"
-    local cols_json=$BU_RET
-    jq -r --argjson cols "$cols_json" --argjson no_header "$is_no_header" "
-        if input_line_number == 1 and (\$no_header | not)
-        then (\$cols | @csv), ($sanitize | [.[\$cols[]]] | @csv)
-        else ($sanitize | [.[\$cols[]]] | @csv)
-        end
-    "
-else
-    jq -rs --argjson no_header "$is_no_header" "
-        (map(keys_unsorted) | add | unique // []) as \$cols
-        | (if \$no_header then empty else (\$cols | @csv) end),
-          (.[] | $sanitize | [.[\$cols[]]] | @csv)
-    "
-fi
+local -a format_args=()
+[[ -n "$columns" ]] && format_args+=(--columns "$columns")
+"$is_no_header" && format_args+=(--no-header)
+bu_format_csv "${format_args[@]}"
 
 bu_scope_pop_function
 }

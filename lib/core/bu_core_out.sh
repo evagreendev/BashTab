@@ -8,7 +8,8 @@
 # Layers:
 # - Recordifiers (raw -> JSONL): bu_out_record, bu_out_from_tsv, bu_out_from_lines
 # - Sinks (JSONL -> display):    bu_format_table, bu_format_list,
-#                                bu_format_json, bu_format_jsonl, bu_format_tsv
+#                                bu_format_json, bu_format_jsonl, bu_format_tsv,
+#                                bu_format_csv, bu_format_markdown, bu_format_html
 # - Dispatcher (Out-Default):    bu_out
 #
 # jq is the backend for record construction and formatting.
@@ -22,7 +23,7 @@ BU_OUT_JQ=$(command -v jq 2>/dev/null) || BU_OUT_JQ=
 
 # Standard output formats for structured commands.
 # Used by --format flags and Out-Default auto-detection.
-BU_OUT_FORMATS=(auto table list json jsonl tsv)
+BU_OUT_FORMATS=(auto table list json jsonl tsv csv markdown html)
 
 # Preset pager shortcuts for BU_TABLE_PAGER. Maps bare names (also accepted
 # after "preset:") to full pager command lines. Extend via
@@ -1617,6 +1618,212 @@ bu_format_tsv()
         . as $r
         | ($cols | if length == 0 then $r | keys_unsorted else . end) as $cs
         | [$cs[] as $c | $r[$c] | cellstr] | @tsv
+        '
+}
+
+# ```
+# *Description*:
+# Render a JSONL stream as a GitHub-flavoured Markdown table, for documents
+# rather than terminals (job summaries, wiki pages, chat messages). Unlike
+# `bu_format_table --style markdown` there is no width fitting, padding or
+# colour: every cell is printed in full. Streams record-by-record.
+# `|` in a cell is escaped as `\|` and line breaks become `<br>`.
+# Non-object input lines are ignored.
+#
+# *Params*:
+# - `--columns a,b:Label`: Fields to emit, in order; labels become headers.
+#   Default: keys of the first record, in insertion order.
+# - stdin: JSONL stream
+#
+# *Returns*:
+# - stdout: Header row, `| --- |` rule, one row per record
+#
+# *Examples*:
+# ```bash
+# bu get-module --format jsonl | bu_format_markdown >> "$GITHUB_STEP_SUMMARY"
+# ```
+bu_format_markdown()
+{
+    __bu_out_assert_jq || return 1
+
+    local columns=
+    local shift_by=1
+    while (($#))
+    do
+        case "$1" in
+        --columns)
+            columns=$2
+            shift_by=2
+            ;;
+        *)
+            bu_log_err "Unrecognized option[$1] for bu_format_markdown"
+            return 1
+            ;;
+        esac
+        if (( $# < shift_by ))
+        then
+            bu_log_err "Expected $((shift_by - 1)) arguments for option $1"
+            return 1
+        fi
+        shift "$shift_by"
+    done
+
+    __bu_out_colspecs_to_json "$columns" || return 1
+    local cols_json=$BU_RET
+
+    "$BU_OUT_JQ" -rn \
+        --argjson cols "$cols_json" \
+        "$__BU_OUT_JQ_PRELUDE"'
+        def mdcell: cellstr | gsub("\\|"; "\\|") | gsub("\r?\n"; "<br>");
+        def mdrow: "| " + join(" | ") + " |";
+        foreach (inputs | select(type == "object")) as $r (null;
+            if . == null
+            then {cs: ($cols | if length == 0 then $r | keys_unsorted | map({key: ., header: .}) else . end), first: true}
+            else .first = false
+            end;
+            . as $st
+            | (if $st.first
+               then ($st.cs | map(.header | mdcell) | mdrow),
+                    ($st.cs | map("---") | mdrow)
+               else empty
+               end),
+              ([$st.cs[] as $c | $r[$c.key] | mdcell] | mdrow))
+        '
+}
+
+# ```
+# *Description*:
+# Render a JSONL stream as CSV (ConvertTo-Csv). Values are quoted per
+# RFC 4180 (jq @csv); nested objects/arrays are serialized to JSON text.
+# Non-object input lines are ignored.
+#
+# *Params*:
+# - `--columns a,b:Label`: Fields to emit, in order; labels become headers.
+#   Streams record-by-record. Default: the sorted union of keys across all
+#   records, which buffers all input.
+# - `--no-header`: Omit the header row
+# - stdin: JSONL stream
+#
+# *Returns*:
+# - stdout: Header row (unless `--no-header`), one row per record
+# ```
+bu_format_csv()
+{
+    __bu_out_assert_jq || return 1
+
+    local columns=
+    local is_no_header=false
+    local shift_by=1
+    while (($#))
+    do
+        shift_by=1
+        case "$1" in
+        --columns)
+            columns=$2
+            shift_by=2
+            ;;
+        --no-header)
+            is_no_header=true
+            ;;
+        *)
+            bu_log_err "Unrecognized option[$1] for bu_format_csv"
+            return 1
+            ;;
+        esac
+        if (( $# < shift_by ))
+        then
+            bu_log_err "Expected $((shift_by - 1)) arguments for option $1"
+            return 1
+        fi
+        shift "$shift_by"
+    done
+
+    __bu_out_colspecs_to_json "$columns" || return 1
+    local cols_json=$BU_RET
+
+    # Nested values can't be represented in CSV cells: serialize them to JSON text
+    local -r prelude='
+        def csvcell: if type == "object" or type == "array" then tojson else . end;
+        def objs: inputs | select(type == "object");
+        def csvrow($cs): . as $r | [$cs[] as $c | $r[$c.key] | csvcell] | @csv;
+    '
+    if [[ "$cols_json" != '[]' ]]
+    then
+        "$BU_OUT_JQ" -rn --argjson cs "$cols_json" --argjson no_header "$is_no_header" "$prelude"'
+            (if $no_header then empty else $cs | map(.header) | @csv end),
+            (objs | csvrow($cs))
+        '
+    else
+        "$BU_OUT_JQ" -rn --argjson no_header "$is_no_header" "$prelude"'
+            [objs] as $rs
+            | ($rs | map(keys_unsorted) | add // [] | unique | map({key: ., header: .})) as $cs
+            | (if $no_header or ($rs | length) == 0 then empty else $cs | map(.header) | @csv end),
+              ($rs[] | csvrow($cs))
+        '
+    fi
+}
+
+# ```
+# *Description*:
+# Render a JSONL stream as an HTML `<table>` fragment, for e-mails, reports
+# and Markdown documents that accept inline HTML (GitHub job summaries).
+# Cells are HTML-escaped (`& < > ' "`) and line breaks become `<br>`; no
+# styling is applied. Streams record-by-record; nothing is printed when
+# there are no records. Non-object input lines are ignored.
+#
+# *Params*:
+# - `--columns a,b:Label`: Fields to emit, in order; labels become headers.
+#   Default: keys of the first record, in insertion order.
+# - stdin: JSONL stream
+#
+# *Returns*:
+# - stdout: `<table>` with a `<thead>` header row and one `<tbody>` row per record
+# ```
+bu_format_html()
+{
+    __bu_out_assert_jq || return 1
+
+    local columns=
+    local shift_by=1
+    while (($#))
+    do
+        case "$1" in
+        --columns)
+            columns=$2
+            shift_by=2
+            ;;
+        *)
+            bu_log_err "Unrecognized option[$1] for bu_format_html"
+            return 1
+            ;;
+        esac
+        if (( $# < shift_by ))
+        then
+            bu_log_err "Expected $((shift_by - 1)) arguments for option $1"
+            return 1
+        fi
+        shift "$shift_by"
+    done
+
+    __bu_out_colspecs_to_json "$columns" || return 1
+    local cols_json=$BU_RET
+
+    "$BU_OUT_JQ" -rn \
+        --argjson cols "$cols_json" \
+        "$__BU_OUT_JQ_PRELUDE"'
+        def htmlcell: cellstr | @html | gsub("\r?\n"; "<br>");
+        def objs: inputs | select(type == "object");
+        first(objs) as $first
+        | ($cols | if length == 0 then $first | keys_unsorted | map({key: ., header: .}) else . end) as $cs
+        | "<table>",
+          "<thead>",
+          "<tr>" + ($cs | map("<th>" + (.header | htmlcell) + "</th>") | join("")) + "</tr>",
+          "</thead>",
+          "<tbody>",
+          (($first, objs) as $r
+           | "<tr>" + ([$cs[] as $c | "<td>" + ($r[$c.key] | htmlcell) + "</td>"] | join("")) + "</tr>"),
+          "</tbody>",
+          "</table>"
         '
 }
 
@@ -4645,8 +4852,8 @@ __bu_out_validate_pipeline()
 # 3. stdout is a terminal -> `table`; otherwise (pipe/file) -> `jsonl`
 #
 # *Params*:
-# - `--format auto|table|list|json|jsonl|tsv`: Output format (default: auto)
-# - `--columns a,b,c`: Forwarded to table/list/tsv formatters
+# - `--format auto|table|list|json|jsonl|tsv|csv|markdown|html`: Output format (default: auto)
+# - `--columns a,b,c`: Forwarded to every formatter except json/jsonl
 # - `--stream`: Forwarded to the table formatter
 # - `--colors k=color,...`: Forwarded to the table formatter
 # - `--style name`: Forwarded to the table formatter (see BU_TABLE_STYLE)
@@ -4741,6 +4948,18 @@ bu_out()
         [[ -n "$columns" ]] && formatter_args+=(--columns "$columns")
         bu_format_tsv "${formatter_args[@]}"
         ;;
+    csv)
+        [[ -n "$columns" ]] && formatter_args+=(--columns "$columns")
+        bu_format_csv "${formatter_args[@]}"
+        ;;
+    markdown)
+        [[ -n "$columns" ]] && formatter_args+=(--columns "$columns")
+        bu_format_markdown "${formatter_args[@]}"
+        ;;
+    html)
+        [[ -n "$columns" ]] && formatter_args+=(--columns "$columns")
+        bu_format_html "${formatter_args[@]}"
+        ;;
     json)
         bu_format_json
         ;;
@@ -4748,7 +4967,7 @@ bu_out()
         bu_format_jsonl
         ;;
     *)
-        bu_log_err "Unrecognized format[$format]. Expected one of: auto, table, list, json, jsonl, tsv"
+        bu_log_err "Unrecognized format[$format]. Expected one of: ${BU_OUT_FORMATS[*]}"
         return 1
         ;;
     esac

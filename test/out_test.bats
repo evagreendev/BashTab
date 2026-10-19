@@ -211,6 +211,24 @@ function test_bu_format_tsv_columns { #@test
     assert_equal "$out" $'x\t/p'
 }
 
+function test_bu_format_markdown_escapes_cells { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"a|b","detail":"line1\nline2","n":3}' '{"name":"c","detail":"","n":null}' \
+        | bu_format_markdown --columns name,detail:Detail,n)
+    assert_equal "$out" '| name | Detail | n |
+| --- | --- | --- |
+| a\|b | line1<br>line2 | 3 |
+| c |  |  |'
+}
+
+function test_bu_format_markdown_ignores_non_objects { #@test
+    local out
+    out=$(printf '%s\n' '5' '"s"' '{"a":1}' '[1]' | bu_format_markdown)
+    assert_equal "$out" '| a |
+| --- |
+| 1 |'
+}
+
 # ===========================================================================
 # bu_out dispatch
 # ===========================================================================
@@ -231,6 +249,88 @@ function test_bu_out_explicit_format_beats_env { #@test
     local out
     out=$(printf '%s\n' '{"a":1}' | BU_OUTPUT_FORMAT=json bu_out --format tsv --columns a)
     assert_equal "$out" '1'
+}
+
+function test_bu_format_csv_columns_labels { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"a,b","n":3,"tags":["x"]}' '5' '{"name":"say \"hi\"","n":null}' \
+        | bu_format_csv --columns name:Name,n,tags)
+    assert_equal "$out" '"Name","n","tags"
+"a,b",3,"[""x""]"
+"say ""hi""",,'
+}
+
+function test_bu_format_csv_union_of_keys { #@test
+    local out
+    out=$(printf '%s\n' '{"b":1}' '{"a":2}' | bu_format_csv)
+    assert_equal "$out" '"a","b"
+,1
+2,'
+}
+
+function test_bu_format_csv_no_header_empty_input { #@test
+    local out
+    out=$(printf '%s\n' '{"a":1}' | bu_format_csv --no-header --columns a)
+    assert_equal "$out" '1'
+    out=$(: | bu_format_csv)
+    assert_equal "$out" ''
+}
+
+function test_bu_format_html_escapes_cells { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"<a> & \"b\"","detail":"line1\nline2","n":3}' '[1]' '{"name":"c","n":null}' \
+        | bu_format_html --columns name:Name,detail,n)
+    assert_equal "$out" '<table>
+<thead>
+<tr><th>Name</th><th>detail</th><th>n</th></tr>
+</thead>
+<tbody>
+<tr><td>&lt;a&gt; &amp; &quot;b&quot;</td><td>line1<br>line2</td><td>3</td></tr>
+<tr><td>c</td><td></td><td></td></tr>
+</tbody>
+</table>'
+}
+
+function test_bu_format_html_empty_input { #@test
+    local out
+    out=$(printf '%s\n' '5' | bu_format_html --columns a)
+    assert_equal "$out" ''
+}
+
+function test_bu_out_format_csv_and_html { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"x","path":"/p"}' | bu_out --format csv --columns name)
+    assert_equal "$out" '"name"
+"x"'
+    out=$(printf '%s\n' '{"name":"x"}' | bu_out --format html)
+    assert_equal "$out" '<table>
+<thead>
+<tr><th>name</th></tr>
+</thead>
+<tbody>
+<tr><td>x</td></tr>
+</tbody>
+</table>'
+}
+
+function test_bu_convert_to_markdown_and_html { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"a|b","v":1}' | bu convert-to-markdown --columns name:Name,v)
+    assert_equal "$out" '| Name | v |
+| --- | --- |
+| a\|b | 1 |'
+    out=$(printf '%s\n' '{"name":"a&b"}' | bu convert-to-html | sed -n 6p)
+    assert_equal "$out" '<tr><td>a&amp;b</td></tr>'
+}
+
+function test_bu_out_format_markdown_untruncated { #@test
+    local out
+    COLUMNS=20
+    out=$(printf '%s\n' '{"name":"bashtab","path":"/a/very/long/path/that/would/be/truncated/in/a/table"}' \
+        | bu_out --format markdown)
+    assert_equal "$out" '| name | path |
+| --- | --- |
+| bashtab | /a/very/long/path/that/would/be/truncated/in/a/table |'
 }
 
 function test_bu_out_invalid_format { #@test
@@ -592,7 +692,7 @@ function test_bu_get_command_multi_word_verb { #@test
 function test_bu_get_command_verb_filter_multi_word { #@test
     local out
     out=$(bu get-command --verb convert-to | jq -sc 'map(.name)')
-    assert_equal "$out" '["convert-to-base64","convert-to-csv","convert-to-json","convert-to-jsonl","convert-to-tsv"]'
+    assert_equal "$out" '["convert-to-base64","convert-to-csv","convert-to-html","convert-to-json","convert-to-jsonl","convert-to-markdown","convert-to-tsv"]'
 }
 
 function test_bu_get_command_table_header { #@test
@@ -729,11 +829,13 @@ function test_bu_full_powershell_pipeline { #@test
         | bu sort name \
         | bu format-table --style classic)
     assert_equal "$out" 'name
------------------
+-------------------
 convert-to-base64
 convert-to-csv
+convert-to-html
 convert-to-json
 convert-to-jsonl
+convert-to-markdown
 convert-to-tsv'
 }
 

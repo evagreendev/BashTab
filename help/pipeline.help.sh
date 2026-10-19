@@ -49,7 +49,8 @@ ${BU_TPUT_BOLD}THE PROTOCOL${BU_TPUT_RESET}
     Transforms     bu_out_where, bu_out_select, bu_out_sort_by,          where, select, sort, query-object,
                    bu_out_group_by, bu_out_distinct                      distinct-object
     Sinks          bu_format_table, bu_format_list, bu_format_json,      format-table, format-list, convert-to-json,
-                   bu_format_jsonl, bu_format_tsv                        convert-to-jsonl, convert-to-tsv
+                   bu_format_jsonl, bu_format_tsv, bu_format_csv,        convert-to-jsonl, convert-to-tsv, convert-to-csv,
+                   bu_format_markdown, bu_format_html                    convert-to-markdown, convert-to-html
     Dispatcher     bu_out                                                out-default
 
     The functions are the scripting API (pure JSONL in/out); the cmdlets wrap
@@ -57,7 +58,7 @@ ${BU_TPUT_BOLD}THE PROTOCOL${BU_TPUT_RESET}
     pipeline ends in a table while a piped one stays JSONL.
 
     Out-Default format resolution (first match wins):
-      1. an explicit --format flag (auto table list json jsonl tsv)
+      1. an explicit --format flag (auto table list json jsonl tsv csv markdown html)
       2. the BU_OUTPUT_FORMAT environment variable
       3. stdout is a terminal → table; otherwise → jsonl
 
