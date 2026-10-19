@@ -117,6 +117,13 @@ Scripts named `bu-*.sh` that can be invoked via:
 
 Command types: `execute` (new process), `source` (current shell), `function` (bash function)
 
+Only files whose extension is in `BU_COMMAND_FILE_EXTENSIONS` (default `(sh py)`;
+set it before the entrypoint runs) are command candidates in a registered
+command directory, minus dotfiles, `_*` helpers and `.bashtabignore` matches.
+The decision is made from the file name alone, before any file is opened, so
+the directory may hold other files (docs, logs, core dumps) at no cost: they
+are never read and never become commands.
+
 ## Creating New Commands
 
 Use `bu new-command --dir commands --name my-command` to generate from template.

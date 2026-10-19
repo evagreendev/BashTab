@@ -40,6 +40,69 @@ __bu_command_dispatch_decl()
     return 0
 }
 
+# ```
+# *Description*:
+# List the command candidates of a command search dir, decided from the file
+# name alone so no other file in it is opened: a BU_COMMAND_FILE_EXTENSIONS
+# extension, not a dotfile, not a `_*` helper (which includes the generated
+# __bu_entrypoint_decl.sh), not matched by the dir's .bashtabignore (one glob
+# per line, tried against the relative path and the basename; # comments and
+# blank lines are ignored).  BU_COMMAND_SEARCH_DIR_RECURSIVE=false limits it
+# to the dir itself.
+#
+# *Params*:
+# - `$1`: Command search dir
+#
+# *Returns*:
+# - `BU_RET`: candidate paths, relative to the dir
+# ```
+__bu_command_dir_candidates()
+{
+    local -r dir=$1
+    local -a find_opts=() name_opts=() ignore_patterns=() files=()
+    local ext line file file_name pat is_ignored
+    BU_RET=()
+    for ext in "${BU_COMMAND_FILE_EXTENSIONS[@]}"
+    do
+        ((${#name_opts[@]})) && name_opts+=(-o)
+        name_opts+=(-name "*.$ext")
+    done
+    ((${#name_opts[@]})) || return 0
+    if ! "${BU_COMMAND_SEARCH_DIR_RECURSIVE[$dir]:-true}"; then
+        find_opts+=(-maxdepth 1)
+    fi
+    find_opts+=(-type f)
+
+    if [[ -f "$dir/.bashtabignore" ]]; then
+        while IFS= read -r line; do
+            line=${line%%#*}               # strip # comments
+            line=${line#"${line%%[![:space:]]*}"}  # ltrim
+            line=${line%"${line##*[![:space:]]}"}  # rtrim
+            [[ -n "$line" ]] && ignore_patterns+=("$line")
+        done < "$dir/.bashtabignore"
+    fi
+
+    while IFS= read -r file
+    do
+        file_name=${file##*/}
+        case "$file_name" in
+        _*|.*)
+            continue
+            ;;
+        esac
+        is_ignored=false
+        for pat in "${ignore_patterns[@]}"; do
+            if [[ "$file" == $pat || "$file_name" == $pat ]]; then
+                is_ignored=true
+                break
+            fi
+        done
+        "$is_ignored" || files+=("$file")
+    done < <(find "$dir" "${find_opts[@]}" \( "${name_opts[@]}" \) -printf "%P\n" 2>/dev/null)
+    BU_RET=("${files[@]}")
+    return 0
+}
+
 __bu_init_env_commands()
 {
     # ── Recursion guard for --is-compatible probes ──
@@ -100,34 +163,24 @@ __bu_init_env_commands()
         fi
 
         convert_file_to_subcommand=${BU_COMMAND_SEARCH_DIRS[$dir]}
-        local find_opts=()
-        if ! "${BU_COMMAND_SEARCH_DIR_RECURSIVE[$dir]:-true}"; then
-            find_opts+=(-maxdepth 1)
-        fi
-        find_opts+=(-type f)
-
-        # Per-directory ignore file: <dir>/.bashtabignore
-        # One glob pattern per line; # comments and blank lines are ignored.
-        local -a ignore_patterns=()
-        if [[ -f "$dir/.bashtabignore" ]]; then
-            local _line
-            while IFS= read -r _line; do
-                _line=${_line%%#*}               # strip # comments
-                _line=${_line#"${_line%%[![:space:]]*}"}  # ltrim
-                _line=${_line%"${_line##*[![:space:]]}"}  # rtrim
-                [[ -n "$_line" ]] && ignore_patterns+=("$_line")
-            done < "$dir/.bashtabignore"
-        fi
-
-        # Collect candidate files once, then batch-parse their headers in a
-        # single awk process so the per-file registration loop below only
-        # reads the memo (no per-file awk fork).
-        local -a _dir_files=()
-        local _dir_file
-        while IFS= read -r _dir_file
+        # Candidates are decided from the file name alone, so no other file
+        # in the directory is ever opened.  Their headers are then
+        # batch-parsed in a single awk process so the per-file registration
+        # loop below only reads the memo (no per-file awk fork).
+        __bu_command_dir_candidates "$dir"
+        local -a _dir_files=("${BU_RET[@]}")
+        local _dir_file file_dir
+        for _dir_file in "${_dir_files[@]}"
         do
-            _dir_files+=("$_dir_file")
-        done < <(find "$dir" "${find_opts[@]}" -printf "%P\n" 2>/dev/null)
+            case "$_dir_file" in
+            */*) file_dir=${_dir_file%/*} ;;
+            *)   file_dir=. ;;
+            esac
+            if [[ ! -e "$dir"/"$file_dir"/__bu_entrypoint_decl.sh ]]
+            then
+                bu_gen_substitute BU_DIR <"$BU_LIB_TEMPLATE_DIR"/bu_entrypoint_decl_template.sh >"$dir"/"$file_dir"/__bu_entrypoint_decl.sh
+            fi
+        done
 
         __bu_command_headers_batch "$dir" "${_dir_files[@]}"
 
@@ -151,46 +204,6 @@ __bu_init_env_commands()
 
         for file in "${_dir_files[@]}"
         do
-            # Inline dirname/basename (bu_dirname/bu_basename are function
-            # calls; this hot loop runs once per file).
-            local file_dir file_name
-            case "$file" in
-            */*) file_dir=${file%/*}; file_name=${file##*/} ;;
-            *)   file_dir=.; file_name=$file ;;
-            esac
-
-            if [[ ! -e "$dir"/"$file_dir"/__bu_entrypoint_decl.sh ]]
-            then
-                bu_gen_substitute BU_DIR <"$BU_LIB_TEMPLATE_DIR"/bu_entrypoint_decl_template.sh >"$dir"/"$file_dir"/__bu_entrypoint_decl.sh
-            fi
-
-            # Builtin skip list: docs, dotfiles, internal helpers
-            case "$file_name" in
-            *.txt|README|README.*|*.md) 
-                continue
-                ;;
-            __*)
-                # 2 underscores in front can be used to hide scripts
-                continue
-                ;;
-            .*)
-                # Dotfiles (hidden files)
-                continue
-                ;;
-            esac
-
-            # Per-directory .bashtabignore patterns: match against
-            # path-relative-to-dir ($file) or basename ($file_name)
-            local _skip=false
-            local _pat
-            for _pat in "${ignore_patterns[@]}"; do
-                if [[ "$file" == $_pat || "$file_name" == $_pat ]]; then
-                    _skip=true
-                    break
-                fi
-            done
-            "$_skip" && continue
-
             local script_path=$dir/$file
             command=${file%.sh}
             if [[ -n "$convert_file_to_subcommand" ]]

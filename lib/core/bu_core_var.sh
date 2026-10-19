@@ -47,6 +47,16 @@ declare -A -g BU_COMMAND_SEARCH_DIRS=()
 # ```
 declare -A -g BU_COMMAND_SEARCH_DIR_RECURSIVE=()
 # ```
+# File extensions (without the dot) of the files in a command search dir that
+# are command candidates. Decided from the file name alone, so the directory
+# may hold other files (logs, core dumps) without them ever being opened.
+# Set it before the entrypoint runs to change it.
+# ```
+if ! declare -p BU_COMMAND_FILE_EXTENSIONS &>/dev/null
+then
+    declare -a -g BU_COMMAND_FILE_EXTENSIONS=(sh py)
+fi
+# ```
 # Map of (<command>,<query>) to properties
 # The following queries are currently defined
 # - type 

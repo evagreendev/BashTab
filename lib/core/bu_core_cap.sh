@@ -290,18 +290,20 @@ bu_cap_cache_fingerprint()
             printf 'CAP:%s=%s\n' "$cap" "${BU_CAP[$cap]:-}"
         done
         # Hash the sorted list of gated script paths so adding/removing
-        # a gated command invalidates the cache.
-        local dir
+        # a gated command invalidates the cache.  Only the scan's command
+        # candidates are read (__bu_command_dir_candidates).
+        local dir _rel
         for dir in "${!BU_COMMAND_SEARCH_DIRS[@]}"; do
-            local find_opts=()
-            if ! "${BU_COMMAND_SEARCH_DIR_RECURSIVE[$dir]:-true}"; then
-                find_opts+=(-maxdepth 1)
-            fi
-            find_opts+=(-type f)
+            __bu_command_dir_candidates "$dir"
+            ((${#BU_RET[@]})) || continue
+            local -a _paths=()
+            for _rel in "${BU_RET[@]}"; do
+                _paths+=("$dir/$_rel")
+            done
             local _gated_path
             while IFS= read -r _gated_path; do
                 printf 'GATED:%s\n' "$_gated_path"
-            done < <(find "$dir" "${find_opts[@]}" -exec grep -lE -- '--is-compatible[)"]' {} \; 2>/dev/null | sort)
+            done < <(grep -lE -- '--is-compatible[)"]' "${_paths[@]}" 2>/dev/null | sort)
         done
     )
     BU_RET=$(echo "$hash_input" | md5sum | cut -d' ' -f1)

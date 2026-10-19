@@ -940,6 +940,39 @@ function test_bashtabignore_hides_file { #@test
     rm -rf "$tmpdir"
 }
 
+function test_command_scan_candidates_by_extension { #@test
+    # Only BU_COMMAND_FILE_EXTENSIONS files are candidates, decided from the
+    # name: other files are never handed to the header parser or registered,
+    # even when their content looks like a command.
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    printf '#!/usr/bin/env bash\necho visible\n' > "$tmpdir/visible-cmd.sh"
+    printf '#!/usr/bin/env python3\nprint("tool")\n' > "$tmpdir/tool.py"
+    printf '# Synopsis: not a command\ncase "$1" in\n--is-compatible) exit 0 ;;\nesac\n' > "$tmpdir/core.1234"
+    printf 'Read me\n' > "$tmpdir/README"
+    printf 'data\n' > "$tmpdir/dump.dat"
+
+    local -A saved_dirs=()
+    local _d; for _d in "${!BU_COMMAND_SEARCH_DIRS[@]}"; do saved_dirs[$_d]=${BU_COMMAND_SEARCH_DIRS[$_d]}; done
+    BU_COMMAND_SEARCH_DIRS=()
+    BU_COMMAND_SEARCH_DIRS[$tmpdir]=
+    __bu_init_env_commands
+
+    assert_equal "${BU_COMMANDS[visible-cmd]:-}" "$tmpdir/visible-cmd.sh"
+    assert_equal "${BU_COMMANDS[tool.py]:-}" "$tmpdir/tool.py"
+    assert [ -z "${BU_COMMANDS[core.1234]:-}" ]
+    assert [ -z "${BU_COMMANDS[README]:-}" ]
+    assert [ -z "${BU_COMMANDS[dump.dat]:-}" ]
+    assert [ -n "${__BU_COMMAND_HEADER_PARSED[$tmpdir/visible-cmd.sh]:-}" ]
+    assert [ -z "${__BU_COMMAND_HEADER_PARSED[$tmpdir/core.1234]:-}" ]
+    assert [ -z "${__BU_COMMAND_HEADER_PARSED[$tmpdir/dump.dat]:-}" ]
+
+    # Restore
+    BU_COMMAND_SEARCH_DIRS=()
+    for _d in "${!saved_dirs[@]}"; do BU_COMMAND_SEARCH_DIRS[$_d]=${saved_dirs[$_d]}; done
+    rm -rf "$tmpdir"
+}
+
 function test_converter_reject_code_2 { #@test
     # Converter returning 2 should REJECT the file entirely.
     local tmpdir
