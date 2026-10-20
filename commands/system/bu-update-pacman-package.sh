@@ -56,7 +56,7 @@ else
     local -a cmd=(pacman -Su)
     "$is_refresh" && cmd=(pacman -Syu)
     "$is_yes" && cmd+=(--noconfirm)
-    "${cmd[@]}" 2>/dev/null || { error_msg="pacman upgrade failed (try with sudo?)"; bu_autohelp; bu_scope_pop_function; return 1; }
+    "${cmd[@]}" 2>/dev/null || { error_msg="pacman upgrade failed (try with sudo?)"; bu_autohelp; return 1; }
     bu_out_record action="upgraded" | bu_out --format jsonl
 fi
 bu_scope_pop_function

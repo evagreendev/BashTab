@@ -106,7 +106,7 @@ An opt-in Alt+T selector previews a registered timeout wrapper and its automatic
 
 ### 📊 Structured output (PowerShell-inspired)
 - **JSONL is the object pipeline** — commands emit records, jq is the engine
-- **Cmdlet suite**: `bu where`, `bu select`, `bu sort`, `bu distinct-object`, `bu format-table`, `bu out-default`, ...
+- **Cmdlet suite**: `bu where`, `bu select`, `bu sort`, `bu count`, `bu distinct-object`, `bu format-table`, `bu out-default`, ...
 - **`bu query-object`** — SQL in one command: `where`, `group-by`, `agg`, `having`, `select`, `distinct`, `order-by`, `first` in any order
 - **Out-Default**: tables on a terminal, JSONL when piped — automatically
 - **File queries**: `--from` and `import-csv` / `import-tsv` / `import-json` / `import-jsonl`, with inferred field completion

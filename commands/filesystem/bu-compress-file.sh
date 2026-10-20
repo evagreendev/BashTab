@@ -74,14 +74,12 @@ fi
 if [[ -z "$destination" ]]; then
     error_msg="--destination is required (e.g. bu compress-file --destination out.tar.gz src/)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
 if ((${#sources[@]} == 0)); then
     error_msg="At least one source file or directory is required"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -97,7 +95,6 @@ esac
 if [[ -n "$tool_missing" ]]; then
     error_msg="$tool_missing is required for --format $format_type"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -113,31 +110,31 @@ case "$format_type" in
     tgz)
         tar -czf "$destination" "${sources[@]}" 2>/dev/null || {
             error_msg="Failed to create tar.gz archive"
-            bu_autohelp; bu_scope_pop_function; return 1
+            bu_autohelp; return 1
         }
         ;;
     tbz2)
         tar -cjf "$destination" "${sources[@]}" 2>/dev/null || {
             error_msg="Failed to create tar.bz2 archive"
-            bu_autohelp; bu_scope_pop_function; return 1
+            bu_autohelp; return 1
         }
         ;;
     txz)
         tar -cJf "$destination" "${sources[@]}" 2>/dev/null || {
             error_msg="Failed to create tar.xz archive"
-            bu_autohelp; bu_scope_pop_function; return 1
+            bu_autohelp; return 1
         }
         ;;
     tar)
         tar -cf "$destination" "${sources[@]}" 2>/dev/null || {
             error_msg="Failed to create tar archive"
-            bu_autohelp; bu_scope_pop_function; return 1
+            bu_autohelp; return 1
         }
         ;;
     zip)
         zip -r "$destination" "${sources[@]}" 2>/dev/null || {
             error_msg="Failed to create zip archive"
-            bu_autohelp; bu_scope_pop_function; return 1
+            bu_autohelp; return 1
         }
         ;;
 esac

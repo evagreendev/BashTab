@@ -210,6 +210,11 @@ bu_scope_pop_function
 __bu_SCRIPT_NAME_main "$@"
 ```
 
+`bu_autohelp` ends by calling `bu_scope_pop_function` itself, so a usage-error
+exit is `error_msg=...; bu_autohelp; return 1` — never add another
+`bu_scope_pop_function` after it (the second pop prints "Dynamic stack is
+empty", or pops the caller's scope).
+
 ### Aliases in Case Patterns (Autocomplete)
 
 Alternatives in one case pattern that normalize to the same token (strip leading `-`/`+`, lowercase) are treated as **aliases**: `--select|select` shows a single completion row (first form wins, switching to a typed prefix), metadata shows `aka <other forms>`, and using any form excludes the group. Alternatives that differ after normalization (e.g. `-v|--verb`) are not merged — they stay separate rows with the legacy short/long exclusion. Put the preferred insert form first in the pattern.
@@ -419,7 +424,7 @@ Command pattern (zero forks in the loop):
 } | bu_out_from_tsv --columns name,version,path | bu_out --format "$format"
 ```
 
-Commands expose `--format` (enum: auto table list json jsonl tsv csv markdown html) and `--columns` (supports `key:Label` display labels). Cmdlet wrappers usable in any pipeline: `bu new-record`, `bu convert-from-tsv`, `bu convert-from-lines`, `bu where`, `bu select`, `bu sort`, `bu format-table`, `bu format-list`, `bu convert-to-json`, `bu convert-to-jsonl`, `bu convert-to-tsv`, `bu convert-to-csv`, `bu convert-to-markdown`, `bu convert-to-html`, `bu out-default`. Cmdlets implicitly end at Out-Default (pipe through `bu_out`): a table on a terminal, JSONL when piped. The underlying functions stay pure JSONL. `bu query-object` composes the transforms SQL-style with bare or dashed clause keywords (`where`/`select`/`order-by`/`desc`/`first`, any order; execution is WHERE→GROUP BY→HAVING→SELECT→ORDER BY→FIRST). Grouping: `group-by verb agg count,avg:hp` (`[name=]func[:field]`, repeatable/comma-separated; funcs: count sum avg min max first last collect), `having` filters groups, no `agg` = DISTINCT keys. `distinct` (also `bu distinct-object`) dedupes whole records after projection, order-preserving.
+Commands expose `--format` (enum: auto table list json jsonl tsv csv markdown html) and `--columns` (supports `key:Label` display labels). Cmdlet wrappers usable in any pipeline: `bu new-record`, `bu convert-from-tsv`, `bu convert-from-lines`, `bu where`, `bu select`, `bu sort`, `bu count`, `bu format-table`, `bu format-list`, `bu convert-to-json`, `bu convert-to-jsonl`, `bu convert-to-tsv`, `bu convert-to-csv`, `bu convert-to-markdown`, `bu convert-to-html`, `bu out-default`. Cmdlets implicitly end at Out-Default (pipe through `bu_out`): a table on a terminal, JSONL when piped. The underlying functions stay pure JSONL. `bu query-object` composes the transforms SQL-style with bare or dashed clause keywords (`where`/`select`/`order-by`/`desc`/`first`, any order; execution is WHERE→GROUP BY→HAVING→SELECT→ORDER BY→FIRST). Grouping: `group-by verb agg count,avg:hp` (`[name=]func[:field]`, repeatable/comma-separated; funcs: count sum avg min max first last collect), `having` filters groups, no `agg` = DISTINCT keys; `agg` without `group-by` aggregates the whole stream into exactly one record (`{"count":0}` on empty input; `bu count` = `query-object --agg count`). `distinct` (also `bu distinct-object`) dedupes whole records after projection, order-preserving.
 
 Use `--format markdown` (`bu_format_markdown`) for tables that go into a document — `$GITHUB_STEP_SUMMARY`, a wiki page, a chat message: every cell in full, `|` escaped, newlines as `<br>`; `--format table --style markdown` is the terminal rendering (fitted to `$COLUMNS`, unescaped). `--format html` emits an escaped `<table>` fragment; `--format csv` is `bu convert-to-csv` (RFC 4180 quoting).
 

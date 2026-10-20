@@ -1834,7 +1834,8 @@ bu_format_html()
 # aggregate state per group; collect additionally retains its field values.
 #
 # *Params*:
-# - `--keys a[,b]`: Group key fields (comma-separated; composite key)
+# - `--keys a[,b]`: Group key fields (comma-separated; composite key).
+#                   Optional with `--agg`: no keys aggregates the whole stream
 # - `--agg spec`:   Aggregate spec, repeatable AND comma-separated:
 #                   `[name=]func[:field]`
 #                   - `count`          group size
@@ -1848,12 +1849,14 @@ bu_format_html()
 # *Returns*:
 # - stdout: One JSON record per group: key fields + aggregate fields.
 #           Records missing a key field form a null-key group.
-#           Empty input produces no output.
+#           Empty input produces no output, except without keys: the whole
+#           stream is one group, so exactly one record (`{"count":0}`).
 #
 # *Examples*:
 # ```bash
 # bu get-command --format jsonl | bu_out_group_by --keys verb --agg count
 # bu get-pokemon --format jsonl | bu_out_group_by --keys type --agg count,avg:hp,total=sum:hp
+# bu get-pokemon --format jsonl | bu_out_group_by --agg count,max:hp   # one record
 # # No --agg: emits distinct key combinations (SQL SELECT DISTINCT)
 # ```
 bu_out_group_by()
@@ -1898,7 +1901,8 @@ bu_out_group_by()
 # Build a jq definition that reduces a record generator to per-group state.
 # Hash buckets compare original keys to preserve equality despite numeric
 # representation differences or canonical-hash collisions. Results stay sorted.
-# Params: $1 comma-separated keys; remaining arguments are aggregate specs.
+# Params: $1 comma-separated keys, empty for one whole-stream group (requires
+# an aggregate); remaining arguments are aggregate specs.
 # Returns: BU_RET defines __bu_group(stream); nonzero for invalid keys/aggregates.
 # ```
 __bu_out_group_filter()
@@ -1908,13 +1912,19 @@ __bu_out_group_filter()
     local keys_json=
     local fragments= sep=
     local spec name body func field
-    if [[ -z "$keys" ]]
+    if [[ -z "$keys" ]] && ((${#agg_specs[@]} == 0))
     then
-        bu_log_err "bu_out_group_by requires --keys"
+        bu_log_err "bu_out_group_by requires --keys or at least one aggregate"
         return 1
     fi
-    __bu_out_cols_to_json "$keys" || return 1
-    keys_json=$BU_RET
+    if [[ -n "$keys" ]]
+    then
+        __bu_out_cols_to_json "$keys" || return 1
+        keys_json=$BU_RET
+    else
+        # SQL aggregate without GROUP BY: every record hashes to key []
+        keys_json='[]'
+    fi
 
     # Generate one jq fragment per aggregate spec
     for spec in "${agg_specs[@]}"
@@ -1983,6 +1993,8 @@ __bu_out_group_filter()
                 )
             )
         )
+        # No keys and no records: still one (empty) group, so count is 0
+        | if . == {} and ($keys | length) == 0 then {"[]": [{key: [], values: []}]} else . end
         | [.[][]] | sort_by(.key) | .[]
         | . as $g
         | reduce range(0; $keys | length) as $i ({}; .[$keys[$i]] = $g.key[$i])
@@ -1990,7 +2002,7 @@ __bu_out_group_filter()
             $specs[$i] as $spec | $g.values[$i] as $v
             | .[$spec.name] = (if $spec.func == "avg" then
                 if $v.count > 0 then $v.sum / $v.count else null end
-                elif $spec.func == "sum" then $v // 0
+                elif $spec.func == "count" or $spec.func == "sum" then $v // 0
                 else $v end)
         );'
 

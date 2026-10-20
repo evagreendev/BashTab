@@ -273,7 +273,7 @@ do
                     if [[ "$_w_op" != -isnull && "$_w_op" != -isnotnull && -z "$_w_val" ]]; then
                         if ! bu_env_is_in_autocomplete; then
                             error_msg="Missing value after operator[$_w_op] for field[$_w_field]"
-                            bu_autohelp; bu_scope_pop_function; return 1
+                            bu_autohelp; return 1
                         fi
                         _w_complete=false
                         break
@@ -281,7 +281,7 @@ do
                     local _w_seg_jq
                     _w_seg_jq=$(__bu_query_object_translate_op "$_w_field" "$_w_op" "$_w_val") || {
                         error_msg="Invalid where clause: $_w_field $_w_op $_w_val"
-                        bu_autohelp; bu_scope_pop_function; return 1
+                        bu_autohelp; return 1
                     }
                     _w_segments+=("$_w_seg_jq")
                     _w_complete=true
@@ -316,7 +316,7 @@ do
                     # This is an error in non-autocomplete mode.
                     if ! bu_env_is_in_autocomplete; then
                         error_msg="Expected field name after '${_w_connectors[-1]}', got flag[$_w_field]"
-                        bu_autohelp; bu_scope_pop_function; return 1
+                        bu_autohelp; return 1
                     fi
                     _w_extra=$((_w_extra - 1))       # un-consume connector
                     unset '_w_connectors[-1]'         # remove last connector
@@ -451,7 +451,7 @@ do
             local grep_jq
             grep_jq=$(__bu_query_object_translate_grep "$grep_mode" "$grep_pattern") || {
                 error_msg="Invalid grep pattern[$grep_pattern]"
-                bu_autohelp; bu_scope_pop_function; return 1
+                bu_autohelp; return 1
             }
             grep_exprs+=("$grep_jq")
         fi
@@ -489,8 +489,10 @@ do
         group_keys=$_g_spec
         ;;
     --agg|agg)# AGG
-        # Aggregates for group-by: [name=]func[:field], comma-separated and/or
-        # repeatable. funcs: count, sum, avg, min, max, first, last, collect
+        # Aggregates: [name=]func[:field], comma-separated and/or repeatable.
+        # funcs: count, sum, avg, min, max, first, last, collect
+        # Without group-by the whole stream is one group: always one record
+        # (count 0 on empty input). bu count is an alias for agg count.
         local -a _a_words=("$@")
         local -A _a_used=()
         local _a_spec= _a_consumed=0 _a_continues=false
@@ -602,14 +604,14 @@ do
                     if [[ "$_h_op" != -isnull && "$_h_op" != -isnotnull && -z "$_h_val" ]]; then
                         if ! bu_env_is_in_autocomplete; then
                             error_msg="Missing value after operator[$_h_op] for field[$_h_field]"
-                            bu_autohelp; bu_scope_pop_function; return 1
+                            bu_autohelp; return 1
                         fi
                         _h_complete=false; break
                     fi
                     local _h_seg_jq
                     _h_seg_jq=$(__bu_query_object_translate_op "$_h_field" "$_h_op" "$_h_val") || {
                         error_msg="Invalid having clause: $_h_field $_h_op $_h_val"
-                        bu_autohelp; bu_scope_pop_function; return 1
+                        bu_autohelp; return 1
                     }
                     _h_segments+=("$_h_seg_jq")
                     _h_complete=true
@@ -640,7 +642,7 @@ do
                 if [[ "$_h_field" == -* ]]; then
                     if ! bu_env_is_in_autocomplete; then
                         error_msg="Expected field name after '${_h_connectors[-1]}', got flag[$_h_field]"
-                        bu_autohelp; bu_scope_pop_function; return 1
+                        bu_autohelp; return 1
                     fi
                     _h_extra=$((_h_extra - 1))
                     unset '_h_connectors[-1]'
@@ -929,15 +931,6 @@ if [[ -n "$first" && ! "$first" =~ ^[0-9]+$ ]]
 then
     error_msg="--first expects a non-negative integer, got[$first]"
     bu_autohelp
-    bu_scope_pop_function
-    return 1
-fi
-
-if [[ -z "$group_keys" ]] && ((${#agg_specs[@]} > 0))
-then
-    error_msg="agg requires group-by (e.g. bu query-object group-by verb agg count)"
-    bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -993,7 +986,6 @@ fi
 if [[ -n "$error_msg" ]]
 then
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -1041,9 +1033,9 @@ __bu_query_object_build_plan()
             output_fields+=("$sel_new")
         done
         IFS=$ifs
-    elif [[ -n "$group_keys" ]]
+    elif [[ -n "$group_keys" ]] || ((${#agg_specs[@]} > 0))
     then
-        # GROUP BY without SELECT: output fields = group keys + aggregate names
+        # GROUP BY/aggregates without SELECT: output fields = group keys + aggregate names
         IFS=','
         for gk in $group_keys; do [[ -n "$gk" ]] && output_fields+=("$gk"); done
         IFS=$ifs
@@ -1114,8 +1106,9 @@ __bu_query_object_explain_plan()
         def stage($clause; $operation; $processing):
             {clause: $clause, operation: $operation, processing: $processing};
         ($first != "" and ($first | test("^0+$"))) as $zero
+        | ($group != "" or ($ARGS.positional | length) > 0) as $grouped
         | ($executor == "combined" and $zero) as $bypass
-        | ($group != "" or $order != "" or $inputFormat == "csv") as $blocking
+        | ($grouped or $order != "" or $inputFormat == "csv") as $blocking
         | $base + {
             version: 1,
             executor: $executor,
@@ -1130,7 +1123,7 @@ __bu_query_object_explain_plan()
             stages: [
                 if $where != "" then stage("where"; $where; "streaming") else empty end,
                 if $grep != "" then stage("grep"; $grep; "streaming") else empty end,
-                if $group != "" then
+                if $grouped then
                     stage("group-by"; {keys: $group, aggregates: $ARGS.positional}; "retains-group-state")
                 else empty end,
                 if $having != "" then stage("having"; $having; "streaming") else empty end,
@@ -1151,7 +1144,7 @@ __bu_query_object_explain_plan()
             else
                 ["input reader",
                  (if $where != "" or $grep != "" then "where/grep: jq" else "where: cat" end),
-                 (if $group != "" then "group-by: jq" else "group-by: cat" end),
+                 (if $grouped then "group-by: jq" else "group-by: cat" end),
                  (if $having != "" then "having: jq" else "having: cat" end),
                  (if $projection != "" then "select: jq" else "select: cat" end),
                  (if $distinct then "distinct: jq" else "distinct: cat" end),
@@ -1165,7 +1158,7 @@ __bu_query_object_explain_plan()
                 elif $first != "" then "The query can stop reading once enough matching results reach first."
                 else "No first limit is set; normal processing continues to end of input." end,
                 if $inputFormat == "json" and ($bypass | not) then "Each JSON value is parsed in full before array elements can be queried." else empty end,
-                if $group != "" then "Grouping reads all input but retains aggregate state per group; collect also retains collected field values." else empty end,
+                if $grouped then "Grouping reads all input but retains aggregate state per group; collect also retains collected field values." else empty end,
                 if $distinct then "Distinct retains seen values; memory grows with the number of unique results." else empty end,
                 if $outputFormat == "table" or $outputFormat == "json" then "The formatter buffers query results, which may already be limited by first." else empty end,
                 if $first != "" then "External upstream producers can receive SIGPIPE when reading stops." else empty end,
@@ -1189,7 +1182,7 @@ __bu_query_object_render_plan()
         "$BU_OUT_JQ" -r '
             def operation:
                 if .clause == "select" then .operation.fields + (if .operation.expand then " (expand)" else "" end)
-                elif .clause == "group-by" then .operation.keys + (if (.operation.aggregates | length) > 0 then " agg " + (.operation.aggregates | join(",")) else " (distinct keys)" end)
+                elif .clause == "group-by" then (if .operation.keys == "" then "(whole stream)" else .operation.keys end) + (if (.operation.aggregates | length) > 0 then " agg " + (.operation.aggregates | join(",")) else " (distinct keys)" end)
                 elif .clause == "order-by" then .operation.field + " " + .operation.direction
                 else .operation | tostring end;
             "Executor: " + .executor,
@@ -1257,7 +1250,7 @@ __bu_query_object_compile()
     elif [[ -n "$grep_expr" ]]; then
         program="($program) | select($grep_expr)"
     fi
-    if [[ -n "$group_keys" ]]; then
+    if [[ -n "$group_keys" ]] || ((${#agg_specs[@]} > 0)); then
         __bu_out_group_filter "$group_keys" "${agg_specs[@]}" || return 1
         filter=$BU_RET
         program="$filter __bu_group($program)"
@@ -1376,9 +1369,10 @@ __bu_query_object_where()
 
 __bu_query_object_group()
 {
-    if [[ -n "$group_keys" ]]
+    if [[ -n "$group_keys" ]] || ((${#agg_specs[@]} > 0))
     then
-        local -a group_args=(--keys "$group_keys")
+        local -a group_args=()
+        [[ -n "$group_keys" ]] && group_args+=(--keys "$group_keys")
         local spec
         for spec in "${agg_specs[@]}"
         do

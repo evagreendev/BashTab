@@ -2416,9 +2416,19 @@ function test_bu_out_group_by_missing_field { #@test
     assert_failure
 }
 
-function test_bu_out_group_by_requires_keys { #@test
-    run bu_out_group_by --agg count </dev/null
+function test_bu_out_group_by_requires_keys_or_agg { #@test
+    run bu_out_group_by </dev/null
     assert_failure
+    assert_output --partial "requires --keys or at least one aggregate"
+}
+
+function test_bu_out_group_by_no_keys_whole_stream { #@test
+    # No keys: the whole stream is one group (SQL aggregate without GROUP BY)
+    local out
+    out=$(printf '%s\n' '{"x":1}' '{"x":2}' | bu_out_group_by --agg count,sum:x)
+    assert_equal "$out" '{"count":2,"sum_x":3}'
+    out=$(printf '' | bu_out_group_by --agg count)
+    assert_equal "$out" '{"count":0}'
 }
 
 function test_bu_query_object_group_by { #@test
@@ -2445,9 +2455,60 @@ function test_bu_query_object_group_rename_order_alias { #@test
 {"ver":"2.0.0","c":1}'
 }
 
-function test_bu_query_object_agg_requires_group_by { #@test
-    run bu query-object agg count </dev/null
+__bu_test_agg_records()
+{
+    printf '%s\n' '{"v":"pass","hp":100}' '{"v":"fail","hp":200}' '{"v":"warn","hp":300}'
+}
+
+function test_bu_query_object_agg_without_group_by { #@test
+    # Aggregates without group-by treat the whole input as one group
+    local executor out
+    for executor in pipeline combined
+    do
+        out=$(__bu_test_agg_records | BU_QUERY_EXECUTOR=$executor bu query-object agg count --format jsonl)
+        assert_equal "$out" '{"count":3}'
+        out=$(__bu_test_agg_records | BU_QUERY_EXECUTOR=$executor bu query-object agg count,sum:hp,max:hp --format jsonl)
+        assert_equal "$out" '{"count":3,"sum_hp":600,"max_hp":300}'
+        out=$(__bu_test_agg_records | BU_QUERY_EXECUTOR=$executor bu query-object agg n=count --format jsonl)
+        assert_equal "$out" '{"n":3}'
+    done
+}
+
+function test_bu_query_object_agg_without_group_by_empty_input { #@test
+    # SQL: an aggregate without GROUP BY always yields one row (COUNT(*) = 0)
+    local executor out
+    for executor in pipeline combined
+    do
+        out=$(BU_QUERY_EXECUTOR=$executor bu query-object agg count --format jsonl </dev/null)
+        assert_equal "$out" '{"count":0}'
+        out=$(BU_QUERY_EXECUTOR=$executor bu query-object agg count,sum:hp --format jsonl </dev/null)
+        assert_equal "$out" '{"count":0,"sum_hp":0}'
+    done
+}
+
+function test_bu_count_alias { #@test
+    local out
+    out=$(__bu_test_agg_records | bu count --format tsv)
+    assert_equal "$out" 3
+    out=$(__bu_test_agg_records | bu where v -ne pass | bu count --format tsv)
+    assert_equal "$out" 2
+    out=$(__bu_test_agg_records | bu where v -eq nothing | bu count --format jsonl)
+    assert_equal "$out" '{"count":0}'
+}
+
+function test_bu_query_object_agg_without_group_by_debug_fields { #@test
+    local out
+    out=$(bu query-object agg count,avg:hp --debug | jq -c .outputFields)
+    assert_equal "$out" '["count","avg_hp"]'
+}
+
+function test_bu_query_object_usage_error_pops_scope_once { #@test
+    # bu_autohelp pops the scope; a second pop used to print "Dynamic stack is empty"
+    __bu_test_first_negative() { printf '{"a":1}\n' | bu query-object --first -1 --format jsonl; }
+    run __bu_test_first_negative
     assert_failure
+    assert_output --partial "non-negative integer"
+    refute_output --partial "Dynamic stack is empty"
 }
 
 function test_bu_query_object_from_file { #@test

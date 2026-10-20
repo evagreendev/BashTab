@@ -89,14 +89,12 @@ fi
 if [[ -z "$path" ]]; then
     error_msg="Archive path is required (e.g. bu expand-file dist.tar.gz)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
 if [[ ! -f "$path" ]]; then
     error_msg="Archive not found: $path"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -108,7 +106,7 @@ if [[ -z "$format_type" ]]; then
         *.tar.xz|*.txz)      format_type=txz ;;
         *.tar)                format_type=tar ;;
         *.zip)                format_type=zip ;;
-        *) error_msg="Cannot detect format from extension: $path. Use --format."; bu_autohelp; bu_scope_pop_function; return 1 ;;
+        *) error_msg="Cannot detect format from extension: $path. Use --format."; bu_autohelp; return 1 ;;
     esac
 fi
 
@@ -121,7 +119,6 @@ esac
 if [[ -n "$tool_missing" ]]; then
     error_msg="$tool_missing is required for --format $format_type"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -163,11 +160,11 @@ else
     mkdir -p "$destination" 2>/dev/null || true
     local entry_count=0
     case "$format_type" in
-        tgz)   tar -xzf "$path" -C "$destination" 2>/dev/null || { error_msg="Extract failed"; bu_autohelp; bu_scope_pop_function; return 1; } ;;
-        tbz2)  tar -xjf "$path" -C "$destination" 2>/dev/null || { error_msg="Extract failed"; bu_autohelp; bu_scope_pop_function; return 1; } ;;
-        txz)   tar -xJf "$path" -C "$destination" 2>/dev/null || { error_msg="Extract failed"; bu_autohelp; bu_scope_pop_function; return 1; } ;;
-        tar)   tar -xf "$path" -C "$destination" 2>/dev/null || { error_msg="Extract failed"; bu_autohelp; bu_scope_pop_function; return 1; } ;;
-        zip)   unzip -o "$path" -d "$destination" 2>/dev/null || { error_msg="Extract failed"; bu_autohelp; bu_scope_pop_function; return 1; } ;;
+        tgz)   tar -xzf "$path" -C "$destination" 2>/dev/null || { error_msg="Extract failed"; bu_autohelp; return 1; } ;;
+        tbz2)  tar -xjf "$path" -C "$destination" 2>/dev/null || { error_msg="Extract failed"; bu_autohelp; return 1; } ;;
+        txz)   tar -xJf "$path" -C "$destination" 2>/dev/null || { error_msg="Extract failed"; bu_autohelp; return 1; } ;;
+        tar)   tar -xf "$path" -C "$destination" 2>/dev/null || { error_msg="Extract failed"; bu_autohelp; return 1; } ;;
+        zip)   unzip -o "$path" -d "$destination" 2>/dev/null || { error_msg="Extract failed"; bu_autohelp; return 1; } ;;
     esac
     entry_count=$(tar -tf "$path" 2>/dev/null | wc -l) || entry_count=0
     bu_out_record path="$path" format="$format_type" destination="$destination" entry_count:="$entry_count" | bu_out --format jsonl

@@ -58,7 +58,7 @@ producer → recordify → transform → sink
 | Layer | Core functions | Cmdlets |
 |---|---|---|
 | Recordifiers | `bu_out_record`, `bu_out_from_tsv`, `bu_out_from_lines` | `bu new-record`, `bu convert-from-tsv`, `bu convert-from-lines` |
-| Transforms | `bu_out_where`, `bu_out_select`, `bu_out_sort_by`, `bu_out_group_by`, `bu_out_distinct` | `bu where`, `bu select`, `bu sort`, `bu query-object`, `bu distinct-object` |
+| Transforms | `bu_out_where`, `bu_out_select`, `bu_out_sort_by`, `bu_out_group_by`, `bu_out_distinct` | `bu where`, `bu select`, `bu sort`, `bu count`, `bu query-object`, `bu distinct-object` |
 | Sinks | `bu_format_table`, `bu_format_list`, `bu_format_json`, `bu_format_jsonl`, `bu_format_tsv`, `bu_format_csv`, `bu_format_markdown`, `bu_format_html` | `bu format-table`, `bu format-list`, `bu convert-to-json`, `bu convert-to-jsonl`, `bu convert-to-tsv`, `bu convert-to-csv`, `bu convert-to-markdown`, `bu convert-to-html` |
 | Dispatcher | `bu_out` | `bu out-default` |
 
@@ -125,6 +125,7 @@ bu_register_output_fields "bu get-pokemon" name id type hp attack
 | Select-Object | `bu select a,b=version` |
 | Sort-Object | `bu sort key [--desc]` |
 | Group-Object + Measure-Object | `group-by` + `agg` (flat records, not nested) |
+| Measure-Object | `bu count` (= `query-object agg count`; `--format tsv` prints the bare number), `agg sum:f,max:f` without `group-by`, `bu measure-object [field]` |
 | Select-Object -Unique | `bu distinct-object` |
 | Format-Table / Format-List | `bu format-table` / `bu format-list` |
 | ConvertTo-Json | `bu convert-to-json` (+ `jsonl`, `tsv`) |
@@ -145,7 +146,7 @@ where → group-by → having → select → distinct → order-by → first
 | `where '<jq expr>'` | Pre-group filter, **source** field names. Repeatable, ANDed. |
 | `grep 'pattern'` | Search a pattern across any field value of each record (grep of a row). Default regex; `-like`/`-ilike` glob (`*`/`?`, bare = substring); `-i`/`-ilike` case-insensitive. Repeatable, ANDed. |
 | `group-by a[,b]` | Collapse to one record per (composite) key. No `agg` = SELECT DISTINCT keys. |
-| `agg [name=]func[:field]` | Aggregates, repeatable and/or comma-separated. `count`, `sum:f`, `avg:f` (numeric only), `min:f`, `max:f`, `first:f`, `last:f`, `collect:f` (array of values). Default name: `func_field`. |
+| `agg [name=]func[:field]` | Aggregates, repeatable and/or comma-separated. `count`, `sum:f`, `avg:f` (numeric only), `min:f`, `max:f`, `first:f`, `last:f`, `collect:f` (array of values). Default name: `func_field`. Without `group-by` the whole stream is one group: always exactly one record (`{"count":0}` on empty input). |
 | `having '<jq expr>'` | Post-group filter on group/aggregate fields. Repeatable, ANDed. |
 | `select a,b=version` | Project/reorder/rename (`new=old`). |
 | `distinct` | Dedupe whole records (first occurrence wins, order preserved, key-order canonicalized). |
@@ -167,6 +168,10 @@ bu get-command | bu query-object grep -ilike get-* select name
 Design notes:
 
 - Records missing a group key form a `null` group.
+- `agg` without `group-by` follows SQL's aggregate-without-GROUP-BY: one
+  row even for empty input (`count` and `sum` are `0`, other aggregates
+  `null`). `bu where verdict -ne pass | bu count --format tsv` prints how many
+  records survived the filter.
 - `select x distinct` ≡ `group-by x` once sorted; `distinct` preserves
   original order, `group-by` sorts.
 - Composition is eval-free: each clause is a function stage, absent clauses

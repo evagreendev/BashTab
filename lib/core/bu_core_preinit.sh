@@ -825,15 +825,17 @@ BU_CURRENT_MODULE=bu
 bu_preinit_register_new_alias gc get-command --namespace {} {?} --verb {} {?} --noun {} {...}
 
 # Short aliases that expand to query-object --where / --select / --grep /
-# --order-by.
+# --order-by / --agg count.
 #   bu get-process | bu where type -eq source
 #   bu get-process | bu select name,verb
 #   bu get-process | bu grep get
 #   bu get-process | bu sort name desc
+#   bu get-process | bu count --format tsv   # bare number (Measure-Object)
 bu_preinit_register_new_alias where query-object --where {...}
 bu_preinit_register_new_alias select query-object --select {...}
 bu_preinit_register_new_alias grep query-object --grep {...}
 bu_preinit_register_new_alias sort query-object --order-by {...}
+bu_preinit_register_new_alias count query-object --agg count {...}
 
 # Stage effects for the aliases above — they have no script file to carry a
 # `# Pipeline:` header, so register explicitly (query-object reads JSONL and
@@ -842,4 +844,5 @@ bu_register_stage_effect "bu where" query
 bu_register_stage_effect "bu select" query
 bu_register_stage_effect "bu grep" query
 bu_register_stage_effect "bu sort" query
+bu_register_stage_effect "bu count" query
 BU_CURRENT_MODULE=$_bu_cur_module_prev
