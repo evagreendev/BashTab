@@ -653,13 +653,140 @@ bu_autohelp()
 # `command source` bypasses our source wrapper while preserving the caller's
 # errexit exemption (e.g. `bu ... || ...`). Nested `builtin source` calls can
 # lose that exemption on Bash 5.2 and abort even when the failure is caught.
-eval "$BU_CLI_COMMAND_NAME"'() { command source bu_impl.sh "$@"; }'
+#
+# The dispatcher and every command it sources run with errexit, nounset and
+# pipefail OFF whatever the caller has set: the caller's options govern the
+# caller's statements, not a command's implementation. The wrapper saves them
+# in its local `__bu_cli_caller_opts` (seen by commands through dynamic
+# scope, read and changed only via bu_cli_get/set_caller_shell_option),
+# resets them, and restores them after the source, returning the command's
+# status unchanged. Not `local -`: that would also undo the option changes a
+# command like `bu set-shell-option` is asked to make in the caller's shell.
+eval "$BU_CLI_COMMAND_NAME"'() {
+    local -A __bu_cli_caller_opts=()
+    __bu_cli_shell_opts_enter
+    command source bu_impl.sh "$@"
+    __bu_cli_shell_opts_leave "$?"
+}'
 
 # Always define bu
 if [[ "$BU_CLI_COMMAND_NAME" != bu ]]
 then
-    bu() { command source bu_impl.sh "$@"; }
+    bu() {
+        local -A __bu_cli_caller_opts=()
+        __bu_cli_shell_opts_enter
+        command source bu_impl.sh "$@"
+        __bu_cli_shell_opts_leave "$?"
+    }
 fi
+
+# The `set -o` options the CLI wrapper resets for the duration of a command.
+declare -g -a BU_CLI_RESET_SHELL_OPTIONS=(errexit nounset pipefail)
+
+# ```
+# *Description*:
+# Save the caller's errexit/nounset/pipefail into the wrapper's
+# `__bu_cli_caller_opts` and turn them off. Always returns 0.
+# ```
+__bu_cli_shell_opts_enter()
+{
+    local opt
+    for opt in "${BU_CLI_RESET_SHELL_OPTIONS[@]}"
+    do
+        if [[ -o "$opt" ]]
+        then
+            __bu_cli_caller_opts[$opt]=on
+        else
+            __bu_cli_caller_opts[$opt]=off
+        fi
+    done
+    set +e +u +o pipefail
+    return 0
+}
+
+# ```
+# *Description*:
+# Restore the options saved by __bu_cli_shell_opts_enter (including any
+# change a command made through bu_cli_set_caller_shell_option)
+#
+# *Params*:
+# - `$1`: Exit status of the command
+#
+# *Returns*:
+# - `$1`, unchanged
+# ```
+__bu_cli_shell_opts_leave()
+{
+    local opt
+    for opt in "${BU_CLI_RESET_SHELL_OPTIONS[@]}"
+    do
+        if [[ "${__bu_cli_caller_opts[$opt]}" == on ]]
+        then
+            set -o "$opt"
+        else
+            set +o "$opt"
+        fi
+    done
+    return "$1"
+}
+
+# ```
+# *Description*:
+# Read a `set -o` option as the caller of the `bu` command sees it. Inside a
+# command, errexit/nounset/pipefail are always off (the CLI wrapper resets
+# them), so commands reporting the caller's shell state read them here.
+# Outside the wrapper this is the live value.
+#
+# *Params*:
+# - `$1`: Option name (as listed by `set -o`)
+#
+# *Returns*:
+# - `BU_RET`: on or off
+# ```
+bu_cli_get_caller_shell_option()
+{
+    if [[ -n "${__bu_cli_caller_opts[$1]+set}" ]]
+    then
+        BU_RET=${__bu_cli_caller_opts[$1]}
+    elif [[ -o "$1" ]]
+    then
+        BU_RET=on
+    else
+        BU_RET=off
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
+# Set a `set -o` option in the shell of the `bu` command's caller. For the
+# options the CLI wrapper resets, the change is recorded so the wrapper
+# applies it on return instead of restoring the old value; every other
+# option is set directly.
+#
+# *Params*:
+# - `$1`: Option name (as listed by `set -o`)
+# - `$2`: on or off
+#
+# *Returns*:
+# - Exit code of `set`: non-zero for an unknown option
+# ```
+bu_cli_set_caller_shell_option()
+{
+    local -r opt=$1
+    local -r value=$2
+    if [[ -n "${__bu_cli_caller_opts[$opt]+set}" ]]
+    then
+        __bu_cli_caller_opts[$opt]=$value
+        return 0
+    fi
+    if [[ "$value" == on ]]
+    then
+        set -o "$opt"
+    else
+        set +o "$opt"
+    fi
+}
 
 
 BU_ENUM_NAMESPACE_STYLE=(

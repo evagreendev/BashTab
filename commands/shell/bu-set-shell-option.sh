@@ -119,11 +119,11 @@ then
             _tv=${_v:-$value}
             if [[ "$_tv" == on || "$_tv" == true ]]
             then
-                set -o "$_n" 2>/dev/null \
+                bu_cli_set_caller_shell_option "$_n" on 2>/dev/null \
                     && bu_out_record name="$_n" value:=true \
                     || { bu_out_record name="$_n" value:=false error="set -o failed"; rc=1; }
             else
-                set +o "$_n" 2>/dev/null \
+                bu_cli_set_caller_shell_option "$_n" off 2>/dev/null \
                     && bu_out_record name="$_n" value:=false \
                     || { bu_out_record name="$_n" value:=true error="set +o failed"; rc=1; }
             fi
@@ -169,20 +169,11 @@ fi
 if "$is_dry_run"; then
     bu_out_record name="$name" value:="$([[ "$value" == on ]] && echo true || echo false)" action="would-set" dry_run:=true | bu_out --format "$format"
 else
-# Runs sourced, so the change sticks in the current shell
-if [[ "$value" == on ]]
-then
-    set -o "$name"
-else
-    set +o "$name"
-fi
-
-set -o | jq -R -c --arg name "$name" '
-    select(. != "")
-    | capture("^(?<name>\\S+)\\s+(?<value>on|off)$")
-    | select(.name == $name)
-    | .value |= (. == "on")
-' | bu_out --format "$format"
+# Runs sourced, so the change sticks in the current shell (errexit, nounset
+# and pipefail via the CLI wrapper, which applies them on return)
+bu_cli_set_caller_shell_option "$name" "$value"
+bu_cli_get_caller_shell_option "$name"
+bu_out_record name="$name" value:="$([[ "$BU_RET" == on ]] && echo true || echo false)" | bu_out --format "$format"
 fi
 
 bu_scope_pop_function

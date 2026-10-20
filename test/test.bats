@@ -1891,3 +1891,100 @@ function test_compat_deferred_alias_dispatch_errors { #@test
 
 
 
+
+# ===========================================================================
+# CLI wrapper: the dispatcher does not run under the caller's
+# errexit / nounset / pipefail
+# ===========================================================================
+
+# Register a fixture directory holding two source-type commands:
+# errexit-probe (an internal failing probe, then success) and errexit-fail
+# (a genuine failure as its final status), plus errexit-opts, which prints
+# the options it runs under.
+__bu_test_errexit_fixture()
+{
+    local -r dir=$BATS_TEST_TMPDIR/errexit-cmds
+    mkdir -p "$dir"
+    printf '%s\n' '#!/usr/bin/env bash' '# Synopsis: errexit probe' '# Dispatch: source' '# Pipeline: standalone' \
+        'grep -q nomatch /dev/null' 'echo probe ok' > "$dir/errexit-probe.sh"
+    printf '%s\n' '#!/usr/bin/env bash' '# Synopsis: errexit fail' '# Dispatch: source' '# Pipeline: standalone' \
+        'grep -q nomatch /dev/null' > "$dir/errexit-fail.sh"
+    printf '%s\n' '#!/usr/bin/env bash' '# Synopsis: errexit opts' '# Dispatch: source' '# Pipeline: standalone' \
+        'echo "flags=$-"' 'set -o | grep "^pipefail"' > "$dir/errexit-opts.sh"
+    BU_COMMAND_SEARCH_DIRS=()
+    BU_COMMAND_SEARCH_DIRS[$dir]=
+    __bu_init_env_commands >/dev/null 2>&1
+}
+
+# Like `run`, but evaluates $1 in a plain command substitution. `run` calls
+# the command where bash ignores errexit altogether, so a `set -e` inside it
+# would never fire.
+__bu_test_eval_strict()
+{
+    set +eE
+    output=$(eval "$1")
+    status=$?
+    set -eE
+    mapfile -t lines <<< "$output"
+    return 0
+}
+
+function test_bu_cli_errexit_does_not_reach_command { #@test
+    __bu_test_errexit_fixture
+    __bu_test_eval_strict 'set -e; bu errexit-probe; echo "rc=$?"; echo after'
+    assert_success
+    assert_output $'probe ok\nrc=0\nafter'
+}
+
+function test_bu_cli_errexit_still_reacts_to_command_status { #@test
+    __bu_test_errexit_fixture
+    __bu_test_eval_strict 'set -e; bu errexit-fail; echo unreachable'
+    assert_failure
+    assert_output ''
+}
+
+function test_bu_cli_pipefail_does_not_reach_command { #@test
+    __bu_test_errexit_fixture
+    __bu_test_eval_strict 'set -o pipefail; printf "x\n" | bu errexit-probe'
+    assert_success
+    assert_output 'probe ok'
+}
+
+function test_bu_cli_nounset_does_not_reach_command { #@test
+    __bu_test_errexit_fixture
+    __bu_test_eval_strict 'set -u; bu errexit-probe'
+    assert_success
+    assert_output 'probe ok'
+}
+
+function test_bu_cli_command_runs_with_options_off { #@test
+    __bu_test_errexit_fixture
+    __bu_test_eval_strict 'set -e -u -o pipefail; bu errexit-opts'
+    assert_success
+    assert_line --index 0 --regexp '^flags=[^eu]*$'
+    assert_line --index 1 --regexp '^pipefail[[:space:]]+off$'
+}
+
+function test_bu_cli_caller_options_restored { #@test
+    __bu_test_errexit_fixture
+    __bu_test_eval_strict 'set -e -o pipefail; bu errexit-probe >/dev/null; echo "$-"; set -o | grep "^pipefail"'
+    assert_success
+    assert_line --index 0 --regexp 'e'
+    assert_line --index 1 --regexp '^pipefail[[:space:]]+on$'
+    __bu_test_eval_strict 'set -e +o pipefail; bu errexit-probe >/dev/null; echo "$-"; set -o | grep "^pipefail"'
+    assert_success
+    assert_line --index 0 --regexp 'e'
+    assert_line --index 1 --regexp '^pipefail[[:space:]]+off$'
+}
+
+function test_bu_cli_caller_shell_option_seen_and_set_by_commands { #@test
+    # get-shell-option reports the caller's errexit (not the reset value),
+    # set-shell-option changes it in the caller (applied by the wrapper)
+    local out
+    out=$(set -e; bu get-shell-option errexit | jq -c '.value')
+    assert_equal "$out" true
+    out=$(set -e; bu set-shell-option errexit --off >/dev/null; echo "$-")
+    [[ "$out" != *e* ]]
+    out=$(set +e; bu set-shell-option errexit >/dev/null || true; echo "$-")
+    [[ "$out" == *e* ]]
+}

@@ -116,8 +116,15 @@ local synopsis_table='{
   "igncr": "Ignore carriage returns in input (Cygwin and MinGW bashes)"
 }'
 
-# Runs sourced, so `set -o` reports the current shell's live settings
-set -o | jq -R -c --arg name "$name" --argjson synopsis "$synopsis_table" '
+# Runs sourced, so `set -o` reports the current shell's live settings, except
+# the ones the CLI wrapper resets while a command runs: those come from the
+# caller's saved state.
+local _opt _value
+while read -r _opt _value
+do
+    bu_cli_get_caller_shell_option "$_opt"
+    printf '%s %s\n' "$_opt" "$BU_RET"
+done < <(set -o) | jq -R -c --arg name "$name" --argjson synopsis "$synopsis_table" '
     select(. != "")
     | capture("^(?<name>\\S+)\\s+(?<value>on|off)$")
     | select($name == "" or .name == $name)

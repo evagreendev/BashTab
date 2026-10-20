@@ -117,6 +117,18 @@ Scripts named `bu-*.sh` that can be invoked via:
 
 Command types: `execute` (new process), `source` (current shell), `function` (bash function)
 
+`bu` (and `$BU_CLI_COMMAND_NAME`) is a shell function that sources the
+dispatcher `lib/binsrc/bu_impl.sh` into the caller's shell. The dispatcher and
+every command it sources run with **errexit, nounset and pipefail OFF**,
+whatever the caller has set: the wrapper saves those three, resets them, and
+restores them on return. Command authors must not rely on the caller's
+options; callers get the command's exit status, nothing else (so `set -e`
+still reacts to a failing command, and `bu x || handle` still works). A
+command that reports or changes the caller's options uses
+`bu_cli_get_caller_shell_option` / `bu_cli_set_caller_shell_option` (see
+`bu get-shell-option`, `bu set-shell-option`), never `set -o` directly.
+Minimum supported Bash: 4.4 (checked at the top of `bu_entrypoint.sh`).
+
 Only files whose extension is in `BU_COMMAND_FILE_EXTENSIONS` (default `(sh py)`;
 set it before the entrypoint runs) are command candidates in a registered
 command directory, minus dotfiles, `_*` helpers and `.bashtabignore` matches.
