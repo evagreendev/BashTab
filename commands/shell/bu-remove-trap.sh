@@ -135,7 +135,6 @@ if ((${#signals[@]} == 0))
 then
     error_msg="Missing required signal name (e.g. bu remove-trap EXIT)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

@@ -100,7 +100,6 @@ fi
 if [[ -z "$mode" && -z "$owner" && -z "$group" ]]; then
     error_msg="At least one of --mode, --owner, or --group is required"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -117,7 +116,6 @@ fi
 if ((${#paths[@]} == 0)); then
     error_msg="No paths specified. Provide file paths or pipe records with .path fields."
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

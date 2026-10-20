@@ -75,7 +75,6 @@ if [[ -z "$file" ]]
 then
     error_msg="Expected a TSV file path (e.g. bu import-tsv data.tsv)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -92,7 +91,6 @@ fi
 if [[ -n "$error_msg" ]]
 then
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

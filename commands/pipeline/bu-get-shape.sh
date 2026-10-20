@@ -88,7 +88,6 @@ if [[ -z "$producer" ]]
 then
     error_msg="Expected a producer command name (e.g. bu get-shape get-command)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

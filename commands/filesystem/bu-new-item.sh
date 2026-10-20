@@ -111,7 +111,6 @@ if ((${#paths[@]} == 0))
 then
     error_msg="Missing required path (e.g. bu new-item ./logs --type directory)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -119,7 +118,6 @@ if [[ "$type" == symlink && -z "$target" ]]
 then
     error_msg="--type symlink requires --target"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

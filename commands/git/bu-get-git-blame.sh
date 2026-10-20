@@ -76,7 +76,6 @@ fi
 if [[ -z "$path" ]]; then
     error_msg="Missing required file path (e.g. bu get-git-blame src/main.c)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

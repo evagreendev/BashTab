@@ -70,7 +70,7 @@ if ((${#names[@]} == 0)) && read -t 0 2>/dev/null; then
 fi
 if ((${#names[@]} == 0)); then
     error_msg="No packages specified."
-    bu_autohelp; bu_scope_pop_function; return 1
+    bu_autohelp; return 1
 fi
 
 if "$is_dry_run"; then
@@ -81,7 +81,7 @@ if "$is_dry_run"; then
 else
     local -a cmd=(apk add)
     "$is_yes" || cmd+=(-i)
-    "${cmd[@]}" "${names[@]}" 2>/dev/null || { error_msg="apk add failed"; bu_autohelp; bu_scope_pop_function; return 1; }
+    "${cmd[@]}" "${names[@]}" 2>/dev/null || { error_msg="apk add failed"; bu_autohelp; return 1; }
     local n
     for n in "${names[@]}"; do
         bu_out_record name="$n" action="installed" | bu_out --format jsonl

@@ -133,7 +133,6 @@ if [[ -z "$url" ]]
 then
     error_msg="Missing required URL (e.g. bu invoke-web-request https://example.com)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

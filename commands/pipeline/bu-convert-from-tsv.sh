@@ -75,7 +75,6 @@ if [[ -z "$columns" ]]
 then
     error_msg="Missing required --columns (e.g. bu convert-from-tsv --columns name,version)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

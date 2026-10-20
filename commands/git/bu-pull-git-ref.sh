@@ -120,7 +120,6 @@ output=$("${cmd[@]}" 2>&1) || {
     fi
     error_msg="$output"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 }
 

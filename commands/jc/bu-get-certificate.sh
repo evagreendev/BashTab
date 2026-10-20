@@ -89,7 +89,6 @@ if ! command -v jc &>/dev/null
 then
     error_msg="jc is required. Install with: pip install jc"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -110,7 +109,6 @@ then
     then
         error_msg="Cannot read certificate file: $target"
         bu_autohelp
-        bu_scope_pop_function
         return 1
     fi
     cat -- "$target" 2>/dev/null \
@@ -120,7 +118,6 @@ then
 else
     error_msg="Provide a certificate file or --host host[:port]"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

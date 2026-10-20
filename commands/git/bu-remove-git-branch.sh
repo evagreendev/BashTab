@@ -108,7 +108,6 @@ fi
 if ((${#branches[@]} == 0)); then
     error_msg="No branches specified. Provide branch names or pipe records with .name fields."
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

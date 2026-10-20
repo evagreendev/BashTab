@@ -95,7 +95,6 @@ then
     then
         error_msg="Missing text to copy (argument or stdin)"
         bu_autohelp
-        bu_scope_pop_function
         return 1
     fi
     # Try structural typing: extract .text fields from JSONL records
@@ -130,7 +129,6 @@ then
 else
     error_msg="No clipboard tool found (pbcopy, wl-copy, xclip, or xsel)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

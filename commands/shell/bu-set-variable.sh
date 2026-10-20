@@ -169,7 +169,6 @@ if ((${#names[@]} == 0))
 then
     error_msg="Missing required variable name (e.g. bu set-variable MY_VAR hello)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

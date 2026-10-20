@@ -100,7 +100,6 @@ if ! command -v npm &>/dev/null
 then
     error_msg="npm is required. Install Node.js from https://nodejs.org"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

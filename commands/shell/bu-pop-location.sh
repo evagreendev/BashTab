@@ -78,7 +78,6 @@ if ! popd &>/dev/null
 then
     error_msg="Directory stack is empty (nothing to pop)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

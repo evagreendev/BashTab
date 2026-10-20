@@ -103,14 +103,12 @@ fi
 [[ -n "$path" ]] || {
     error_msg="--path is required"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 }
 
 [[ -f "$GITSHELF_CONFIG_FILE" ]] || {
     error_msg="config file not found: $GITSHELF_CONFIG_FILE"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 }
 
@@ -131,7 +129,6 @@ if jq -e --arg name "$name" '.repos | has($name)' "$GITSHELF_CONFIG_FILE" &>/dev
 then
     error_msg="Repo[$name] already exists in $GITSHELF_CONFIG_FILE"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -147,7 +144,6 @@ else
     rm -f "$tmp_file"
     error_msg="failed to update $GITSHELF_CONFIG_FILE"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

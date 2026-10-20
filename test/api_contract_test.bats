@@ -502,6 +502,27 @@ function test_autocomplete_no_pop_flag { #@test
 }
 
 # ===========================================================================
+# bu_autohelp
+# ===========================================================================
+
+function test_autohelp_call_sites_do_not_pop_again { #@test
+    # bu_autohelp ends with bu_scope_pop_function, so a command must not pop
+    # again after it: the second pop prints "Dynamic stack is empty", or pops
+    # the caller's scope. The first return/pop after each call must be the return.
+    local offenders
+    offenders=$(find "$BU_DIR"/commands "$BU_DIR"/examples "$BU_DIR"/lib/templates -name '*.sh' -print0 \
+        | xargs -0 awk '
+            FNR == 1 { pending = 0 }
+            /^[[:space:]]*#/ { next }
+            /bu_autohelp;[[:space:]]*bu_scope_pop_function/ { print FILENAME ":" FNR; next }
+            pending && /^[[:space:]]*bu_scope_pop_function([[:space:]]|$)/ { print FILENAME ":" FNR; pending = 0; next }
+            pending && /^[[:space:]]*return([[:space:]]|$)/ { pending = 0 }
+            /(^|[[:space:];])bu_autohelp([[:space:]]|$)/ && !/bu_autohelp;[[:space:]]*return/ { pending = 1 }
+        ')
+    assert_equal "$offenders" ""
+}
+
+# ===========================================================================
 # Literal DSL (:value)
 # ===========================================================================
 

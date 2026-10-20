@@ -95,7 +95,6 @@ fi
 if ((${#indices[@]} == 0)) && ! "$is_all"; then
     error_msg="No stashes specified. Provide stash indices or use --all."
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -116,7 +115,6 @@ if "$is_all"; then
     git stash clear 2>/dev/null || {
         error_msg="Failed to clear stashes"
         bu_autohelp
-        bu_scope_pop_function
         return 1
     }
     bu_out_record status="cleared-all" | bu_out --format jsonl

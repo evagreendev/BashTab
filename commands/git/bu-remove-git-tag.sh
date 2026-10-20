@@ -100,7 +100,6 @@ fi
 if ((${#tags[@]} == 0)); then
     error_msg="No tags specified. Provide tag names or pipe records with .name fields."
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

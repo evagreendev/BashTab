@@ -125,7 +125,6 @@ if ((${#images[@]} == 0))
 then
     error_msg="Missing required image name or ID (e.g. bu remove-docker-image nginx:latest)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

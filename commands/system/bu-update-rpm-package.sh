@@ -54,7 +54,7 @@ if "$is_dry_run"; then
     bu_out_record action="would-upgrade" dry_run:=true | bu_out --format jsonl
 else
     local -a cmd=($(command -v dnf || command -v yum || echo dnf) upgrade); "$is_yes" && cmd+=(-y)
-    "${cmd[@]}" 2>/dev/null || { error_msg="$(command -v dnf || command -v yum || echo dnf) upgrade failed (try with sudo?)"; bu_autohelp; bu_scope_pop_function; return 1; }
+    "${cmd[@]}" 2>/dev/null || { error_msg="$(command -v dnf || command -v yum || echo dnf) upgrade failed (try with sudo?)"; bu_autohelp; return 1; }
     bu_out_record action="upgraded" | bu_out --format jsonl
 fi
 bu_scope_pop_function

@@ -141,7 +141,6 @@ if ((${#names[@]} == 0))
 then
     error_msg="Missing required variable name (e.g. bu remove-variable MY_TEMP)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

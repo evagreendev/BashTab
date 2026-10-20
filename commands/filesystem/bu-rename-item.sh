@@ -120,7 +120,6 @@ if [[ -z "$path" || -z "$new_name" ]]
 then
     error_msg="Need a path and a new name (e.g. bu rename-item old.txt new.txt)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -128,7 +127,6 @@ if [[ "$new_name" == */* ]]
 then
     error_msg="New name must not contain '/'; use bu move-item to relocate"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

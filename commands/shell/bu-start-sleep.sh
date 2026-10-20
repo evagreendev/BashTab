@@ -77,7 +77,6 @@ if [[ -z "$seconds" ]]
 then
     error_msg="Missing required seconds (e.g. bu start-sleep 2.5)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -85,7 +84,6 @@ if [[ ! "$seconds" =~ ^[0-9]+([.][0-9]+)?$ ]]
 then
     error_msg="Seconds must be a non-negative number, got[$seconds]"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

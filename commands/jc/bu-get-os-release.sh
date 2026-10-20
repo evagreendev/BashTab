@@ -76,7 +76,6 @@ if ! command -v jc &>/dev/null
 then
     error_msg="jc is required. Install with: pip install jc"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

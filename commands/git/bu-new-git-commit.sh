@@ -86,7 +86,6 @@ fi
 if [[ -z "$message" ]] && ! "$is_amend"; then
     error_msg="--message is required (e.g. bu new-git-commit --message 'Fix bug')"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -105,7 +104,6 @@ output=$("${cmd[@]}" 2>&1) || {
     else
         error_msg="$output"
         bu_autohelp
-        bu_scope_pop_function
         return 1
     fi
 }

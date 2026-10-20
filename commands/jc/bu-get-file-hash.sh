@@ -83,7 +83,6 @@ if ((${#files[@]} == 0))
 then
     error_msg="Missing required file path (e.g. bu get-file-hash ./app.tar.gz)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -91,7 +90,6 @@ if ! command -v jc &>/dev/null
 then
     error_msg="jc is required. Install with: pip install jc"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -107,7 +105,6 @@ if ! command -v "$sum_cmd" &>/dev/null
 then
     error_msg="$sum_cmd is required for --algorithm $algorithm"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

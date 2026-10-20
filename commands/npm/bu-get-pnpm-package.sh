@@ -86,7 +86,6 @@ if ! command -v pnpm &>/dev/null
 then
     error_msg="pnpm is required. Install from https://pnpm.io/installation"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

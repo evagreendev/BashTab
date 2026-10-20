@@ -104,7 +104,6 @@ fi
 if ((${#paths[@]} == 0)); then
     error_msg="No paths specified. Provide file paths or pipe records with .path fields."
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

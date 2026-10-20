@@ -133,7 +133,6 @@ fi
 if [[ -z "$key" ]]; then
     error_msg="--key is required (or pipe records with .key and .value)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -153,7 +152,6 @@ if "$is_unset"; then
     } || {
         error_msg="Failed to unset: $key"
         bu_autohelp
-        bu_scope_pop_function
         return 1
     }
 else
@@ -162,7 +160,6 @@ else
     } || {
         error_msg="Failed to set: $key = $value"
         bu_autohelp
-        bu_scope_pop_function
         return 1
     }
 fi

@@ -100,7 +100,6 @@ fi
 if [[ -z "$name" ]]; then
     error_msg="--name is required (e.g. bu new-git-tag --name v1.0.0)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -108,7 +107,6 @@ local commit
 commit=$(git rev-parse --short "$ref" 2>/dev/null) || {
     error_msg="Invalid ref: $ref"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 }
 
@@ -134,7 +132,6 @@ if ((${#remaining_options[@]} > 0)); then cmd+=("${remaining_options[@]}"); fi
 "${cmd[@]}" 2>/dev/null || {
     error_msg="Failed to create tag: $name (already exists? use --force)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 }
 

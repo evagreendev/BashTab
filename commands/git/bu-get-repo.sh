@@ -91,7 +91,6 @@ then
     __bu_location_resolve_key "$name" --kind dir 2>/dev/null || {
         error_msg="Unknown repo[$name]"
         bu_autohelp
-        bu_scope_pop_function
         return 1
     }
     keys=("$BU_RET")

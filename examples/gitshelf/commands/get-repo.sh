@@ -120,7 +120,6 @@ fi
 [[ -f "$GITSHELF_CONFIG_FILE" ]] || {
     error_msg="config file not found: $GITSHELF_CONFIG_FILE"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 }
 
@@ -141,7 +140,6 @@ if [[ -n "$name" && ${#repo_entries[@]} -eq 0 ]]
 then
     error_msg="Unknown repo[$name]"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

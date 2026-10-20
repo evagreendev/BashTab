@@ -140,7 +140,6 @@ if ((${#names[@]} == 0))
 then
     error_msg="Missing required alias name (e.g. bu remove-alias ll)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

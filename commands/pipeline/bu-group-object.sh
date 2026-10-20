@@ -87,7 +87,6 @@ if [[ -z "$keys" ]]
 then
     error_msg="Missing required key field (e.g. bu get-command | bu group-object verb)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

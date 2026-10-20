@@ -145,7 +145,6 @@ if [[ -z "$name" ]]
 then
     error_msg="Missing required option name (e.g. bu set-shell-option pipefail --on)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -164,7 +163,6 @@ if ! "$found"
 then
     error_msg="Unknown shell option[$name]. Valid options: ${valid[*]}"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

@@ -75,7 +75,6 @@ if [[ -z "$column" ]]
 then
     error_msg="Missing required --column (e.g. bu convert-from-lines --column file)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

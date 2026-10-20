@@ -146,7 +146,6 @@ if [[ -z "$name" ]]
 then
     error_msg="Missing required option name (e.g. bu set-shopt-option globstar)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -173,7 +172,6 @@ if ((rc != 0))
 then
     error_msg="Invalid shell option name[$name]"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

@@ -92,7 +92,6 @@ if ! command -v docker &>/dev/null
 then
     error_msg="docker is required."
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

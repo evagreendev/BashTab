@@ -94,7 +94,6 @@ then
 else
     error_msg="No clipboard tool found (pbpaste, wl-paste, xclip, or xsel)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

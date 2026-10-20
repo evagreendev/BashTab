@@ -94,7 +94,6 @@ fi
 if [[ -z "$name" ]]; then
     error_msg="Branch name is required (e.g. bu switch-git-branch main)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -120,7 +119,6 @@ if ((${#remaining_options[@]} > 0)); then cmd+=("${remaining_options[@]}"); fi
 "${cmd[@]}" 2>/dev/null || {
     error_msg="Failed to switch to branch: $name"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 }
 

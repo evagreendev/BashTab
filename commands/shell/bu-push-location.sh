@@ -118,7 +118,6 @@ if ((rc != 0))
 then
     error_msg="pushd failed${path:+": $path"}"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

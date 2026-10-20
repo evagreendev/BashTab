@@ -76,7 +76,6 @@ if ((${#paths[@]} == 0))
 then
     error_msg="Missing required path (e.g. bu split-path /usr/local/bin/tool.sh)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

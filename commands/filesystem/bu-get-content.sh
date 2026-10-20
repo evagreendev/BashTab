@@ -95,7 +95,6 @@ if [[ -n "$head" && -n "$tail" ]]
 then
     error_msg="--head and --tail are mutually exclusive"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -103,7 +102,6 @@ if "$is_follow" && ((${#files[@]} > 1))
 then
     error_msg="--follow supports a single file only"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -114,7 +112,6 @@ then
     then
         error_msg="Missing required file (e.g. bu get-content app.log --head 20)"
         bu_autohelp
-        bu_scope_pop_function
         return 1
     fi
     files=(-)

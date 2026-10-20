@@ -105,7 +105,6 @@ if [[ -z "$pattern" ]]
 then
     error_msg="Missing required pattern (e.g. bu select-string 'TODO' app.log)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

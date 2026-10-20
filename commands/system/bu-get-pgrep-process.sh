@@ -88,7 +88,6 @@ if [[ -z "$pattern" ]]
 then
     error_msg="Missing required pattern (e.g. bu get-pgrep-process bash)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

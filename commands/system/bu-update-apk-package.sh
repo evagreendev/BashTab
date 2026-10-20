@@ -54,11 +54,11 @@ if "$is_dry_run"; then
     bu_out_record action="would-upgrade" dry_run:=true | bu_out --format jsonl
 else
     if "$is_refresh"; then
-        apk update 2>/dev/null || { error_msg="apk update failed"; bu_autohelp; bu_scope_pop_function; return 1; }
+        apk update 2>/dev/null || { error_msg="apk update failed"; bu_autohelp; return 1; }
         bu_out_record action="index-refreshed" | bu_out --format jsonl
     fi
     local -a cmd=(apk upgrade); "$is_yes" || cmd+=(-i)
-    "${cmd[@]}" 2>/dev/null || { error_msg="apk upgrade failed"; bu_autohelp; bu_scope_pop_function; return 1; }
+    "${cmd[@]}" 2>/dev/null || { error_msg="apk upgrade failed"; bu_autohelp; return 1; }
     bu_out_record action="upgraded" | bu_out --format jsonl
 fi
 bu_scope_pop_function

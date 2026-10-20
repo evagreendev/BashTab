@@ -89,7 +89,6 @@ if [[ -z "$pipeline" ]]
 then
     error_msg="Expected a pipeline string (quote it: bu validate-pipeline 'bu get-command | bu sort name')"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

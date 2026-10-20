@@ -128,7 +128,6 @@ if ((${#job_numbers[@]} == 0))
 then
     error_msg="No job numbers given. Pass job numbers as arguments or pipe records with a .job_number field (e.g. bu get-job | bu stop-job)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

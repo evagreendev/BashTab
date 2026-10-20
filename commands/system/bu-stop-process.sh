@@ -120,7 +120,6 @@ if ((${#pids[@]} == 0))
 then
     error_msg="No PIDs given. Pass PIDs as arguments or pipe records with a .pid field (e.g. bu get-process | bu stop-process)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

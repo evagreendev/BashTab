@@ -95,14 +95,12 @@ fi
 [[ -n "$name" ]] || {
     error_msg="--name is required"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 }
 
 [[ -f "$GITSHELF_CONFIG_FILE" ]] || {
     error_msg="config file not found: $GITSHELF_CONFIG_FILE"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 }
 
@@ -110,7 +108,6 @@ if ! jq -e --arg name "$name" '.repos | has($name)' "$GITSHELF_CONFIG_FILE" &>/d
 then
     error_msg="Unknown repo[$name]"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -124,7 +121,6 @@ else
     rm -f "$tmp_file"
     error_msg="failed to update $GITSHELF_CONFIG_FILE"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

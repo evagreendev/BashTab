@@ -95,7 +95,6 @@ if ((${#args[@]} < 1))
 then
     error_msg="Need a destination (e.g. bu copy-item a.txt backup/)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -121,7 +120,6 @@ if ((${#sources[@]} == 0))
 then
     error_msg="Need at least one source (e.g. bu copy-item a.txt backup/)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -129,7 +127,6 @@ if ((${#sources[@]} > 1)) && [[ ! -d "$destination" ]]
 then
     error_msg="Destination must be an existing directory when copying multiple sources: $destination"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

@@ -67,7 +67,7 @@ if ((${#names[@]} == 0)) && read -t 0 2>/dev/null; then
         return "$validation_status"
     fi
 fi
-if ((${#names[@]} == 0)); then error_msg="No packages specified."; bu_autohelp; bu_scope_pop_function; return 1; fi
+if ((${#names[@]} == 0)); then error_msg="No packages specified."; bu_autohelp; return 1; fi
 
 local verb=remove; local action=remove
 "$is_purge" && { verb=purge; action=purge; }
@@ -76,7 +76,7 @@ if "$is_dry_run"; then
     for n in "${names[@]}"; do bu_out_record name="$n" action="would-${action}" dry_run:=true | bu_out --format jsonl; done
 else
     local -a cmd=(apt-get "$verb"); "$is_yes" && cmd+=(-y)
-    "${cmd[@]}" "${names[@]}" 2>/dev/null || { error_msg="apt-get $verb failed (try with sudo?)"; bu_autohelp; bu_scope_pop_function; return 1; }
+    "${cmd[@]}" "${names[@]}" 2>/dev/null || { error_msg="apt-get $verb failed (try with sudo?)"; bu_autohelp; return 1; }
     for n in "${names[@]}"; do bu_out_record name="$n" action="$action" | bu_out --format jsonl; done
 fi
 bu_scope_pop_function

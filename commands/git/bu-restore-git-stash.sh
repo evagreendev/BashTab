@@ -109,7 +109,6 @@ output=$("${cmd[@]}" 2>&1) || {
         error_msg="$output"
     fi
     bu_autohelp
-    bu_scope_pop_function
     return 1
 }
 

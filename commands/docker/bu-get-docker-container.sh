@@ -110,7 +110,6 @@ if ! command -v docker &>/dev/null
 then
     error_msg="docker is required. Install from https://docs.docker.com/engine/install/"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

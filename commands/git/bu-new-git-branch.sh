@@ -91,7 +91,6 @@ fi
 if [[ -z "$name" ]]; then
     error_msg="--name is required (e.g. bu new-git-branch --name feature-x)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -113,7 +112,6 @@ if "$is_switch"; then
     "${cmd[@]}" 2>/dev/null || {
         error_msg="Failed to create and switch to branch: $name"
         bu_autohelp
-        bu_scope_pop_function
         return 1
     }
 else
@@ -125,7 +123,6 @@ else
     "${cmd[@]}" 2>/dev/null || {
         error_msg="Failed to create branch: $name"
         bu_autohelp
-        bu_scope_pop_function
         return 1
     }
 fi

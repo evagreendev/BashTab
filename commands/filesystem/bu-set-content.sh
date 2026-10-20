@@ -124,7 +124,6 @@ if [[ -z "$path" ]]
 then
     error_msg="Missing required --path (e.g. bu set-content --path /tmp/msg.txt 'hello')"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -148,7 +147,6 @@ if [[ -z "$content" ]]
 then
     error_msg="Missing content. Provide a positional argument or pipe content to stdin."
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

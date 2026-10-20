@@ -160,7 +160,6 @@ if ((${#names[@]} == 0))
 then
     error_msg="Missing required parameter name (e.g. bu set-sysctl net.ipv4.ip_forward 1)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

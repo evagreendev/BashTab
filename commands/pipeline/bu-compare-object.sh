@@ -94,7 +94,6 @@ if [[ -z "$reference" ]]
 then
     error_msg="Missing required reference file (e.g. bu get-process | bu compare-object before.jsonl --key pid)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -102,7 +101,6 @@ if [[ ! -r "$reference" ]]
 then
     error_msg="Cannot read reference file: $reference"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

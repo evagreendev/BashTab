@@ -108,7 +108,6 @@ if "$is_abort"; then
     "${cmd[@]}" 2>/dev/null || {
         error_msg="No merge in progress to abort"
         bu_autohelp
-        bu_scope_pop_function
         return 1
     }
     bu_out_record status="aborted" | bu_out --format jsonl
@@ -119,7 +118,6 @@ fi
 if [[ -z "$branch" ]]; then
     error_msg="Branch name is required (e.g. bu merge-git-branch feature-x)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -155,7 +153,6 @@ output=$("${cmd[@]}" 2>&1) || {
     fi
     error_msg="$output"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 }
 

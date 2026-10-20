@@ -116,7 +116,6 @@ fi
 if ((${#paths[@]} == 0)) && ! "$is_all" && ! "$is_update"; then
     error_msg="No files specified. Provide paths, --all, --update, or pipe records with .path fields."
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

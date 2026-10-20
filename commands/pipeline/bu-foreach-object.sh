@@ -82,7 +82,6 @@ if [[ -z "$expression" ]]
 then
     error_msg="Missing required jq expression (e.g. bu foreach-object '. + {upper: (.name | ascii_upcase)}')"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

@@ -81,7 +81,6 @@ if [[ -z "$archive" ]]
 then
     error_msg="Missing required archive path (e.g. bu get-archive-entry ./dist.zip)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -89,7 +88,6 @@ if ! command -v jc &>/dev/null
 then
     error_msg="jc is required. Install with: pip install jc"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

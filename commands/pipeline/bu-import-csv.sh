@@ -76,7 +76,6 @@ if [[ -z "$file" ]]
 then
     error_msg="Expected a CSV file path (e.g. bu import-csv data.csv)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -96,7 +95,6 @@ fi
 if [[ -n "$error_msg" ]]
 then
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

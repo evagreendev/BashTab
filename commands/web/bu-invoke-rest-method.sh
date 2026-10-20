@@ -126,7 +126,6 @@ if [[ -z "$url" ]]
 then
     error_msg="Missing required URL (e.g. bu invoke-rest-method https://api.example.com/items)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -158,11 +157,12 @@ fi
 
 if [[ "$http_code" -lt 200 || "$http_code" -ge 300 ]]
 then
+    # Show the body before bu_autohelp: its scope pop runs the cleanup that
+    # deletes body_file.
+    bu_log_err "HTTP $http_code response body follows (if any):"
+    cat "$body_file" >&2
     error_msg="HTTP $http_code from $url"
     bu_autohelp
-    bu_log_err "Response body follows (if any):"
-    cat "$body_file" >&2
-    bu_scope_pop_function
     return 1
 fi
 
@@ -171,7 +171,6 @@ if ! jq -c 'if type == "array" then .[] else . end' "$body_file" 2>/dev/null | b
 then
     error_msg="Response was not valid JSON (use bu invoke-web-request for arbitrary content)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

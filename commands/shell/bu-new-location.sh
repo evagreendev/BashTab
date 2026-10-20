@@ -144,7 +144,6 @@ if [[ -z "$name" ]]
 then
     error_msg="Missing location name (bu new-location NAME --path 'EXPR' | --remove NAME)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
@@ -155,19 +154,16 @@ elif "$is_repo" && "$kind_explicit" && [[ "$kind" != dir ]]
 then
     error_msg="--kind is not allowed with --repo (repos are always dir)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 elif [[ -z "$path_expr" ]]
 then
     error_msg="--path is required (single-quote the expression, e.g. --path '\$HOME/myproj')"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 elif ! __bu_location_validate_path_expr "$path_expr"
 then
     error_msg="--path contains forbidden characters (\$(, backtick, ;, &, |, <, >, newline): $path_expr"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

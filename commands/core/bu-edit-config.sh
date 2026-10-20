@@ -65,7 +65,6 @@ viewer runs in its own process: when it exits, the changes are applied to
 this shell too. Static settings take effect in a new shell.
 " \
         --example "Edit settings" ""
-    bu_scope_pop_function
     return 0
 fi
 

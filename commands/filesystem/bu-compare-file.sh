@@ -88,7 +88,6 @@ fi
 if [[ -z "$reference" || -z "$difference" ]]; then
     error_msg="Both reference and difference paths are required"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 

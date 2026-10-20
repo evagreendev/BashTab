@@ -83,7 +83,6 @@ if ((${#measured_command[@]} == 0))
 then
     error_msg="Missing command to measure (e.g. bu measure-command sleep 1)"
     bu_autohelp
-    bu_scope_pop_function
     return 1
 fi
 
