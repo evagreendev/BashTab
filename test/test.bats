@@ -145,6 +145,37 @@ function test_bu_stdout_to_ret_lines { #@test
     assert_equal "${BU_RET[2]}" "line3"
 }
 
+function test_bu_cached_keyed_execute_str_ignores_stale_ret_array { #@test
+    # A --str command built on bu_stdout_to_ret assigns element 0 of BU_RET
+    # only. With an array left in BU_RET by an earlier call, the uncached
+    # str path used to join the stale elements into the result (and into
+    # every BU_TPUT_* colour on a cold cache: "\e[1m NAME NAME ...").
+    local key=stale_ret_test_$$_$RANDOM
+    rm -f "$BU_NAMED_CACHE_DIR/$key"
+    BU_RET=(stale one two)
+    bu_cached_keyed_execute --str "$key" bu_stdout_to_ret --no-proc --str __test_stdout_hello
+    assert_equal "$BU_RET" "hello"
+    assert_equal "${#BU_RET[@]}" 1
+    assert_equal "$(cat "$BU_NAMED_CACHE_DIR/$key")" "hello"
+    # cached read path
+    BU_RET=(stale again)
+    bu_cached_keyed_execute --str "$key" bu_stdout_to_ret --no-proc --str __test_stdout_hello
+    assert_equal "$BU_RET" "hello"
+    rm -f "$BU_NAMED_CACHE_DIR/$key"
+}
+
+function test_tput_colours_clean_on_cold_cache { #@test
+    # Fresh BU_OUT_DIR = no named cache: the colour strings must be exactly
+    # what tput prints, not suffixed with whatever BU_RET held during init.
+    local out
+    out=$(env -i HOME="$HOME" PATH="$PATH" TERM="${TERM:-xterm}" BU_OUT_DIR="$BATS_TEST_TMPDIR/out" \
+        bash -c 'source "'"$DIR"'"/../bu_entrypoint.sh >/dev/null 2>&1; printf "%s|%s" "${#BU_TPUT_BOLD}" "${#BU_TPUT_RESET}"')
+    local want_bold want_reset
+    want_bold=$(TERM="${TERM:-xterm}" tput bold 2>/dev/null || true)
+    want_reset=$(TERM="${TERM:-xterm}" tput sgr0 2>/dev/null || true)
+    assert_equal "$out" "${#want_bold}|${#want_reset}"
+}
+
 function test_bu_stdout_to_ret { #@test
     # Test custom outparam with short form
     bu_stdout_to_ret --str -o MY_VAR __test_stdout_hello

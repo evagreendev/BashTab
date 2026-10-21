@@ -645,6 +645,12 @@ bu_cached_keyed_execute()
         esac
     else
         local exit_code
+        # Start from an empty result: a scalar-producing command (anything
+        # built on bu_stdout_to_ret --str) assigns element 0 only, and the
+        # str join below would otherwise carry a stale array left in BU_RET
+        # by an earlier call into the cached value — on a cold cache the tput
+        # colour strings came out suffixed with the config registry's names.
+        BU_RET=()
         "$@"
         exit_code=$?
         if ((exit_code))
