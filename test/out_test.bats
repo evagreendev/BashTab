@@ -1751,6 +1751,109 @@ function test_query_object_translate_op_like_substring { #@test
 }
 
 # ===========================================================================
+# Case-insensitive operators: -ieq -ine -ilike -inotlike -imatch -inotmatch
+# ===========================================================================
+
+function test_where_ieq_is_case_insensitive { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"Get-Command"}' '{"name":"set-module"}' \
+        | bu where name -ieq GET-COMMAND)
+    assert_equal "$out" '{"name":"Get-Command"}'
+}
+
+function test_where_ieq_matches_numeric_field_as_string { #@test
+    local out
+    out=$(printf '%s\n' '{"channel":1108}' '{"channel":"1109"}' \
+        | bu where channel -ieq 1108)
+    assert_equal "$out" '{"channel":1108}'
+}
+
+function test_where_ine_is_complement_of_ieq { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"Get-Command"}' '{"name":"set-module"}' \
+        | bu where name -ine get-command)
+    assert_equal "$out" '{"name":"set-module"}'
+}
+
+function test_where_ilike_bare_pattern_is_case_insensitive_substring { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"Get-Command"}' '{"name":"set-module"}' \
+        | bu where name -ilike GET)
+    assert_equal "$out" '{"name":"Get-Command"}'
+}
+
+function test_where_ilike_explicit_glob_stays_anchored { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"Get-Command"}' '{"name":"forget-x"}' \
+        | bu where name -ilike 'GET-*')
+    assert_equal "$out" '{"name":"Get-Command"}'
+}
+
+function test_where_inotlike_is_complement { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"Get-Command"}' '{"name":"set-module"}' \
+        | bu where name -inotlike COMMAND)
+    assert_equal "$out" '{"name":"set-module"}'
+}
+
+function test_where_like_stays_case_sensitive { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"Get-Command"}' '{"name":"set-module"}' \
+        | bu where name -like GET)
+    assert_equal "$out" ''
+}
+
+function test_where_imatch_and_inotmatch { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"Get-Command"}' '{"name":"set-module"}' \
+        | bu where name -imatch '^GET-')
+    assert_equal "$out" '{"name":"Get-Command"}'
+    out=$(printf '%s\n' '{"name":"Get-Command"}' '{"name":"set-module"}' \
+        | bu where name -inotmatch '^GET-')
+    assert_equal "$out" '{"name":"set-module"}'
+}
+
+function test_where_ilike_chains_with_and { #@test
+    local out
+    out=$(printf '%s\n' '{"name":"Get-Command","type":"source"}' '{"name":"get-x","type":"execute"}' \
+        | bu query-object where type -eq source and name -ilike 'GET-*' select name)
+    assert_equal "$out" '{"name":"Get-Command"}'
+}
+
+function test_having_ieq { #@test
+    local out
+    out=$(printf '%s\n' '{"verb":"Get"}' '{"verb":"get"}' '{"verb":"set"}' \
+        | bu query-object group-by verb having verb -ieq GET agg count order-by verb)
+    assert_equal "$out" $'{"verb":"Get","count":1}\n{"verb":"get","count":1}'
+}
+
+function test_query_object_translate_op_case_insensitive_forms { #@test
+    local out
+    out=$(__bu_query_object_translate_op name -ieq 'GET-COMMAND')
+    assert_equal "$out" '(.name | tostring | ascii_downcase) == "get-command"'
+    out=$(__bu_query_object_translate_op name -ine 'A"b\c')
+    assert_equal "$out" '(.name | tostring | ascii_downcase) != "a\"b\\c"'
+    out=$(__bu_query_object_translate_op flag -ieq TRUE)
+    assert_equal "$out" '(.flag | tostring | ascii_downcase) == "true"'
+    out=$(__bu_query_object_translate_op name -ilike command)
+    assert_equal "$out" '.name | test("^.*command.*$"; "i")'
+    out=$(__bu_query_object_translate_op name -inotlike 'get-*')
+    assert_equal "$out" '.name | test("^get-.*$"; "i") | not'
+    out=$(__bu_query_object_translate_op name -imatch '^get-')
+    assert_equal "$out" '.name | test("^get-"; "i")'
+    out=$(__bu_query_object_translate_op name -inotmatch '^get-')
+    assert_equal "$out" '.name | test("^get-"; "i") | not'
+}
+
+function test_operator_completion_offers_case_insensitive_forms { #@test
+    bu_autocomplete_get_autocompletions bu query-object where name -i
+    local joined=" ${COMPREPLY[*]} "
+    [[ "$joined" == *" -ieq "* ]]
+    [[ "$joined" == *" -ilike "* ]]
+    [[ "$joined" == *" -inotmatch "* ]]
+}
+
+# ===========================================================================
 # -eq/-ne/-gt/-lt/-ge/-le (scalar comparisons with numeric coercion)
 # ===========================================================================
 

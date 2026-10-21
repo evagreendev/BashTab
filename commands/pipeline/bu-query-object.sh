@@ -188,7 +188,8 @@ do
         #   Structured:     where type -eq "source"
         #     Operators: -eq -ne -gt -lt -ge -le -like -notlike -match
         #                -notmatch -contains -notcontains -in -notin
-        #                -isnull -isnotnull
+        #                -isnull -isnotnull, case-insensitive -ieq -ine -ilike
+        #                -inotlike -imatch -inotmatch
         #     Connect conditions with 'and' or 'or' inside one where:
         #       where type -eq source and name -like get-*
         # Repeatable; multiple where clauses are ANDed together.
@@ -224,7 +225,7 @@ do
                 if (( _w_o_idx <= $# )); then
                     local _w_o_arg=${!_w_o_idx}
                     case "$_w_o_arg" in
-                    -eq|-ne|-gt|-lt|-ge|-le|-like|-notlike|-match|-notmatch|-contains|-notcontains)
+                    -eq|-ne|-gt|-lt|-ge|-le|-like|-notlike|-match|-notmatch|-contains|-notcontains|-ieq|-ine|-ilike|-inotlike|-imatch|-inotmatch)
                         _w_op=$_w_o_arg; _w_cond_consume=1
                         local _w_v_idx=$(( shift_by + _w_extra + 2 ))
                         if (( _w_v_idx <= $# )); then
@@ -357,7 +358,7 @@ do
             # --- Set autocomplete for the current position ---
             if [[ -z "$_w_op" && -n "$_w_field" ]] && "$_w_cursor_past_field"; then
                 # Have a field name AND cursor past it → show operators
-                autocompletion=(--enum -eq -ne -gt -lt -ge -le -like -notlike -match -notmatch -contains -notcontains -in -notin -isnull -isnotnull enum-- --hint "Comparison operator")
+                autocompletion=(--enum -eq -ne -gt -lt -ge -le -like -notlike -match -notmatch -contains -notcontains -in -notin -isnull -isnotnull -ieq -ine -ilike -inotlike -imatch -inotmatch enum-- --hint "Comparison operator")
             elif [[ -z "$_w_op" && -z "$_w_field" ]] && ((${#_w_connectors[@]} > 0)); then
                 # After and/or connector, waiting for next field name
                 autocompletion=(--hint "Field name (after ${_w_connectors[-1]})" --pipeline-fields pipeline-fields--)
@@ -558,7 +559,7 @@ do
                 if (( _h_o_idx <= $# )); then
                     local _h_o_arg=${!_h_o_idx}
                     case "$_h_o_arg" in
-                    -eq|-ne|-gt|-lt|-ge|-le|-like|-notlike|-match|-notmatch|-contains|-notcontains)
+                    -eq|-ne|-gt|-lt|-ge|-le|-like|-notlike|-match|-notmatch|-contains|-notcontains|-ieq|-ine|-ilike|-inotlike|-imatch|-inotmatch)
                         _h_op=$_h_o_arg; _h_cond_consume=1
                         local _h_v_idx=$(( shift_by + _h_extra + 2 ))
                         if (( _h_v_idx <= $# )); then
@@ -673,7 +674,7 @@ do
             fi
 
             if [[ -z "$_h_op" && -n "$_h_field" ]] && "$_h_cursor_past_field"; then
-                autocompletion=(--enum -eq -ne -gt -lt -ge -le -like -notlike -match -notmatch -contains -notcontains -in -notin -isnull -isnotnull enum-- --hint "Comparison operator")
+                autocompletion=(--enum -eq -ne -gt -lt -ge -le -like -notlike -match -notmatch -contains -notcontains -in -notin -isnull -isnotnull -ieq -ine -ilike -inotlike -imatch -inotmatch enum-- --hint "Comparison operator")
             elif [[ -z "$_h_op" && -z "$_h_field" ]] && ((${#_h_connectors[@]} > 0)); then
                 autocompletion=(--hint "Field name (after ${_h_connectors[-1]})" --pipeline-fields pipeline-fields--)
             elif [[ -n "$_h_op" && "$_h_op" != -isnull && "$_h_op" != -isnotnull && ( -z "$_h_val" || "$_h_value_is_last" == true ) ]]; then
@@ -843,6 +844,8 @@ order: WHERE -> GROUP BY -> HAVING -> SELECT -> ORDER BY -> FIRST.
               -contains -notcontains    array contains value
               -in -notin                value in comma-separated list
               -isnull -isnotnull        null checks
+              -ieq -ine -ilike -inotlike -imatch -inotmatch
+                                        case-insensitive forms of -eq/-ne/-like/-notlike/-match/-notmatch
             Chain conditions with 'and'/'or' inside a single where:
               where type -eq source and name -like get-*
               where name -like command   # substring: matches get-command, set-module, ...

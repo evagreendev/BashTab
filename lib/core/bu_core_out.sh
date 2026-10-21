@@ -778,7 +778,11 @@ __bu_glob_to_regex()
 # *Params*:
 # - `$1`: Field name (e.g. `type`, `name` — no leading dot)
 # - `$2`: Operator: one of -eq -ne -gt -lt -ge -le -like -notlike -match
-#         -notmatch -contains -notcontains -in -notin -isnull -isnotnull
+#         -notmatch -contains -notcontains -in -notin -isnull -isnotnull, or
+#         the case-insensitive forms -ieq -ine -ilike -inotlike -imatch
+#         -inotmatch (PowerShell spellings). -ieq/-ine compare the field as a
+#         lower-cased string (`tostring | ascii_downcase`), so they never
+#         apply numeric coercion; -ilike/-imatch pass jq's "i" regex flag.
 # - `$3`: Value (empty for -isnull / -isnotnull). For -in / -notin this is a
 #         comma-separated list: each element is literalized independently
 #         (numbers/booleans/null keep their type, strings are quoted) and the
@@ -806,6 +810,8 @@ __bu_glob_to_regex()
 # __bu_query_object_translate_op name -like "*.sh"     # .name | test("^.*\\.sh$")
 # __bu_query_object_translate_op name -like command    # .name | test("^.*command.*$") (no wildcard => substring)
 # __bu_query_object_translate_op name -match "^get-"   # .name | test("^get-")
+# __bu_query_object_translate_op name -ieq GET-COMMAND # (.name | tostring | ascii_downcase) == "get-command"
+# __bu_query_object_translate_op name -ilike GET-*     # .name | test("^get-.*$"; "i")
 # __bu_query_object_translate_op verb -isnull           # .verb == null
 # __bu_query_object_translate_op type -in source,alias # .type | IN("source","alias")
 # __bu_query_object_translate_op type -notin source,alias # .type | IN("source","alias") | not
@@ -843,11 +849,30 @@ __bu_query_object_translate_op()
         -le) jq_expr="$field_ref <= $cmp_lit" ;;
         esac
         ;;
-    -like|-notlike)
+    -ieq|-ine)
+        # Case-insensitive equality: both sides are compared as lower-cased
+        # strings, so `-ieq GET-COMMAND` matches "get-command" and `-ieq 1108`
+        # matches a numeric 1108 field (via tostring). No numeric coercion.
+        # Always a quoted jq string (never __bu_jq_literal: 1108/true/null
+        # must stay strings here because the LHS is a string). LC_ALL=C makes
+        # ${,,} fold A-Z only, matching jq's ascii_downcase.
+        local LC_ALL=C
+        local lower=${val,,}
+        lower=${lower//\\/\\\\}
+        lower=${lower//\"/\\\"}
+        if [[ "$op" == -ieq ]]
+        then
+            jq_expr="(.$field | tostring | ascii_downcase) == \"$lower\""
+        else
+            jq_expr="(.$field | tostring | ascii_downcase) != \"$lower\""
+        fi
+        ;;
+    -like|-notlike|-ilike|-inotlike)
         # PowerShell-flavored -like: a value with no glob wildcard
         # implies *value* (substring match), not exact match. Explicit
         # wildcards keep fully-anchored semantics (e.g. "get-*" means
-        # "starts with get-"; "?" counts as a wildcard).
+        # "starts with get-"; "?" counts as a wildcard). The -i forms pass
+        # jq's "i" flag for case-insensitive matching.
         local glob=$val
         if [[ "$glob" != *'*'* && "$glob" != *'?'* ]]
         then
@@ -855,20 +880,21 @@ __bu_query_object_translate_op()
         fi
         local regex; regex=$(__bu_glob_to_regex "$glob")
         local regex_lit; regex_lit=$(__bu_jq_literal "$regex")
-        if [[ "$op" == -like ]]
-        then
-            jq_expr=".$field | test($regex_lit)"
-        else
-            jq_expr=".$field | test($regex_lit) | not"
-        fi
+        local flags=
+        [[ "$op" == -i* ]] && flags='; "i"'
+        case "$op" in
+        -like|-ilike) jq_expr=".$field | test($regex_lit$flags)" ;;
+        *)            jq_expr=".$field | test($regex_lit$flags) | not" ;;
+        esac
         ;;
-    -match)
+    -match|-imatch|-notmatch|-inotmatch)
         local re_lit; re_lit=$(__bu_jq_literal "$val")
-        jq_expr=".$field | test($re_lit)"
-        ;;
-    -notmatch)
-        local re_lit; re_lit=$(__bu_jq_literal "$val")
-        jq_expr=".$field | test($re_lit) | not"
+        local flags=
+        [[ "$op" == -i* ]] && flags='; "i"'
+        case "$op" in
+        -match|-imatch) jq_expr=".$field | test($re_lit$flags)" ;;
+        *)              jq_expr=".$field | test($re_lit$flags) | not" ;;
+        esac
         ;;
     -contains)
         local val_lit; val_lit=$(__bu_jq_literal "$val")
@@ -4209,7 +4235,7 @@ __bu_out_parse_query_select_fields()
             # (e.g. "where type -eq select") or a grep pattern ("grep select").
             prev=${words[i-1]}
             case "$prev" in
-            -eq|-ne|-gt|-lt|-ge|-le|-like|-notlike|-match|-notmatch|-contains|-notcontains|-in|-notin|-ilike|-i|grep)
+            -eq|-ne|-gt|-lt|-ge|-le|-like|-notlike|-match|-notmatch|-contains|-notcontains|-in|-notin|-ieq|-ine|-ilike|-inotlike|-imatch|-inotmatch|-i|grep)
                 continue
                 ;;
             esac
@@ -4693,7 +4719,7 @@ __bu_out_parse_query_reads()
         case "$word" in
         select|--select|group-by|--group-by)
             # Skip a bare keyword that is actually a comparison value.
-            case "$prev" in -eq|-ne|-gt|-lt|-ge|-le|-like|-notlike|-match|-notmatch|-contains|-notcontains|-in|-notin|-ilike|-i|grep) continue ;; esac
+            case "$prev" in -eq|-ne|-gt|-lt|-ge|-le|-like|-notlike|-match|-notmatch|-contains|-notcontains|-in|-notin|-ieq|-ine|-ilike|-inotlike|-imatch|-inotmatch|-i|grep) continue ;; esac
             spec=
             __bu_out_collect_comma_spec words $(( i + 1 )) spec
             [[ -n "$spec" && "$spec" != -* ]] || continue

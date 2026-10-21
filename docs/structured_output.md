@@ -144,6 +144,7 @@ where → group-by → having → select → distinct → order-by → first
 | Clause | Semantics |
 |---|---|
 | `where '<jq expr>'` | Pre-group filter, **source** field names. Repeatable, ANDed. |
+| `where field -op value` | Structured comparison: `-eq -ne -gt -lt -ge -le`, `-like -notlike` (glob, bare = substring), `-match -notmatch` (regex), `-contains -notcontains`, `-in -notin` (comma list), `-isnull -isnotnull`; case-insensitive `-ieq -ine -ilike -inotlike -imatch -inotmatch` (`-ieq`/`-ine` compare as lower-cased strings, no numeric coercion). Chain with `and`/`or`. |
 | `grep 'pattern'` | Search a pattern across any field value of each record (grep of a row). Default regex; `-like`/`-ilike` glob (`*`/`?`, bare = substring); `-i`/`-ilike` case-insensitive. Repeatable, ANDed. |
 | `group-by a[,b]` | Collapse to one record per (composite) key. No `agg` = SELECT DISTINCT keys. |
 | `agg [name=]func[:field]` | Aggregates, repeatable and/or comma-separated. `count`, `sum:f`, `avg:f` (numeric only), `min:f`, `max:f`, `first:f`, `last:f`, `collect:f` (array of values). Default name: `func_field`. Without `group-by` the whole stream is one group: always exactly one record (`{"count":0}` on empty input). |
