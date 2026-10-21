@@ -25,17 +25,17 @@ do
     case "$1" in
     -v|--verb)# VERB_FILTER
         # Glob pattern to filter by verb
-        bu_parse_positional $# --enum "${!BU_COMMAND_VERBS[@]}" enum-- --hint "Command verb glob"
+        bu_parse_positional $# --glob --enum "${!BU_COMMAND_VERBS[@]}" enum-- --hint "Command verb or pattern"
         filter_args+=(--verb "${!shift_by}")
         ;;
     -n|--noun)# NOUN_FILTER
         # Glob pattern to filter by noun
-        bu_parse_positional $# --enum "${!BU_COMMAND_NOUNS[@]}" enum-- --hint "Command noun glob"
+        bu_parse_positional $# --glob --enum "${!BU_COMMAND_NOUNS[@]}" enum-- --hint "Command noun or pattern"
         filter_args+=(--noun "${!shift_by}")
         ;;
     -ns|--namespace)# NS_FILTER
         # Glob pattern to filter by namespace
-        bu_parse_positional $# --enum "${!BU_COMMAND_NAMESPACES[@]}" enum-- --hint "Command namespace glob"
+        bu_parse_positional $# --glob --enum "${!BU_COMMAND_NAMESPACES[@]}" enum-- --hint "Command namespace or pattern"
         filter_args+=(--namespace "${!shift_by}")
         ;;
     -t|--type)# TYPE_FILTER

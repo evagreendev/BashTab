@@ -139,6 +139,26 @@ function test_glob_completion_end_to_end { #@test
     assert_equal "${COMPREPLY[*]}" 'convert-to'
 }
 
+function test_glob_completion_show_command_matches_get_command { #@test
+    # show-command passes its filters to get-command: same completion.
+    # Complete in a subshell: completion turns errexit off in its shell,
+    # after which no assertion there can fail the test.
+    __glob_complete() {
+        local COMPREPLY=() BU_COMPREPLY_METADATA=()
+        bu_autocomplete_get_autocompletions bu "$@" 2>/dev/null
+        printf '%s\n' "${COMPREPLY[*]}"
+    }
+    local opt word expected actual mismatches=
+    for opt in --verb --noun; do
+        for word in "'conv*" convert-t "'git-b*" git-b; do
+            expected=$(__glob_complete get-command "$opt" "$word")
+            actual=$(__glob_complete show-command "$opt" "$word")
+            [[ "$actual" == "$expected" ]] || mismatches+="$opt $word: [$actual] != [$expected]"$'\n'
+        done
+    done
+    assert_equal "$mismatches" ''
+}
+
 function test_glob_validate_positional_accepts_patterns { #@test
     __glob_validate() {
         local is_help=false error_msg=
