@@ -66,6 +66,8 @@ do
         # Bind KEY to a row action: COMMAND is eval'd in the viewer's shell
         # with the cursor record (JSON) in BU_TV_RECORD; its last output line
         # shows on the status line. Repeatable. q, Q and H are reserved.
+        # Row actions lead the status line, undimmed and set off from the
+        # built-in keys by a "·", and head the help (H).
         bu_parse_positional $# --hint "KEY[:LABEL]=COMMAND"
         actions+=("${!shift_by}")
         ;;

@@ -31,7 +31,9 @@
 #
 # Row actions (--action KEY[:LABEL]=COMMAND): KEY runs COMMAND in the
 # viewer's own shell (eval) with the cursor record in BU_TV_RECORD; its last
-# output line shows on the status line. With --reload COMMAND the rows are
+# output line shows on the status line. Their hints lead the status line,
+# undimmed and set off from the built-in keys by a "·"; the help lists them
+# first, under "Actions", above the built-in keys. With --reload COMMAND the rows are
 # then replaced by COMMAND's JSONL output, the cursor staying on its record
 # (matched by the --key column). Actions can ask for input with bu_tv_prompt
 # and run interactive programs with bu_tv_interactive.
@@ -68,6 +70,8 @@ declare -g -r __BU_TV_CLEAR_SCREEN="${__BU_TV_ESC}[2J"
 declare -g -r __BU_TV_CLEAR_LINE="${__BU_TV_ESC}[K"
 declare -g -r __BU_TV_REVERSE="${__BU_TV_ESC}[7m"
 declare -g -r __BU_TV_DIM="${__BU_TV_ESC}[2m"
+# Neither bold nor dim: lifts the row-action hints out of the dimmed status
+declare -g -r __BU_TV_NORMAL_INTENSITY="${__BU_TV_ESC}[22m"
 # Raw CSI only — never tput-derived: sgr0 is \e(B\e[m under xterm, \e[m\017
 # under screen and empty under dumb, so frames would depend on TERM.
 declare -g -r __BU_TV_RESET="${__BU_TV_ESC}[0m"
@@ -208,7 +212,9 @@ declare -g    _TV_RESUME_PENDING=false   # SIGCONT (fg)
 declare -g -r __BU_TV_KEY_POLL=0.1
 
 # Table hints, dropped right to left (H:help last) as the status line fills;
-# __bu_tv_render_status puts the keys for the current state in front
+# __bu_tv_render_status puts the keys for the current state in front, and
+# the row actions (--action) in front of those, ahead of this separator
+declare -g -r __BU_TV_HINT_SEP='·'
 declare -g -r __BU_TV_HINTS_TABLE='q:quit /:search s:sort w:wide Enter:detail m:mouse &:filter H:help'
 declare -g -r __BU_TV_HINTS_DETAIL='j/k:scroll J/K:record n/N:match q:back H:help'
 declare -g -r __BU_TV_HINTS_HELP='j/k:scroll q:back'
@@ -1941,7 +1947,9 @@ __bu_tv_render_scrollbar()
 # fit.  Hint words are dropped one at a time from the right, skipping the
 # short set, so the leftmost hints last longest; if even the short set
 # doesn't fit there are none.  Hints are never cut mid-word; only the
-# informational text is ever truncated.
+# informational text is ever truncated.  Hints before a __BU_TV_HINT_SEP
+# word (the row actions) are drawn undimmed; the separator is dropped last,
+# and only once no hint is left before it.
 #
 # *Params*:
 # - `$1`: Full hint set (space-separated words)
@@ -1976,15 +1984,21 @@ __bu_tv_compose_status()
     while (( ${#hints} > avail && i > 0 ))
     do
         i=$((i - 1))
-        [[ " $short " == *" ${words[i]} "* ]] && continue
+        [[ " $short $__BU_TV_HINT_SEP " == *" ${words[i]} "* ]] && continue
         unset 'words[i]'
         hints="${words[*]}"
     done
+    hints=${hints#"$__BU_TV_HINT_SEP"}
+    hints=${hints# }
     (( ${#hints} > avail )) && hints=
 
     local result=$info
     _TV_STATUS_HINTS=$hints
     _TV_STATUS_HINTS_X=1
+    if [[ "$hints" == *" $__BU_TV_HINT_SEP "* ]]
+    then
+        hints=$__BU_TV_NORMAL_INTENSITY${hints%%" $__BU_TV_HINT_SEP "*}$__BU_TV_DIM" $__BU_TV_HINT_SEP "${hints#*" $__BU_TV_HINT_SEP "}
+    fi
     if [[ -z "$info" ]]
     then
         result=$hints
@@ -2070,16 +2084,17 @@ __bu_tv_render_status()
     __bu_tv_search_status
     [[ -n "$_TV_SEARCH_STATUS" ]] && parts+=("$_TV_SEARCH_STATUS")
 
-    # Keys for the current state lead, so they outlast the general ones
-    local hints=
-    (( ${#_TV_HIDDEN[@]} )) && hints+='+:unhide '
-    (( ${#_TV_MATCHED_ROWS[@]} )) && hints+='n/N:match '
-    [[ -n "$_TV_SEARCH_QUERY$_TV_FILTER_QUERY" ]] && hints+='Esc:clear '
-    local key
+    # Row actions lead, set off from the built-in keys; of those, the keys
+    # for the current state lead, so they outlast the general ones
+    local hints= key
     for key in "${_TV_ACTION_KEYS[@]}"
     do
         hints+="$key:${_TV_ACTION_LABEL[$key]} "
     done
+    [[ -n "$hints" ]] && hints+="$__BU_TV_HINT_SEP "
+    (( ${#_TV_HIDDEN[@]} )) && hints+='+:unhide '
+    (( ${#_TV_MATCHED_ROWS[@]} )) && hints+='n/N:match '
+    [[ -n "$_TV_SEARCH_QUERY$_TV_FILTER_QUERY" ]] && hints+='Esc:clear '
     __bu_tv_compose_status "$hints$__BU_TV_HINTS_TABLE" 'H:help' "${parts[@]}"
 }
 
@@ -3669,6 +3684,7 @@ __bu_tv_status_hint_key()
     local pre=${hints:0:p} rest=${hints:p}
     pre=${pre##* }
     local -r word=$pre${rest%% *}
+    [[ "$word" == ?*:* ]] || return 0
     local -r keys=${word%%:*}
     local -i off=${#pre}
     (( off > ${#keys} )) && off=0
@@ -3982,17 +3998,19 @@ bu_tv_set_action()
     return 0
 }
 
-# Rebuild the help overlay: the fixed lines, then the row actions
+# Rebuild the help overlay: the row actions, which the program showing the
+# table added, then the built-in keys
 __bu_tv_build_help()
 {
     _TV_HELP_LINES=("${__BU_TV_HELP_LINES[@]}")
     (( ${#_TV_ACTION_KEYS[@]} )) || return 0
-    _TV_HELP_LINES+=('' 'Actions')
+    _TV_HELP_LINES=('Actions (added by the program showing this table)')
     local key
     for key in "${_TV_ACTION_KEYS[@]}"
     do
         _TV_HELP_LINES+=("  $(printf '%-19s' "$key")${_TV_ACTION_LABEL[$key]}")
     done
+    _TV_HELP_LINES+=('' 'Built-in keys' '' "${__BU_TV_HELP_LINES[@]}")
     return 0
 }
 

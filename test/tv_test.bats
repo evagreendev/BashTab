@@ -342,13 +342,13 @@ function test_tv_action_runs_in_process_and_reload_keeps_record { #@test
         _TV_KEY=r
         __bu_tv_dispatch_key
         printf "%s|%s\n" "$_TV_NUM_ROWS" "$_TV_CUR_ROW"
-        # Failure shows the last output line; help lists the action
+        # Failure shows the last output line; help lists the action first
         bu_tv_set_action r rename "echo bad >&2; false"
         _TV_KEY=r
         __bu_tv_dispatch_key
-        printf "%s|%s\n" "$_TV_MESSAGE" "${_TV_HELP_LINES[-1]}"
+        printf "%s|%s|%s\n" "$_TV_MESSAGE" "${_TV_HELP_LINES[1]}" "${_TV_HELP_LINES[3]}"
     ')
-    assert_equal "$result" $'renamed b|3|1|{"name":"bb","n":9}\n1|0\nfailed: bad|  r                  rename'
+    assert_equal "$result" $'renamed b|3|1|{"name":"bb","n":9}\n1|0\nfailed: bad|  r                  rename|Built-in keys'
 }
 
 function test_tv_action_keys_reserved { #@test
@@ -359,6 +359,31 @@ function test_tv_action_keys_reserved { #@test
         __bu_tv_render_status
         [[ "$_TV_STATUS" == *"t:toggle"* ]] && echo hint')
     assert_equal "$result" $'bound t\nhint'
+}
+
+function test_tv_action_hints_set_off_from_builtin { #@test
+    local result
+    result=$(__tv_in_child '{"a":1}' '
+        bu_tv_set_action t toggle true
+        bu_tv_set_action e edit true
+        _TV_TERM_COLS=200
+        __bu_tv_render_status
+        echo "$_TV_STATUS_HINTS"
+        # Actions undimmed, then dim from the separator on
+        [[ "$_TV_STATUS" == *"${__BU_TV_NORMAL_INTENSITY}t:toggle e:edit${__BU_TV_DIM} · q:quit"* ]] && echo styled
+        # Clicking the separator presses nothing, the hints either side do
+        __bu_tv_status_hint_key $((_TV_STATUS_HINTS_X + 16)); echo "sep=$_TV_KEY"
+        __bu_tv_status_hint_key $((_TV_STATUS_HINTS_X + 9)); echo "e=$_TV_KEY"
+        __bu_tv_status_hint_key $((_TV_STATUS_HINTS_X + 18)); echo "q=$_TV_KEY"
+        # Narrow: built-in keys go first, the separator stays with H:help
+        _TV_TERM_COLS=60
+        __bu_tv_render_status
+        echo "$_TV_STATUS_HINTS"
+        # Too narrow for any action: no stray separator
+        _TV_TERM_COLS=36
+        __bu_tv_render_status
+        echo "$_TV_STATUS_HINTS"')
+    assert_equal "$result" $'t:toggle e:edit · q:quit /:search s:sort w:wide Enter:detail m:mouse &:filter H:help\nstyled\nsep=none\ne=e\nq=q\nt:toggle e:edit · q:quit H:help\nH:help'
 }
 
 # ── Cell cache ───────────────────────────────────────────────────────────
