@@ -2153,3 +2153,22 @@ function test_tv_tmux_edit_config_applies_to_shell { #@test
     grep -q 'QE=combined/local' <<<"$pane" || { echo "$pane"; return 1; }
     grep -qx 'BU_QUERY_EXECUTOR=combined' "$BATS_TEST_TMPDIR/settings.sh"
 }
+
+function test_tv_tmux_show_command_use_recalls_command { #@test
+    command -v tmux >/dev/null || skip "tmux not available"
+    local -r sock="bu-sc-$$-$RANDOM"
+    local pane
+    tmux -L "$sock" new-session -d -s sc -x 160 -y 40 "bash --norc"
+    tmux -L "$sock" send-keys -t sc "source \"$DIR\"/../activate >/dev/null 2>&1; bu show-command --verb get" Enter
+    __tv_wait_pane "$sock" sc 'Row [0-9]+/' 120
+    grep -q 'u:use' <<<"$pane" || { echo "$pane"; tmux -L "$sock" kill-server; return 1; }
+    tmux -L "$sock" send-keys -t sc /
+    tmux -L "$sock" send-keys -t sc get-git-log Enter
+    tmux -L "$sock" send-keys -t sc u
+    __tv_wait_pane "$sock" sc 'Press Up for:'
+    tmux -L "$sock" send-keys -t sc Up
+    __tv_wait_pane "$sock" sc '\$ bu get-git-log$'
+    tmux -L "$sock" kill-server
+    grep -q 'Press Up for: bu get-git-log' <<<"$pane" || { echo "$pane"; return 1; }
+    grep -qE '\$ bu get-git-log$' <<<"$pane" || { echo "$pane"; return 1; }
+}

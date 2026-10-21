@@ -788,6 +788,93 @@ bu_cli_set_caller_shell_option()
     fi
 }
 
+# ```
+# *Description*:
+# Row action for `bu show-command`, run inside bu view-table (its own
+# process) with the cursor record in BU_TV_RECORD. The last line printed
+# becomes the viewer's status message.
+#
+# *Params*:
+# - `$1`: `help` (page `bu NAME --help`), `open` (open the script, or where
+#   the function is defined, in $VISUAL / $EDITOR), `use` (queue NAME in
+#   BU_SHOW_COMMAND_QUEUE and quit the viewer), `all` (toggle the
+#   collision-parked commands on the next reload)
+#
+# *Returns*:
+# - Non-zero shows as a failure on the status line
+# ```
+__bu_cli_show_command_action()
+{
+    local -r mode=$1
+    local name= type= definition= file= line=
+    local -a where=()
+    IFS=$'\t' read -r name type definition < <("$BU_OUT_JQ" -r '[.name, .type, (.definition // "")] | @tsv' <<<"${BU_TV_RECORD:-}" 2>/dev/null)
+
+    case "$mode" in
+    help)
+        bu_tv_interactive __bu_cli_show_command_page "$name" || return
+        echo "bu $name --help"
+        ;;
+    open)
+        case "$type" in
+        execute|source)
+            file=$definition
+            ;;
+        function)
+            if shopt -q extdebug
+            then
+                read -r -a where < <(declare -F "$definition")
+            else
+                shopt -s extdebug
+                read -r -a where < <(declare -F "$definition")
+                shopt -u extdebug
+            fi
+            line=${where[1]:-}
+            file=${where[2]:-}
+            ;;
+        alias)
+            echo "$name is an alias for: bu $definition"
+            return 0
+            ;;
+        esac
+        if [[ ! -f "$file" ]]
+        then
+            echo "No source file for $name (${type:-unknown type})"
+            return 0
+        fi
+        bu_tv_interactive "${VISUAL:-${EDITOR:-vi}}" ${line:+"+$line"} "$file" || return
+        echo "Viewed $file"
+        ;;
+    use)
+        [[ -n "${BU_SHOW_COMMAND_QUEUE:-}" ]] && printf '%s\n' "$name" > "$BU_SHOW_COMMAND_QUEUE"
+        _TV_QUIT=true
+        ;;
+    all)
+        if [[ "${BU_SHOW_COMMAND_ALL:-}" == true ]]
+        then
+            BU_SHOW_COMMAND_ALL=
+            echo "Hiding shadowed commands"
+        else
+            BU_SHOW_COMMAND_ALL=true
+            echo "Showing shadowed commands"
+        fi
+        ;;
+    *)
+        echo "Unknown show-command action: $mode"
+        return 1
+        ;;
+    esac
+}
+
+# Page a command's help through $PAGER (default less -R), without the SO
+# byte tput sgr0 emits on some terminals (less -R shows it as ^O)
+__bu_cli_show_command_page()
+{
+    local -a pager=()
+    read -r -a pager <<<"${PAGER:-less -R}"
+    bu "$1" --help 2>&1 | tr -d '\017' | "${pager[@]}"
+}
+
 
 BU_ENUM_NAMESPACE_STYLE=(
     none # default

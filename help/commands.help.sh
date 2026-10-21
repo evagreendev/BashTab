@@ -25,6 +25,7 @@ ${BU_TPUT_BOLD}NAME${BU_TPUT_RESET}
 
 ${BU_TPUT_BOLD}SYNOPSIS${BU_TPUT_RESET}
     bu get-command --verb get
+    bu show-command
     bu new-command --dir commands --name my-cmd
     bu get-verb
 
