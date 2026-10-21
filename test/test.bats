@@ -167,12 +167,18 @@ function test_bu_cached_keyed_execute_str_ignores_stale_ret_array { #@test
 function test_tput_colours_clean_on_cold_cache { #@test
     # Fresh BU_OUT_DIR = no named cache: the colour strings must be exactly
     # what tput prints, not suffixed with whatever BU_RET held during init.
-    local out
-    out=$(env -i HOME="$HOME" PATH="$PATH" TERM="${TERM:-xterm}" BU_OUT_DIR="$BATS_TEST_TMPDIR/out" \
-        bash -c 'source "'"$DIR"'"/../bu_entrypoint.sh >/dev/null 2>&1; printf "%s|%s" "${#BU_TPUT_BOLD}" "${#BU_TPUT_RESET}"')
+    # TERM is pinned: with TERM unset or dumb, tput prints nothing and both
+    # sides would be 0, passing whether or not the bug is there.
+    local -r term=xterm-256color
     local want_bold want_reset
-    want_bold=$(TERM="${TERM:-xterm}" tput bold 2>/dev/null || true)
-    want_reset=$(TERM="${TERM:-xterm}" tput sgr0 2>/dev/null || true)
+    want_bold=$(TERM="$term" tput bold 2>/dev/null || true)
+    want_reset=$(TERM="$term" tput sgr0 2>/dev/null || true)
+    if [[ -z "$want_bold" || -z "$want_reset" ]]; then
+        skip "tput cannot resolve TERM=$term (no terminfo entry)"
+    fi
+    local out
+    out=$(env -i HOME="$HOME" PATH="$PATH" TERM="$term" BU_OUT_DIR="$BATS_TEST_TMPDIR/out" \
+        bash -c 'source "'"$DIR"'"/../bu_entrypoint.sh >/dev/null 2>&1; printf "%s|%s" "${#BU_TPUT_BOLD}" "${#BU_TPUT_RESET}"')
     assert_equal "$out" "${#want_bold}|${#want_reset}"
 }
 
