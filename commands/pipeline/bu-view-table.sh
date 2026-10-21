@@ -79,11 +79,11 @@ do
         reload_cmd=${!shift_by}
         ;;
     --preview)# COMMAND
-        # Inside tmux, show COMMAND's output for the cursor record in a pane
-        # beside the table, following the cursor (p toggles it). COMMAND is
-        # eval'd in the background with the record in BU_TV_RECORD and
-        # COLUMNS/LINES set to the pane's size. Outside tmux there is no
-        # preview.
+        # Inside tmux or zellij, show COMMAND's output for the cursor record
+        # in a pane beside the table, following the cursor (p toggles it).
+        # COMMAND is eval'd in the background with the record in
+        # BU_TV_RECORD and COLUMNS/LINES set to the pane's size. Outside a
+        # multiplexer there is no preview.
         bu_parse_positional $# --hint "Command printing the preview"
         preview_cmd=${!shift_by}
         ;;
@@ -154,17 +154,17 @@ unfreeze it, or onto the Hidden list to hide it, and click a hidden entry
 to bring it back.  Click a key hint on the status line to press it.  Press
 m to turn mouse reporting off and select text.
 
-Preview: inside tmux, --preview COMMAND opens a pane beside the table showing
-COMMAND's output for the cursor record, and keeps it in step as the cursor
-moves; p closes and reopens it.  Scroll it with tmux copy mode.  Outside tmux
-there is no preview.
+Preview: inside tmux or zellij, --preview COMMAND opens a pane beside the
+table showing COMMAND's output for the cursor record, and keeps it in step as
+the cursor moves; p closes and reopens it.  Scroll it with the multiplexer's
+copy / scroll mode.  Outside a multiplexer there is no preview.
 " \
         --example "View all commands" "" \
         --example "Select columns" "--columns name,type,namespace" \
         --example "Without colors" "--colors none" \
         --example "Narrower columns" "--max-width 20" \
         --example "Color only some columns" "--colors name=green,type=yellow" \
-        --example "Preview each record pretty-printed (inside tmux)" "--preview 'jq -C . <<<\"\$BU_TV_RECORD\"'" \
+        --example "Preview each record pretty-printed (inside tmux or zellij)" "--preview 'jq -C . <<<\"\$BU_TV_RECORD\"'" \
         --example "Row action with reload (see bu edit-config)" "--key name --reload 'bu get-config --format jsonl' --action 'x:default=bu set-config --unset \"\$(jq -r .name <<<\"\$BU_TV_RECORD\")\"'"
     return 0
 fi

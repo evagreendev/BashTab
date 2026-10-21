@@ -2179,18 +2179,18 @@ function test_tv_tmux_edit_config_applies_to_shell { #@test
     grep -qx 'BU_QUERY_EXECUTOR=combined' "$BATS_TEST_TMPDIR/settings.sh"
 }
 
-function test_tv_preview_outside_tmux_only_says_so { #@test
+function test_tv_preview_outside_multiplexer_only_says_so { #@test
     local result
-    result=$(TMUX= TMUX_PANE= __tv_in_child '{"a":1}' '
+    result=$(TMUX= TMUX_PANE= ZELLIJ= __tv_in_child '{"a":1}' '
         __bu_tv_render_status
         [[ "$_TV_STATUS_HINTS" == *p:preview* ]] && echo "hint without preview"
         _TV_KEY=p; __bu_tv_dispatch_key; echo "$_TV_MESSAGE"
         _TV_PREVIEW_CMD="echo hi"
         __bu_tv_render_status
-        [[ "$_TV_STATUS_HINTS" == *p:preview* ]] && echo "hint outside tmux"
+        [[ "$_TV_STATUS_HINTS" == *p:preview* ]] && echo "hint outside a multiplexer"
         _TV_KEY=p; __bu_tv_dispatch_key; echo "$_TV_MESSAGE|${_TV_PREVIEW_PANE:-no pane}"
         __bu_tv_preview_sync; echo "pid=$_TV_PREVIEW_PID"')
-    assert_equal "$result" $'No preview: bu view-table --preview COMMAND\nPreview needs tmux|no pane\npid=0'
+    assert_equal "$result" $'No preview: bu view-table --preview COMMAND\nPreview needs tmux or zellij|no pane\npid=0'
 }
 
 function test_tv_tmux_preview_follows_cursor { #@test
@@ -2226,6 +2226,41 @@ function test_tv_tmux_preview_follows_cursor { #@test
     n=$(tmux -L "$sock" list-panes -t pv | wc -l)
     tmux -L "$sock" kill-server
     (( n == 1 )) || { echo "q left $n panes"; return 1; }
+}
+
+function test_tv_zellij_preview_follows_cursor { #@test
+    # zellij runs inside a tmux pane (for send-keys and capture-pane), so
+    # this also covers nesting: TMUX and ZELLIJ are both set
+    command -v tmux >/dev/null || skip "tmux not available"
+    command -v zellij >/dev/null || skip "zellij not available"
+    local -r sock="bu-zj-$$-$RANDOM" session="bu-zj-$$-$RANDOM"
+    local pane
+    local -r rows=$BATS_TEST_TMPDIR/rows.zj.jsonl
+    printf '{"name":"alpha"}\n{"name":"beta"}\n' > "$rows"
+    mkdir -p "$BATS_TEST_TMPDIR/zellij"
+    # A config of our own (an absent one starts the first-run wizard, which
+    # takes the keys); zellij's panes run $SHELL: make it a bare bash
+    printf 'show_startup_tips false\nshow_release_notes false\n' > "$BATS_TEST_TMPDIR/zellij/config.kdl"
+    printf '#!/bin/sh\nexec bash --norc\n' > "$BATS_TEST_TMPDIR/zellij/shell"
+    chmod +x "$BATS_TEST_TMPDIR/zellij/shell"
+    tmux -L "$sock" new-session -d -s zj -x 160 -y 30 \
+        "SHELL='$BATS_TEST_TMPDIR/zellij/shell' zellij --config-dir '$BATS_TEST_TMPDIR/zellij' options --session-name '$session' --default-layout compact"
+    __tv_wait_pane "$sock" zj 'bash-[0-9.]+\$' 40
+    tmux -L "$sock" send-keys -t zj "source \"$DIR\"/../activate >/dev/null 2>&1; bu view-table --preview 'echo \"preview:\$(jq -r .name <<<\"\$BU_TV_RECORD\")\"' < \"$rows\"" Enter
+    __tv_wait_pane "$sock" zj 'preview:alpha' 120
+    grep -q 'preview:alpha' <<<"$pane" || { echo "$pane"; zellij kill-session "$session" >/dev/null 2>&1; tmux -L "$sock" kill-server; return 1; }
+    grep -q 'p:preview' <<<"$pane" || { echo "$pane"; zellij kill-session "$session" >/dev/null 2>&1; tmux -L "$sock" kill-server; return 1; }
+    tmux -L "$sock" send-keys -t zj j
+    __tv_wait_pane "$sock" zj 'preview:beta'
+    grep -q 'preview:beta' <<<"$pane" || { echo "$pane"; zellij kill-session "$session" >/dev/null 2>&1; tmux -L "$sock" kill-server; return 1; }
+    # q closes the pane along with the viewer
+    tmux -L "$sock" send-keys -t zj q
+    __tv_wait_pane "$sock" zj 'bash-[0-9.]+\$ *$' 20 'preview:beta'
+    # tmux first: once the session is gone its pane exits, and so does tmux
+    tmux -L "$sock" kill-server
+    zellij kill-session "$session" >/dev/null 2>&1 || true
+    zellij delete-session --force "$session" >/dev/null 2>&1 || true
+    [[ "$pane" != *preview:beta* ]] || { echo "$pane"; return 1; }
 }
 
 function test_tv_tmux_show_command_use_recalls_command { #@test

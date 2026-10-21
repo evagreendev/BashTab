@@ -37,12 +37,12 @@
 # then replaced by COMMAND's JSONL output, the cursor staying on its record
 # (matched by the --key column). Actions can ask for input with bu_tv_prompt
 # and run interactive programs with bu_tv_interactive.
-# Preview (--preview COMMAND, inside tmux only): p splits a tmux pane off
+# Preview (--preview COMMAND, inside tmux or zellij): p splits a pane off
 # beside the viewer and shows COMMAND's output for the cursor record there,
 # following the cursor. COMMAND runs in the background with the record in
 # BU_TV_RECORD and COLUMNS/LINES set to the pane's size; the pane itself
-# runs only a placeholder, its tty written by the viewer. Outside tmux p
-# only says so.
+# runs only a placeholder, its tty written by the viewer. Outside a
+# multiplexer p only says so.
 # The cursor row is reversed; its cursor cell is drawn un-reversed, bold
 # and underlined.  Numeric columns are right-aligned and null shows as a
 # dim ∅.  With the
@@ -179,6 +179,8 @@ declare -g    _TV_PREVIEW_STALE=false  # Redraw the preview even for the same re
 declare -g -i _TV_PREVIEW_GEN=0     # Generation of the latest preview job
 declare -g -i _TV_PREVIEW_PID=0     # Latest preview job (0: none)
 declare -g    _TV_PREVIEW_GEN_FILE= # Latest generation, for the jobs to check
+declare -g    _TV_PREVIEW_MUX=      # tmux, zellij or none (empty: not looked yet)
+declare -g    _TV_PREVIEW_TTY_FILE= # The preview pane's tty and placeholder pid
 declare -g    _TV_KEY=              # Out-param: last key read (__bu_tv_read_key)
 declare -g    _TV_EOF=false         # The tty hit EOF (read_key reports it as "q")
 declare -g    _TV_QUIT=false        # Event-loop exit flag
@@ -250,7 +252,7 @@ declare -g -r -a __BU_TV_HELP_LINES=(
     '  - +                hide column / bring hidden back'
     '  < >                move column left / right'
     '  c                  toggle the column sidebar'
-    '  p                  preview pane on / off (tmux, --preview)'
+    '  p                  preview pane on / off (tmux/zellij)'
     '  Enter              record detail'
     '  Ctrl-L             re-measure the terminal'
     '  m                  toggle mouse reporting'
@@ -4212,17 +4214,57 @@ __bu_tv_prompt_value()
 
 # ```
 # *Description*:
-# Whether a preview pane can open: a --preview command, inside tmux.
+# Find the terminal multiplexer that can hold a preview pane, once: tmux or
+# zellij.  Nested, the innermost one owns the viewer's terminal: tmux when
+# its pane's tty is ours, else zellij.
+#
+# *Returns*:
+# - `_TV_PREVIEW_MUX`: tmux, zellij or none
+# ```
+__bu_tv_preview_mux()
+{
+    [[ -n "$_TV_PREVIEW_MUX" ]] && return 0
+    _TV_PREVIEW_MUX=none
+    local in_tmux=false in_zellij=false mine= pane_tty=
+    [[ -n "${TMUX:-}" && -n "${TMUX_PANE:-}" ]] && command -v tmux >/dev/null && in_tmux=true
+    [[ -n "${ZELLIJ:-}" ]] && command -v zellij >/dev/null && in_zellij=true
+    if "$in_tmux" && "$in_zellij"
+    then
+        mine=$(ps -o tty= -p $$ 2>/dev/null)
+        mine=${mine// /}
+        pane_tty=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_tty}' 2>/dev/null)
+        if [[ -n "$mine" && "$pane_tty" == */"$mine" ]]
+        then
+            _TV_PREVIEW_MUX=tmux
+        else
+            _TV_PREVIEW_MUX=zellij
+        fi
+    elif "$in_tmux"
+    then
+        _TV_PREVIEW_MUX=tmux
+    elif "$in_zellij"
+    then
+        _TV_PREVIEW_MUX=zellij
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
+# Whether a preview pane can open: a --preview command, inside tmux or
+# zellij.
 # ```
 __bu_tv_preview_available()
 {
-    [[ -n "$_TV_PREVIEW_CMD" && -n "${TMUX:-}" && -n "${TMUX_PANE:-}" ]] && command -v tmux >/dev/null
+    [[ -n "$_TV_PREVIEW_CMD" ]] || return 1
+    __bu_tv_preview_mux
+    [[ "$_TV_PREVIEW_MUX" != none ]]
 }
 
 # ```
 # *Description*:
 # Open the preview pane, or close it if open.  Without a --preview command,
-# or outside tmux, only say why on the status line.
+# or outside tmux and zellij, only say why on the status line.
 # ```
 __bu_tv_preview_toggle()
 {
@@ -4234,7 +4276,7 @@ __bu_tv_preview_toggle()
         _TV_MESSAGE='No preview: bu view-table --preview COMMAND'
     elif ! __bu_tv_preview_available
     then
-        _TV_MESSAGE='Preview needs tmux'
+        _TV_MESSAGE='Preview needs tmux or zellij'
     else
         __bu_tv_preview_open
     fi
@@ -4243,18 +4285,30 @@ __bu_tv_preview_toggle()
 
 # ```
 # *Description*:
-# Split a tmux pane off to the right of the viewer's, keeping the focus in
-# the viewer.  The pane runs only a placeholder: __bu_tv_preview_sync draws
-# on its tty.
+# Open a pane to the right of the viewer's, keeping the focus in the
+# viewer.  The pane runs only a placeholder, which writes its tty and pid
+# to _TV_PREVIEW_TTY_FILE (neither multiplexer reports both the same way):
+# __bu_tv_preview_sync draws on that tty.
 # ```
 __bu_tv_preview_open()
 {
     local pane=
-    pane=$(tmux split-window -h -d -l 50% -t "$TMUX_PANE" -P -F '#{pane_id}' \
-        'exec sleep 2147483647' 2>/dev/null) || pane=
+    _TV_PREVIEW_TTY_FILE=${BU_TMP_DIR:-/tmp}/tv-preview-tty.$$
+    rm -f "$_TV_PREVIEW_TTY_FILE"
+    local -r -a placeholder=(sh -c 'printf "%s %s\n" "$(tty)" "$$" > "$0"; exec sleep 2147483647' "$_TV_PREVIEW_TTY_FILE")
+    case "$_TV_PREVIEW_MUX" in
+    tmux)
+        pane=$(tmux split-window -h -d -l 50% -t "$TMUX_PANE" -P -F '#{pane_id}' \
+            "${placeholder[@]}" 2>/dev/null) || pane=
+        ;;
+    zellij)
+        pane=$(zellij run --no-focus --near-current-pane --direction right \
+            --close-on-exit --name preview -- "${placeholder[@]}" 2>/dev/null) || pane=
+        ;;
+    esac
     if [[ -z "$pane" ]]
     then
-        _TV_MESSAGE='Could not open a tmux pane for the preview'
+        _TV_MESSAGE="Could not open a $_TV_PREVIEW_MUX pane for the preview"
         return 0
     fi
     _TV_PREVIEW_PANE=$pane
@@ -4274,9 +4328,12 @@ __bu_tv_preview_close()
     [[ -n "$_TV_PREVIEW_PANE" ]] || return 0
     (( _TV_PREVIEW_PID )) && kill "$_TV_PREVIEW_PID" 2>/dev/null
     _TV_PREVIEW_PID=0
-    tmux kill-pane -t "$_TV_PREVIEW_PANE" 2>/dev/null
+    case "$_TV_PREVIEW_MUX" in
+    tmux)   tmux kill-pane -t "$_TV_PREVIEW_PANE" 2>/dev/null ;;
+    zellij) zellij action close-pane --pane-id "$_TV_PREVIEW_PANE" 2>/dev/null ;;
+    esac
     _TV_PREVIEW_PANE=
-    rm -f "$_TV_PREVIEW_GEN_FILE"
+    rm -f "$_TV_PREVIEW_GEN_FILE" "$_TV_PREVIEW_TTY_FILE"
     _TV_RESIZE_PENDING=true
     return 0
 }
@@ -4312,7 +4369,8 @@ __bu_tv_preview_sync()
 # *Description*:
 # Background job: run the preview command on a record and draw its output
 # on the preview pane's tty, clipped to the pane.  Gives up as soon as a
-# newer job has started, so a superseded preview is never drawn.
+# newer job has started, so a superseded preview is never drawn, and when
+# the placeholder is gone (pane closed), so a reused tty is never drawn on.
 #
 # *Params*:
 # - `$1`: Generation of this job
@@ -4321,20 +4379,29 @@ __bu_tv_preview_sync()
 __bu_tv_preview_job()
 {
     local -r gen=$1 record=$2
-    local info= tty= out= frame line
+    local tty= pid= size= out= frame line
     local -i w=0 h=0 i
     local -a lines=()
     # Let a held key move on before doing any work
     sleep 0.05
     [[ "$(< "$_TV_PREVIEW_GEN_FILE")" == "$gen" ]] || return 0
-    info=$(tmux display-message -p -t "$_TV_PREVIEW_PANE" '#{pane_tty} #{pane_width} #{pane_height}' 2>/dev/null) || return 0
-    read -r tty w h <<<"$info"
-    [[ -c "$tty" ]] || return 0
+    # A new pane's placeholder may not have reported its tty yet
+    for (( i = 0; i < 40; i++ ))
+    do
+        [[ -s "$_TV_PREVIEW_TTY_FILE" ]] && break
+        sleep 0.05
+    done
+    read -r tty pid < "$_TV_PREVIEW_TTY_FILE" 2>/dev/null
+    [[ -c "$tty" && -n "$pid" ]] && kill -0 "$pid" 2>/dev/null || return 0
+    size=$(stty size < "$tty" 2>/dev/null) || return 0
+    read -r h w <<<"$size"
+    (( h > 0 && w > 0 )) || return 0
     if [[ -n "$record" ]]
     then
         out=$(COLUMNS=$w LINES=$h __bu_tv_eval_action "$_TV_PREVIEW_CMD" "$record" 2>&1)
     fi
     [[ "$(< "$_TV_PREVIEW_GEN_FILE")" == "$gen" ]] || return 0
+    kill -0 "$pid" 2>/dev/null || return 0
     # SO/SI (tput sgr0 under screen/tmux emits SI) would switch charsets
     mapfile -t lines < <(expand <<<"${out//[$'\016\017']/}")
     # Plain lines are clipped to the width here; autowrap off clips the rest
