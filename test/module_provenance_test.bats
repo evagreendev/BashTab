@@ -105,7 +105,7 @@ function test_completion_module_tags_two_modules { #@test
         COMP_LINE="$BU_CLI_COMMAND_NAME "
         BU_AUTOCOMPLETE_ACCEPT_ANSI_COLORS=true
         __bu_autocomplete_completion_func_cli "$BU_CLI_COMMAND_NAME" "" ""
-        strip() { sed -r "s/\x1B\[[0-9;]*[mGK]//g; s/\x1B\(B//g"; }
+        strip() { sed -r "s/\x1B\[[0-9;]*[mGK]//g; s/\x1B\(B//g; s/\x0F//g"; }
         for i in "${!COMPREPLY[@]}"
         do
             c=$(printf "%s" "${COMPREPLY[i]}" | strip)
@@ -136,7 +136,7 @@ function test_completion_no_module_tag_single_module { #@test
         COMP_LINE="$BU_CLI_COMMAND_NAME "
         BU_AUTOCOMPLETE_ACCEPT_ANSI_COLORS=true
         __bu_autocomplete_completion_func_cli "$BU_CLI_COMMAND_NAME" "" ""
-        strip() { sed -r "s/\x1B\[[0-9;]*[mGK]//g; s/\x1B\(B//g"; }
+        strip() { sed -r "s/\x1B\[[0-9;]*[mGK]//g; s/\x1B\(B//g; s/\x0F//g"; }
         for i in "${!COMPREPLY[@]}"
         do
             c=$(printf "%s" "${COMPREPLY[i]}" | strip)
@@ -167,7 +167,7 @@ function test_namespace_defaults_to_module_scoped_completion { #@test
         echo "BETA_NS=$(bu get-command --format jsonl 2>/dev/null | jq -r "select(.name == \"get-beta-thing\") | .namespace")"
         COMPREPLY=(); COMP_CWORD=1; COMP_WORDS=(bu ":moda:"); COMP_LINE="bu :moda:"
         __bu_autocomplete_completion_func_cli "$BU_CLI_COMMAND_NAME" ":moda:" ""
-        strip() { sed -r "s/\x1B\[[0-9;]*[mGK]//g; s/\x1B\(B//g"; }
+        strip() { sed -r "s/\x1B\[[0-9;]*[mGK]//g; s/\x1B\(B//g; s/\x0F//g"; }
         for r in "${COMPREPLY[@]}"; do echo "MODA_ROW=$(printf "%s" "$r" | strip)"; done
     ' _ "$pre_a" "$pre_b" "$DIR"/..
     assert_success
@@ -206,7 +206,7 @@ function test_namespace_row_metadata_count_and_nospace { #@test
         BU_COMPOPT_CURRENT_COMPLETION_OPTIONS=()
         BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS=()
         __bu_autocomplete_completion_func_cli "$BU_CLI_COMMAND_NAME" ":" ""
-        strip() { sed -r "s/\x1B\[[0-9;]*[mGK]//g; s/\x1B\(B//g"; }
+        strip() { sed -r "s/\x1B\[[0-9;]*[mGK]//g; s/\x1B\(B//g; s/\x0F//g"; }
         for i in "${!COMPREPLY[@]}"
         do
             c=$(printf "%s" "${COMPREPLY[i]}" | strip)
@@ -232,7 +232,7 @@ function test_scoped_rows_resolve_type_module_no_nospace { #@test
         BU_COMPOPT_CURRENT_COMPLETION_OPTIONS=()
         BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS=()
         __bu_autocomplete_completion_func_cli "$BU_CLI_COMMAND_NAME" ":moda:" ""
-        strip() { sed -r "s/\x1B\[[0-9;]*[mGK]//g; s/\x1B\(B//g"; }
+        strip() { sed -r "s/\x1B\[[0-9;]*[mGK]//g; s/\x1B\(B//g; s/\x0F//g"; }
         for i in "${!COMPREPLY[@]}"
         do
             c=$(printf "%s" "${COMPREPLY[i]}" | strip)

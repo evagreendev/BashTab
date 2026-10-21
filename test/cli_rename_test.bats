@@ -32,7 +32,9 @@ function test_cli_rename_help_uses_cli_name { #@test
 
     # Strip ANSI escapes to check plain text for "xx" (renamed CLI)
     local plain
-    plain=$(printf '%s' "$output" | sed 's/'$'\e''\[[0-9;]*[a-zA-Z]//g' | sed 's/'$'\e''[()].//g')
+    # Strip CSI, the xterm sgr0 charset reset (ESC ( B) and the SO byte that
+    # screen/tmux TERMs put after their sgr0 (ESC [ m ^O).
+    plain=$(printf '%s' "$output" | sed 's/'$'\e''\[[0-9;]*[a-zA-Z]//g' | sed 's/'$'\e''[()].//g' | tr -d '\017')
     [[ "$plain" == *'Help for xx'* ]]
     [[ "$plain" == *'xx is a Verb-Noun CLI'* ]]
     [[ "$plain" == *'xx get-command | xx where'* ]]
@@ -45,7 +47,9 @@ function test_cli_help_key_bindings_module_provenance { #@test
     assert_success
 
     local plain
-    plain=$(printf '%s' "$output" | sed 's/'$'\e''\[[0-9;]*[a-zA-Z]//g' | sed 's/'$'\e''[()].//g')
+    # Strip CSI, the xterm sgr0 charset reset (ESC ( B) and the SO byte that
+    # screen/tmux TERMs put after their sgr0 (ESC [ m ^O).
+    plain=$(printf '%s' "$output" | sed 's/'$'\e''\[[0-9;]*[a-zA-Z]//g' | sed 's/'$'\e''[()].//g' | tr -d '\017')
 
     # Module column header appears in the rendered table (command names use
     # lowercase "module", so the capitalized header is unambiguous).
