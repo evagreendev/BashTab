@@ -119,19 +119,20 @@ done
         [[ -n "${__BU_CONFIG_PHASE_VARIANT[$phase_label]:-}" ]] && phase_label+="[${__BU_CONFIG_PHASE_VARIANT[$phase_label]}]"
         # Origin: changed in the shell since its phase ran, else who set it
         # then (env, local, site, callback, layer), else the default.
-        if [[ -v "__BU_CONFIG_APPLIED[$name]" && "${!name-}" != "${__BU_CONFIG_APPLIED[$name]}" ]]
-        then
-            origin=shell
+        __bu_config_origin "$name"
+        origin=$BU_RET
+        case "$origin" in
+        shell)
             location=
-        elif [[ -n "${BU_CONFIG_ORIGIN[$name]:-}" ]]
-        then
-            origin=${BU_CONFIG_ORIGIN[$name]}
+            ;;
+        default)
+            location=${BU_CONFIG_PROPERTIES[$name,defined_at]:-}
+            ;;
+        *)
             file=${BU_CONFIG_SOURCE_FILE[$name]:-}
             location=$file${assign_line[$file,$name]:+:${assign_line[$file,$name]}}
-        else
-            origin=default
-            location=${BU_CONFIG_PROPERTIES[$name,defined_at]:-}
-        fi
+            ;;
+        esac
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "$name" \
             "${current:-(unset)}" \

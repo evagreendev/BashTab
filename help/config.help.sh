@@ -78,6 +78,22 @@ ${BU_TPUT_BOLD}PHASES${BU_TPUT_RESET}
     the environment. Modules register settings in NAME_bu_config.sh (main) and
     NAME_bu_config.static.sh (static) next to their preinit.
 
+${BU_TPUT_BOLD}ENUM FILES AND VALIDATION${BU_TPUT_RESET}
+    A list of allowed values that lives elsewhere and changes goes in a file,
+    one value per line (# comments, name:mapped as for --enum):
+
+        bu_config_register MYAPP_VENUE --enum-file venues.txt \\
+            --enum-source myapp_list_venues
+
+    With --enum-source, the file has a "# --- generated (...) ---" section
+    that bu update-config-enum rewrites from the source, then a
+    "# --- hand-kept ---" section for values the source does not know.
+
+    Nothing validates settings-file values at activation; only bu set-config
+    checks what it writes. bu validate-config checks the current values (exit
+    1 when any is invalid); modules call bu_config_require_valid in their
+    preflight/plan verbs.
+
 ${BU_TPUT_BOLD}LAYERS${BU_TPUT_RESET}
     A "layer" is a named settings file resolved for the current context. The
     built-in layer is:
@@ -130,6 +146,13 @@ ${BU_TPUT_BOLD}TYPICAL FLOWS${BU_TPUT_RESET}
     Write to a specific layer:
         bu set-config --layer proj BU_LOG_LVL info
 
+    Check the current values against their allowed values:
+        bu validate-config --invalid
+
+    Refresh file-backed enums from their sources (preview, then write):
+        bu update-config-enum
+        bu update-config-enum --execute
+
 ${BU_TPUT_BOLD}FAILURE SIGNATURES${BU_TPUT_RESET}
     "Setting name must match ^(BU_)[A-Z0-9_]+\$ ..."
         The name is not a valid BashTab setting. Names are uppercase with an
@@ -139,6 +162,11 @@ ${BU_TPUT_BOLD}FAILURE SIGNATURES${BU_TPUT_RESET}
     "Invalid value for BU_LOG_LVL: expected one of: ..."
         The value is not in the setting's registered enum (or not true/false
         for a --bool). bu get-config lists each setting's allowed values.
+
+    "Invalid setting MYAPP_VENUE='x' (origin local): expected one of: ..."
+        bu_config_require_valid found a value (often from a settings file)
+        outside the setting's allowed values. Fix it with bu set-config, or
+        refresh a stale --enum-file with bu update-config-enum --execute.
 
     "Unknown config layer 'x'. Registered layers: local, ..."
         The --layer name has no registered resolver. Use bu_config_register_layer

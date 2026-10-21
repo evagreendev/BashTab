@@ -1430,3 +1430,195 @@ function test_config_preset_completion_verbatim { #@test
     bu set-config BU_TABLE_PAGER "${BU_RET[0]}" >/dev/null
     assert_equal "$BU_TABLE_PAGER" less
 }
+
+# ===========================================================================
+# File-backed enums (--enum-file, --enum-source) and settings validation
+# ===========================================================================
+
+# A refreshed enum file: header, generated section, hand-kept section
+function __write_venue_file {
+    cat > "$BATS_TEST_TMPDIR/venues.txt" <<'VENUES'
+# Venues for BU_TEST_VENUE
+# maintained by ops
+
+# --- generated (old, 2026-01-01) ---
+xnys
+xnas
+arcx   # trailing comment
+# --- hand-kept ---
+# a test venue
+mytest
+VENUES
+}
+
+function __list_venues {
+    printf '%s\n' xnys bats xnas
+}
+
+function test_config_enum_file_register { #@test
+    printf '%s\n' '# modes' '' 'fast:1' '  slow:2' '# off' 'auto' > "$BATS_TEST_TMPDIR/modes.txt"
+    bu_config_register BU_TEST_MODE --enum-file "$BATS_TEST_TMPDIR/modes.txt"
+    assert_equal "${BU_CONFIG_PROPERTIES[BU_TEST_MODE,enum]}" 'fast:1 slow:2 auto'
+    assert_equal "${BU_CONFIG_PROPERTIES[BU_TEST_MODE,enum_file]}" "$BATS_TEST_TMPDIR/modes.txt"
+    bu_config_validate_value BU_TEST_MODE slow
+    assert_equal "$BU_RET" 2
+    run bu_config_validate_value BU_TEST_MODE off
+    assert_failure
+    __bu_config_completion_values BU_TEST_MODE
+    assert_equal "${BU_RET[*]}" 'fast slow auto'
+
+    # Both sections count; markers and comments do not
+    __write_venue_file
+    bu_config_register BU_TEST_VENUE --enum-file "$BATS_TEST_TMPDIR/venues.txt" --enum-source __list_venues
+    assert_equal "${BU_CONFIG_PROPERTIES[BU_TEST_VENUE,enum]}" 'xnys xnas arcx mytest'
+    assert_equal "${BU_CONFIG_PROPERTIES[BU_TEST_VENUE,enum_source]}" __list_venues
+}
+
+function test_config_enum_file_registration_errors { #@test
+    run bu_config_register BU_TEST_MODE --enum-file "$BATS_TEST_TMPDIR/missing.txt"
+    assert_failure
+    assert_output --partial 'BU_TEST_MODE'
+    assert_equal "${BU_CONFIG_PROPERTIES[BU_TEST_MODE,registered]:-}" ''
+    printf 'a\n' > "$BATS_TEST_TMPDIR/modes.txt"
+    run bu_config_register BU_TEST_MODE --enum a b enum-- --enum-file "$BATS_TEST_TMPDIR/modes.txt"
+    assert_failure
+    run bu_config_register BU_TEST_MODE --enum-source __list_venues
+    assert_failure
+    # A missing file with a source only warns: update-config-enum creates it
+    bu_config_register BU_TEST_VENUE --enum-file "$BATS_TEST_TMPDIR/new.txt" --enum-source __list_venues 2>/dev/null
+    assert_equal "${BU_CONFIG_PROPERTIES[BU_TEST_VENUE,registered]}" true
+    assert_equal "${BU_CONFIG_PROPERTIES[BU_TEST_VENUE,enum]:-}" ''
+}
+
+function test_config_refresh_enum_file_dry_run { #@test
+    __write_venue_file
+    bu_config_register BU_TEST_VENUE --enum-file "$BATS_TEST_TMPDIR/venues.txt" --enum-source __list_venues
+    local before out
+    before=$(cat "$BATS_TEST_TMPDIR/venues.txt")
+    bu_config_refresh_enum_file BU_TEST_VENUE > "$BATS_TEST_TMPDIR/out"
+    out=$(cut -f3- "$BATS_TEST_TMPDIR/out")
+    assert_equal "$out" $'added\tbats\twould-write\nremoved\tarcx\twould-write\nsummary\t3 generated, 1 hand-kept, +1 -1\twould-write'
+    assert_equal "$(cut -f1,2 "$BATS_TEST_TMPDIR/out" | sort -u)" "BU_TEST_VENUE"$'\t'"$BATS_TEST_TMPDIR/venues.txt"
+    assert_equal "$(cat "$BATS_TEST_TMPDIR/venues.txt")" "$before"
+    assert_equal "${BU_CONFIG_PROPERTIES[BU_TEST_VENUE,enum]}" 'xnys xnas arcx mytest'
+}
+
+function test_config_refresh_enum_file_execute { #@test
+    __write_venue_file
+    bu_config_register BU_TEST_VENUE --enum-file "$BATS_TEST_TMPDIR/venues.txt" --enum-source __list_venues
+    local out today
+    printf -v today '%(%Y-%m-%d)T' -1
+    bu_config_refresh_enum_file BU_TEST_VENUE --execute > "$BATS_TEST_TMPDIR/out"
+    assert_equal "$(cut -f5 "$BATS_TEST_TMPDIR/out" | sort -u)" written
+    assert_equal "$(cat "$BATS_TEST_TMPDIR/venues.txt")" "# Venues for BU_TEST_VENUE
+# maintained by ops
+
+# --- generated (__list_venues, $today) ---
+xnys
+bats
+xnas
+
+# --- hand-kept ---
+# a test venue
+mytest"
+    # Live enum updated in this shell
+    assert_equal "${BU_CONFIG_PROPERTIES[BU_TEST_VENUE,enum]}" 'xnys bats xnas mytest'
+    # Nothing left to do: unchanged, file not rewritten
+    out=$(bu_config_refresh_enum_file BU_TEST_VENUE --execute | cut -f3-)
+    assert_equal "$out" $'summary\t3 generated, 1 hand-kept, +0 -0\tunchanged'
+}
+
+function test_config_refresh_enum_file_without_markers { #@test
+    printf '%s\n' '# venues' xnys arcx > "$BATS_TEST_TMPDIR/venues.txt"
+    bu_config_register BU_TEST_VENUE --enum-file "$BATS_TEST_TMPDIR/venues.txt" --enum-source __list_venues
+    local out
+    out=$(bu_config_refresh_enum_file BU_TEST_VENUE --execute | cut -f3,4)
+    assert_equal "$out" $'added\tbats\nadded\txnas\nremoved\tarcx\nsummary\t3 generated, 0 hand-kept, +2 -1'
+    assert_equal "$(sed -n '1p;3p' "$BATS_TEST_TMPDIR/venues.txt")" $'# venues\n# --- generated (__list_venues, '"$(printf '%(%Y-%m-%d)T' -1)"') ---'
+    assert grep -qx '# --- hand-kept ---' "$BATS_TEST_TMPDIR/venues.txt"
+}
+
+function test_config_refresh_enum_file_failing_source { #@test
+    __write_venue_file
+    bu_config_register BU_TEST_VENUE --enum-file "$BATS_TEST_TMPDIR/venues.txt" --enum-source 'false'
+    local before
+    before=$(cat "$BATS_TEST_TMPDIR/venues.txt")
+    run bu_config_refresh_enum_file BU_TEST_VENUE --execute
+    assert_failure
+    bu_config_register BU_TEST_VENUE --enum-file "$BATS_TEST_TMPDIR/venues.txt" --enum-source 'true'
+    run bu_config_refresh_enum_file BU_TEST_VENUE --execute
+    assert_failure
+    assert_equal "$(cat "$BATS_TEST_TMPDIR/venues.txt")" "$before"
+    # No --enum-source
+    run bu_config_refresh_enum_file BU_LOG_LVL
+    assert_failure
+}
+
+function test_config_validate_settings { #@test
+    bu_config_register BU_TEST_MODE --enum fast slow enum--
+    bu_config_register BU_TEST_FLAG --bool
+    local out
+    BU_TEST_MODE=bogus
+    BU_TEST_FLAG=
+    BU_LOG_LVL=4
+    run bu_config_validate_settings BU_TEST_MODE BU_TEST_FLAG BU_LOG_LVL BU_TEST_NOPE
+    assert_failure
+    assert_equal "$output" "BU_TEST_MODE	bogus	default	invalid	expected one of: fast slow
+BU_TEST_FLAG		default	ok	not applicable (empty)
+BU_LOG_LVL	4	shell	ok	stored form of err
+BU_TEST_NOPE			invalid	not a registered setting"
+    # Names and --allow sentinels pass
+    BU_TEST_MODE=slow
+    out=$(bu_config_validate_settings BU_TEST_MODE BU_LOG_LVL | cut -f4 | sort -u)
+    assert_equal "$out" ok
+    BU_TEST_MODE=auto
+    run bu_config_validate_settings --allow none --allow auto BU_TEST_MODE
+    assert_success
+    assert_output $'BU_TEST_MODE\tauto\tdefault\tok\tnot applicable (allowed by --allow)'
+    # No names: every setting with an enum or bool rule (hint-only ones skipped)
+    bu_config_register BU_TEST_FREE --hint "free text"
+    BU_TEST_FREE=anything
+    out=$(bu_config_validate_settings | cut -f1)
+    [[ $'\n'"$out"$'\n' == *$'\nBU_TEST_MODE\n'* && $'\n'"$out"$'\n' == *$'\nBU_LOG_LVL\n'* ]]
+    [[ $'\n'"$out"$'\n' != *$'\nBU_TEST_FREE\n'* ]]
+}
+
+function test_config_require_valid { #@test
+    bu_config_register BU_TEST_MODE --enum fast slow enum--
+    BU_TEST_MODE=fast
+    run bu_config_require_valid BU_TEST_MODE BU_LOG_LVL
+    assert_success
+    assert_output ''
+    BU_TEST_MODE=bogus
+    run bu_config_require_valid BU_TEST_MODE BU_TEST_NOPE
+    assert_failure
+    assert_output --partial "Invalid setting BU_TEST_MODE='bogus'"
+    assert_output --partial 'expected one of: fast slow'
+    assert_output --partial 'Invalid setting BU_TEST_NOPE: not a registered setting'
+}
+
+function test_config_validate_config_cmdlet { #@test
+    bu_config_register BU_TEST_MODE --enum fast slow enum--
+    BU_TEST_MODE=bogus
+    run bu validate-config BU_TEST_MODE BU_LOG_LVL --format jsonl
+    assert_failure
+    assert_equal "$(jq -r '"\(.name) \(.status)"' <<<"$output")" $'BU_TEST_MODE invalid\nBU_LOG_LVL ok'
+    run bu validate-config --invalid --format jsonl
+    assert_failure
+    assert_equal "$(jq -r .name <<<"$output")" BU_TEST_MODE
+    run bu validate-config BU_TEST_MODE --allow bogus --format tsv
+    assert_success
+}
+
+function test_config_update_config_enum_cmdlet { #@test
+    __write_venue_file
+    bu_config_register BU_TEST_VENUE --enum-file "$BATS_TEST_TMPDIR/venues.txt" --enum-source __list_venues
+    local out
+    out=$(bu update-config-enum --format jsonl | jq -r '"\(.kind) \(.value) \(.action)"')
+    assert_equal "$out" $'added bats would-write\nremoved arcx would-write\nsummary 3 generated, 1 hand-kept, +1 -1 would-write'
+    # In this shell, so --execute updates the live enum
+    bu update-config-enum BU_TEST_VENUE --execute --format jsonl > /dev/null
+    assert_equal "${BU_CONFIG_PROPERTIES[BU_TEST_VENUE,enum]}" 'xnys bats xnas mytest'
+    run bu update-config-enum BU_LOG_LVL --format jsonl
+    assert_failure
+}

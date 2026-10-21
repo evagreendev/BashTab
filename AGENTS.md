@@ -72,6 +72,18 @@ files, or between `bu_config_phase_begin`/`bu_config_phase_end` for a phase
 of your own, e.g. profiles via `--variant`); never assign their defaults by
 hand. See "Settings precedence and provenance" in `docs/technical_reference.md`.
 
+A list of allowed values that lives elsewhere and changes (venues, colos,
+feeds) goes in a file, not inline: `bu_config_register NAME --enum-file PATH
+[--enum-source CMD]` reads one value per line (`#` comments, `name:mapped` as
+for `--enum`) into the same `enum` property. A sourced file has header
+comments, `# --- generated (note) ---`, the source's values,
+`# --- hand-kept ---`, then values the source does not know;
+`bu update-config-enum [NAME...] [--execute]` re-runs the sources and rewrites
+the generated sections. Nothing validates settings-file values at activation
+(only `bu set-config` checks what it writes): run `bu validate-config`, or
+call the gate `bu_config_require_valid [--allow SENTINEL]... [NAME...]` in a
+module's preflight/plan verb.
+
 ### ⚠️ Custom `source` Function (read this before writing sourced files)
 
 After activation, `source` is **not the bash builtin** — `bu_custom_source.sh`

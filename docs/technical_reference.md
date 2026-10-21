@@ -243,6 +243,81 @@ An action is eval'd in the viewer's shell with the cursor record in
 `BU_TV_RECORD`; it can ask for input with `bu_tv_prompt` and run an editor with
 `bu_tv_interactive`, and its last output line shows on the status line.
 
+#### File-backed enums
+
+An inline `--enum a b c enum--` suits a handful of modes. For a list that
+lives elsewhere and changes (venues, colos, feed names), keep the values in a
+file:
+
+```sh
+bu_config_register MYAPP_VENUE --enum-file "$BU_CURRENT_MODULE_DIR"/venues.txt \
+    --enum-source myapp_list_venues --hint "Trading venue"
+```
+
+- `--enum-file PATH` reads one value per line; blank lines and `#` comments
+  are ignored, and the `name:mapped` form of `--enum` applies. The values land
+  in `BU_CONFIG_PROPERTIES[NAME,enum]` exactly as with `--enum`, so
+  completion, `bu set-config` validation and the `allowed` column of
+  `bu get-config` work unchanged; the absolute path is kept in
+  `BU_CONFIG_PROPERTIES[NAME,enum_file]` (a relative PATH is resolved against
+  `$PWD` when registering). An unreadable PATH is a registration error naming
+  the setting; `--enum` and `--enum-file` are mutually exclusive.
+- `--enum-source CMD` (needs `--enum-file`) is a function name or command
+  line, `eval`'d in the current shell, that prints the fresh values one per
+  line; kept in `BU_CONFIG_PROPERTIES[NAME,enum_source]`. A file that does not
+  exist yet is then only a warning: the setting accepts any value until
+  `bu update-config-enum NAME --execute` creates the file.
+
+A file refreshed from a source has this layout (a file without markers
+counts as all generated):
+
+```text
+# Venues we trade, from the ops venue registry.        <- header, kept
+# --- generated (myapp_list_venues, 2026-10-21) ---     <- rewritten
+xnys
+xnas
+# --- hand-kept ---                                     <- kept as is
+# not in the registry yet
+mytest
+```
+
+`bu update-config-enum [SETTING...] [--execute] [--format F]` (default: every
+setting registered with `--enum-source`; function
+`bu_config_refresh_enum_file NAME [--execute]`) runs each source, diffs it
+against the generated section and lists records `name file kind value
+action`: one `added`/`removed` per value and one `summary` ("N generated,
+M hand-kept, +a -r"), action `would-write`, `written` or `unchanged`. With
+`--execute` it rewrites the file (header kept, generated section replaced
+under a dated marker, hand-kept section kept) and updates the live enum. An
+unchanged file is not rewritten; a source that fails or prints nothing
+leaves the file alone and exits 1.
+
+#### Validating settings
+
+Nothing validates at activation: a value set by a settings file (a node pin,
+a ref override) is never checked, and only `bu set-config` validates what it
+writes. Check where a bad value matters:
+
+- `bu validate-config [SETTING...] [--allow VALUE]... [--invalid]
+  [--format F]` lists records `name value origin status detail` (origin as
+  `bu get-config` reports it; status `ok` or `invalid`) and exits 1 when any
+  is invalid. Without names it checks every setting with an enum or bool
+  rule. Empty values and `--allow` sentinels pass as "not applicable"; the
+  stored form of a `name:mapped` entry (`BU_LOG_LVL` holding `4`) passes as
+  well as the name; an unregistered name is invalid.
+- `bu_config_validate_settings [--allow VALUE]... [NAME...]` is the same as a
+  function (TSV on stdout, status 1 when any is invalid).
+- `bu_config_require_valid [--allow VALUE]... [NAME...]` is the gate for a
+  module's preflight or plan verb: it logs each invalid setting with
+  `bu_log_err` and returns 1, and is silent when all pass.
+
+```sh
+myapp_plan() {
+    bu_config_require_valid --allow auto MYAPP_VENUE MYAPP_NODE || return 1
+    ...
+}
+```
+
 ### Initialization callable functions
 Another point of customization are the pre-init functions. They are found in [bu_core_preinit.sh][bu_core_preinit]. They all have the `bu_preinit_` prefix.
 

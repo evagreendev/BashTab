@@ -78,6 +78,20 @@ declare -p BU_CONFIG_SOURCE_FILE &>/dev/null || declare -A -g BU_CONFIG_SOURCE_F
 declare -p __BU_CONFIG_APPLIED &>/dev/null || declare -A -g __BU_CONFIG_APPLIED=()
 declare -A -g __BU_CONFIG_SNAP=()
 
+# Scratch results of __bu_config_parse_enum_file (an --enum-file's sections)
+#   __BU_CONFIG_ENUM_HEADER          leading comment lines, verbatim
+#   __BU_CONFIG_ENUM_GENERATED       values of the generated section (all of
+#                                    them in a file without markers)
+#   __BU_CONFIG_ENUM_HAND_KEPT       values of the hand-kept section
+#   __BU_CONFIG_ENUM_HAND_KEPT_LINES the hand-kept section's lines, verbatim
+declare -a -g __BU_CONFIG_ENUM_HEADER=()
+declare -a -g __BU_CONFIG_ENUM_GENERATED=()
+declare -a -g __BU_CONFIG_ENUM_HAND_KEPT=()
+declare -a -g __BU_CONFIG_ENUM_HAND_KEPT_LINES=()
+# Scratch rows of __bu_config_validate_rows / __bu_config_refresh_enum_rows
+declare -a -g __BU_CONFIG_VALIDATE_ROWS=()
+declare -a -g __BU_CONFIG_REFRESH_ROWS=()
+
 # ```
 # *Description*:
 # Validate a setting name against the configured name prefixes.
@@ -174,6 +188,21 @@ bu_config_layer_file()
 #   - `--bool`: value must be `true` or `false`
 #   - `--enum a b:2 c enum--`: allowed values; optional `name:mapped` form
 #     accepts `name` but stores `mapped` (e.g. warn:2)
+#   - `--enum-file PATH`: the allowed values come from PATH, one per line
+#     (blank lines and `#` comments ignored, `name:mapped` as for --enum).
+#     Kept as BU_CONFIG_PROPERTIES[NAME,enum_file] (absolute; a relative PATH
+#     is resolved against $PWD now); the values land in [NAME,enum] as for
+#     --enum. An unreadable PATH is a registration error, except a missing
+#     file with an --enum-source (registered without values until
+#     `bu update-config-enum NAME --execute` creates it). Layout, for files
+#     refreshed from a source: header comments, `# --- generated (NOTE) ---`,
+#     the source's values, `# --- hand-kept ---`, values the source does not
+#     know. A file without markers counts as all generated.
+#   - `--enum-source CMD`: (with --enum-file) a function name or command
+#     line, eval'd in the current shell, that prints the fresh allowed values
+#     one per line; bu_config_refresh_enum_file (`bu update-config-enum`)
+#     rewrites the file's generated section from it. Kept as
+#     BU_CONFIG_PROPERTIES[NAME,enum_source]
 #   - `--hint "text"`: description shown by `bu set-config --list`
 #   - `--env-only`: (static phases) only the environment can set it, never a
 #     settings file or `bu set-config`
@@ -185,7 +214,12 @@ bu_config_layer_file()
 # bu_config_register BU_LOG_LVL --default 2 \
 #     --enum debug:0 info:1 warn:2 err:3 silence:99 enum-- \
 #     --hint "Log level when running commands"
+# bu_config_register MYAPP_VENUE --enum-file "$BU_CURRENT_MODULE_DIR"/venues.txt \
+#     --enum-source myapp_list_venues --hint "Trading venue"
 # ```
+#
+# Nothing validates settings-file values at activation: run
+# bu_config_require_valid (or `bu validate-config`) where a bad value matters.
 # ```
 bu_config_register()
 {
@@ -197,7 +231,8 @@ bu_config_register()
         bu_basic_log_err "bu_config_register: invalid setting name[$name], must match ^(${_prefix_list// /|})[A-Z0-9_]*$"
         return 1
     fi
-    local default= enum= hint= layer= complete_values_fn=
+    local default= enum= hint= layer= complete_values_fn= enum_file= enum_source=
+    local has_enum=false
     local is_bool=false
     local is_env_only=false
     local -A default_for=()
@@ -228,6 +263,21 @@ bu_config_register()
             fi
             shift
             enum="${enum_values[*]}"
+            has_enum=true
+            ;;
+        --enum-file|--enum-source)
+            if (($# < 2)) || [[ -z "$2" ]]
+            then
+                bu_basic_log_err "bu_config_register: $name: $1 needs a value"
+                return 1
+            fi
+            if [[ "$1" == --enum-file ]]
+            then
+                enum_file=$2
+            else
+                enum_source=$2
+            fi
+            shift 2
             ;;
         --presets)
             shift
@@ -271,6 +321,32 @@ bu_config_register()
             ;;
         esac
     done
+    if [[ -n "$enum_file" ]]
+    then
+        if "$has_enum"
+        then
+            bu_basic_log_err "bu_config_register: $name: --enum and --enum-file are mutually exclusive"
+            return 1
+        fi
+        [[ "$enum_file" == /* ]] || enum_file=$PWD/${enum_file#./}
+        if [[ -e "$enum_file" || -z "$enum_source" ]]
+        then
+            if [[ ! -f "$enum_file" || ! -r "$enum_file" ]]
+            then
+                bu_basic_log_err "bu_config_register: $name: --enum-file[$enum_file] is not a readable file"
+                return 1
+            fi
+            __bu_config_parse_enum_file "$enum_file"
+            __bu_config_enum_join "${__BU_CONFIG_ENUM_GENERATED[@]}" "${__BU_CONFIG_ENUM_HAND_KEPT[@]}"
+            enum=$BU_RET
+        else
+            bu_basic_log_warn "bu_config_register: $name: --enum-file[$enum_file] does not exist yet; any value is accepted until \`bu update-config-enum $name --execute\` creates it"
+        fi
+    elif [[ -n "$enum_source" ]]
+    then
+        bu_basic_log_err "bu_config_register: $name: --enum-source needs an --enum-file to keep the values in"
+        return 1
+    fi
     # Owning phase: the open one; outside any phase, legacy late registration
     # into main (no files, defaults or provenance beyond what the caller does)
     local phase=${__BU_CONFIG_OPEN_PHASE:-main}
@@ -318,6 +394,8 @@ bu_config_register()
     fi
     [[ -n "$default" ]] && BU_CONFIG_PROPERTIES[$name,default]=$default
     [[ -n "$enum" ]] && BU_CONFIG_PROPERTIES[$name,enum]=$enum
+    [[ -n "$enum_file" ]] && BU_CONFIG_PROPERTIES[$name,enum_file]=$enum_file
+    [[ -n "$enum_source" ]] && BU_CONFIG_PROPERTIES[$name,enum_source]=$enum_source
     [[ -n "$hint" ]] && BU_CONFIG_PROPERTIES[$name,hint]=$hint
     [[ -n "$presets" ]] && BU_CONFIG_PROPERTIES[$name,presets]=$presets
     "$is_bool" && BU_CONFIG_PROPERTIES[$name,bool]=true
@@ -1282,6 +1360,489 @@ bu_config_validate_value()
     return 0
 }
 
+# MARK: File-backed enums
+
+# ```
+# *Description*:
+# Join enum values into the space-separated form of
+# BU_CONFIG_PROPERTIES[NAME,enum], dropping repeats (first one wins).
+#
+# *Params*:
+# - `...`: values (`name` or `name:mapped`)
+#
+# *Returns*:
+# - `BU_RET`: the joined values
+# ```
+__bu_config_enum_join()
+{
+    local value joined=
+    local -A seen=()
+    for value in "$@"
+    do
+        [[ -n "$value" && ! -v "seen[$value]" ]] || continue
+        seen[$value]=1
+        joined+="${joined:+ }$value"
+    done
+    BU_RET=$joined
+    return 0
+}
+
+# ```
+# *Description*:
+# The value on one line of an enum file or of an --enum-source's output: the
+# first word, or nothing for a blank line or a `#` comment.
+#
+# *Params*:
+# - `$1`: the line
+#
+# *Returns*:
+# - `BU_RET`: the value, or empty
+# ```
+__bu_config_enum_line_value()
+{
+    local line=$1
+    line=${line#"${line%%[![:space:]]*}"}
+    if [[ "$line" == '#'* ]]
+    then
+        BU_RET=
+    else
+        BU_RET=${line%%[[:space:]]*}
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
+# Read an --enum-file into its sections (the __BU_CONFIG_ENUM_* scratch
+# arrays): the header (leading comment and blank lines), the values after
+# `# --- generated (NOTE) ---`, and the values and lines after
+# `# --- hand-kept ---`. Values before any marker, and every value of a file
+# without markers, count as generated.
+#
+# *Params*:
+# - `$1`: file path (a missing file reads as empty)
+#
+# *Returns*: None (always 0)
+# ```
+__bu_config_parse_enum_file()
+{
+    local -r file=$1
+    local -r gen_re='^#[[:space:]]*---[[:space:]]*generated([[:space:]].*)?---[[:space:]]*$'
+    local -r hand_re='^#[[:space:]]*---[[:space:]]*hand-kept[[:space:]]*---[[:space:]]*$'
+    local -a lines=()
+    local line section=header
+    __BU_CONFIG_ENUM_HEADER=()
+    __BU_CONFIG_ENUM_GENERATED=()
+    __BU_CONFIG_ENUM_HAND_KEPT=()
+    __BU_CONFIG_ENUM_HAND_KEPT_LINES=()
+    [[ -r "$file" ]] && mapfile -t lines < "$file"
+    for line in "${lines[@]}"
+    do
+        if [[ "$line" =~ $gen_re ]]
+        then
+            section=generated
+            continue
+        fi
+        if [[ "$line" =~ $hand_re ]]
+        then
+            section=hand-kept
+            continue
+        fi
+        __bu_config_enum_line_value "$line"
+        case "$section" in
+        header)
+            if [[ -z "$BU_RET" ]]
+            then
+                __BU_CONFIG_ENUM_HEADER+=("$line")
+            else
+                section=generated
+                __BU_CONFIG_ENUM_GENERATED+=("$BU_RET")
+            fi
+            ;;
+        generated)
+            [[ -n "$BU_RET" ]] && __BU_CONFIG_ENUM_GENERATED+=("$BU_RET")
+            ;;
+        hand-kept)
+            __BU_CONFIG_ENUM_HAND_KEPT_LINES+=("$line")
+            [[ -n "$BU_RET" ]] && __BU_CONFIG_ENUM_HAND_KEPT+=("$BU_RET")
+            ;;
+        esac
+    done
+    # Blank lines between the header and the first section are layout
+    while ((${#__BU_CONFIG_ENUM_HEADER[@]})) && [[ -z "${__BU_CONFIG_ENUM_HEADER[-1]//[[:space:]]/}" ]]
+    do
+        unset '__BU_CONFIG_ENUM_HEADER[-1]'
+    done
+    while ((${#__BU_CONFIG_ENUM_HAND_KEPT_LINES[@]})) && [[ -z "${__BU_CONFIG_ENUM_HAND_KEPT_LINES[-1]//[[:space:]]/}" ]]
+    do
+        unset '__BU_CONFIG_ENUM_HAND_KEPT_LINES[-1]'
+    done
+    return 0
+}
+
+# ```
+# *Description*:
+# Refresh a setting's --enum-file from its --enum-source: run the source,
+# compare its values with the file's generated section, and print what
+# changes. With --execute, rewrite the file (header kept, generated section
+# replaced under a dated marker, hand-kept section kept) and update the live
+# BU_CONFIG_PROPERTIES[NAME,enum]. An unchanged file is not rewritten.
+#
+# *Params*:
+# - `$1`: setting name (registered with --enum-file and --enum-source)
+# - `--execute` (optional): write the file
+#
+# *Returns*:
+# - stdout: TSV rows `name file kind value action`: one `added` / `removed`
+#   row per value, then one `summary` row ("N generated, M hand-kept, +a -r");
+#   action `would-write`, `written` or `unchanged`
+# - Exit code: 0 on success, 1 when the setting has no source, the source
+#   fails or prints nothing, or the file cannot be written
+# ```
+bu_config_refresh_enum_file()
+{
+    __BU_CONFIG_REFRESH_ROWS=()
+    local status=0
+    __bu_config_refresh_enum_rows "$@" || status=1
+    ((${#__BU_CONFIG_REFRESH_ROWS[@]})) && printf '%s\n' "${__BU_CONFIG_REFRESH_ROWS[@]}"
+    return "$status"
+}
+
+# bu_config_refresh_enum_file without printing: appends its rows to
+# __BU_CONFIG_REFRESH_ROWS (so a caller can refresh several settings in this
+# shell, keeping the live enum updates, and print the rows afterwards)
+__bu_config_refresh_enum_rows()
+{
+    local name= is_execute=false
+    while (($#))
+    do
+        case "$1" in
+        --execute) is_execute=true ;;
+        *)
+            if [[ -n "$name" ]]
+            then
+                bu_log_err "bu_config_refresh_enum_file: unexpected argument[$1]"
+                return 1
+            fi
+            name=$1
+            ;;
+        esac
+        shift
+    done
+    local -r file=${BU_CONFIG_PROPERTIES[$name,enum_file]:-}
+    local -r src=${BU_CONFIG_PROPERTIES[$name,enum_source]:-}
+    if [[ "${BU_CONFIG_PROPERTIES[$name,registered]:-}" != true ]]
+    then
+        bu_log_err "${name:-(no setting)} is not a registered setting"
+        return 1
+    fi
+    if [[ -z "$file" || -z "$src" ]]
+    then
+        bu_log_err "$name has no --enum-source to refresh its --enum-file from"
+        return 1
+    fi
+
+    local output= line value
+    if ! output=$(eval "$src")
+    then
+        bu_log_err "$name: --enum-source[$src] failed; $file left as it is"
+        return 1
+    fi
+    local -a fresh=()
+    local -A in_fresh=()
+    while IFS= read -r line
+    do
+        __bu_config_enum_line_value "$line"
+        value=$BU_RET
+        [[ -n "$value" && ! -v "in_fresh[$value]" ]] || continue
+        in_fresh[$value]=1
+        fresh+=("$value")
+    done <<<"$output"
+    if ((${#fresh[@]} == 0))
+    then
+        bu_log_err "$name: --enum-source[$src] printed no values; $file left as it is"
+        return 1
+    fi
+
+    __bu_config_parse_enum_file "$file"
+    local -a added=() removed=()
+    local -A in_old=()
+    for value in "${__BU_CONFIG_ENUM_GENERATED[@]}"
+    do
+        in_old[$value]=1
+        [[ -v "in_fresh[$value]" ]] || removed+=("$value")
+    done
+    for value in "${fresh[@]}"
+    do
+        [[ -v "in_old[$value]" ]] || added+=("$value")
+    done
+
+    local action=unchanged
+    if ((${#added[@]} + ${#removed[@]})) || [[ ! -f "$file" ]]
+    then
+        action=would-write
+        if "$is_execute"
+        then
+            local content= section= today
+            printf -v today '%(%Y-%m-%d)T' -1
+            if ((${#__BU_CONFIG_ENUM_HEADER[@]}))
+            then
+                printf -v content '%s\n' "${__BU_CONFIG_ENUM_HEADER[@]}"
+            else
+                printf -v content '%s\n' \
+                    "# Allowed values of $name, one per line (bu_config_register --enum-file)." \
+                    "# The generated section is rewritten by \`bu update-config-enum $name --execute\`;" \
+                    "# add values the source does not know under the hand-kept marker."
+            fi
+            printf -v section '%s\n' "${fresh[@]}"
+            content+=$'\n'"# --- generated ($src, $today) ---"$'\n'$section
+            content+=$'\n'"# --- hand-kept ---"$'\n'
+            if ((${#__BU_CONFIG_ENUM_HAND_KEPT_LINES[@]}))
+            then
+                printf -v section '%s\n' "${__BU_CONFIG_ENUM_HAND_KEPT_LINES[@]}"
+                content+=$section
+            fi
+            if ! { printf '%s' "$content" > "$file.$$" && mv -f "$file.$$" "$file"; } 2>/dev/null
+            then
+                rm -f "$file.$$" 2>/dev/null
+                bu_log_err "$name: cannot write $file"
+                return 1
+            fi
+            __bu_config_enum_join "${fresh[@]}" "${__BU_CONFIG_ENUM_HAND_KEPT[@]}"
+            BU_CONFIG_PROPERTIES[$name,enum]=$BU_RET
+            action=written
+        fi
+    fi
+
+    for value in "${added[@]}"
+    do
+        __BU_CONFIG_REFRESH_ROWS+=("$name"$'\t'"$file"$'\t'added$'\t'"$value"$'\t'"$action")
+    done
+    for value in "${removed[@]}"
+    do
+        __BU_CONFIG_REFRESH_ROWS+=("$name"$'\t'"$file"$'\t'removed$'\t'"$value"$'\t'"$action")
+    done
+    __BU_CONFIG_REFRESH_ROWS+=("$name"$'\t'"$file"$'\t'summary$'\t'"${#fresh[@]} generated, ${#__BU_CONFIG_ENUM_HAND_KEPT[@]} hand-kept, +${#added[@]} -${#removed[@]}"$'\t'"$action")
+    return 0
+}
+
+# MARK: Validating settings
+
+# ```
+# *Description*:
+# Where a setting's current value came from, as `bu get-config` reports it:
+# `shell` when it changed since its phase ran (or the last `bu set-config`),
+# else the recorded origin (env, local, site, callback, layer, or a
+# --settings-file label), else `default`.
+#
+# *Params*:
+# - `$1`: setting name
+#
+# *Returns*:
+# - `BU_RET`: the origin
+# ```
+__bu_config_origin()
+{
+    local -r name=$1
+    if [[ -v "__BU_CONFIG_APPLIED[$name]" && "${!name-}" != "${__BU_CONFIG_APPLIED[$name]}" ]]
+    then
+        BU_RET=shell
+    else
+        BU_RET=${BU_CONFIG_ORIGIN[$name]:-default}
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
+# Check settings' current values against their registered rules, into
+# __BU_CONFIG_VALIDATE_ROWS (TSV `name value origin status detail`), for
+# bu_config_validate_settings and bu_config_require_valid.
+#
+# *Params*: as bu_config_validate_settings
+#
+# *Returns*:
+# - Exit code: 0 when all pass, 1 when any is invalid
+# ```
+__bu_config_validate_rows()
+{
+    local -a names=() allowed=() entry_names=()
+    local key name value origin status detail entry enum
+    while (($#))
+    do
+        case "$1" in
+        --allow)
+            allowed+=("${2-}")
+            (($# > 1)) && shift
+            ;;
+        *) names+=("$1") ;;
+        esac
+        shift
+    done
+    if ((${#names[@]} == 0))
+    then
+        for key in "${!BU_CONFIG_PROPERTIES[@]}"
+        do
+            [[ "$key" == *,registered ]] || continue
+            name=${key%,registered}
+            [[ -n "${BU_CONFIG_PROPERTIES[$name,enum]:-}" || "${BU_CONFIG_PROPERTIES[$name,bool]:-}" == true ]] && names+=("$name")
+        done
+        __bu_config_sort_names names
+    fi
+
+    local is_valid=true
+    __BU_CONFIG_VALIDATE_ROWS=()
+    for name in "${names[@]}"
+    do
+        value=
+        origin=
+        status=ok
+        detail=
+        if [[ "${BU_CONFIG_PROPERTIES[$name,registered]:-}" != true ]]
+        then
+            status=invalid
+            detail="not a registered setting"
+        else
+            value=${!name-}
+            __bu_config_origin "$name"
+            origin=$BU_RET
+            enum=${BU_CONFIG_PROPERTIES[$name,enum]:-}
+            if [[ -z "$value" ]]
+            then
+                detail="not applicable (empty)"
+            elif __bu_config_value_in "$value" "${allowed[@]}"
+            then
+                detail="not applicable (allowed by --allow)"
+            elif [[ "${BU_CONFIG_PROPERTIES[$name,bool]:-}" == true ]]
+            then
+                if [[ "$value" != true && "$value" != false ]]
+                then
+                    status=invalid
+                    detail="expected true|false"
+                fi
+            elif [[ -n "$enum" ]]
+            then
+                status=invalid
+                entry_names=()
+                for entry in $enum
+                do
+                    entry_names+=("${entry%%:*}")
+                    if [[ "$value" == "${entry%%:*}" ]]
+                    then
+                        status=ok
+                        break
+                    elif [[ "$entry" == *:* && "$value" == "${entry#*:}" ]]
+                    then
+                        status=ok
+                        detail="stored form of ${entry%%:*}"
+                        break
+                    fi
+                done
+                [[ "$status" == invalid ]] && detail="expected one of: ${entry_names[*]}"
+            else
+                detail="no enum or bool rule"
+            fi
+        fi
+        [[ "$status" == invalid ]] && is_valid=false
+        # One TSV row per setting, whatever the value holds
+        value=${value//[$'\t\n']/ }
+        __BU_CONFIG_VALIDATE_ROWS+=("$name"$'\t'"$value"$'\t'"$origin"$'\t'"$status"$'\t'"$detail")
+    done
+    "$is_valid"
+}
+
+# Is $1 one of the remaining arguments?
+__bu_config_value_in()
+{
+    local -r needle=$1
+    shift
+    local item
+    for item in "$@"
+    do
+        [[ "$item" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+# Sort the array named $1 in place (insertion sort; a few dozen names)
+__bu_config_sort_names()
+{
+    local -n _sort_arr=$1
+    local i j item
+    for ((i = 1; i < ${#_sort_arr[@]}; i++))
+    do
+        item=${_sort_arr[i]}
+        j=$((i - 1))
+        while ((j >= 0)) && [[ "${_sort_arr[j]}" > "$item" ]]
+        do
+            _sort_arr[j + 1]=${_sort_arr[j]}
+            j=$((j - 1))
+        done
+        _sort_arr[j + 1]=$item
+    done
+    return 0
+}
+
+# ```
+# *Description*:
+# Check settings' current values against their registered --enum / --bool
+# rules. Settings files are not validated at activation; call this (or the
+# gate bu_config_require_valid) where a bad value matters, e.g. a module's
+# preflight or plan verb.
+#
+# *Params*:
+# - `--allow VALUE` (optional, repeatable): a sentinel that passes as "not
+#   applicable" (e.g. `auto`, `none`); empty values always do
+# - `...`: setting names (default: every registered setting with an enum or
+#   bool rule). An unregistered name is invalid. The stored form of a
+#   `name:mapped` entry (BU_LOG_LVL holding 4) passes as well as the name.
+#
+# *Returns*:
+# - stdout: TSV rows `name value origin status detail`; origin as
+#   `bu get-config` reports it, status `ok` or `invalid`
+# - Exit code: 0 when all pass, 1 when any is invalid
+# ```
+bu_config_validate_settings()
+{
+    local status=0
+    __bu_config_validate_rows "$@" || status=1
+    ((${#__BU_CONFIG_VALIDATE_ROWS[@]})) && printf '%s\n' "${__BU_CONFIG_VALIDATE_ROWS[@]}"
+    return "$status"
+}
+
+# ```
+# *Description*:
+# Gate on bu_config_validate_settings: log every invalid setting with
+# bu_log_err and return 1; silent when all pass.
+#
+# *Params*: as bu_config_validate_settings
+#
+# *Returns*:
+# - Exit code: 0 when all pass, 1 when any is invalid
+# ```
+bu_config_require_valid()
+{
+    __bu_config_validate_rows "$@" && return 0
+    local row name value origin status detail
+    for row in "${__BU_CONFIG_VALIDATE_ROWS[@]}"
+    do
+        # Split by hand: read would merge the empty fields of a tab-separated row
+        name=${row%%$'\t'*}; row=${row#*$'\t'}
+        value=${row%%$'\t'*}; row=${row#*$'\t'}
+        origin=${row%%$'\t'*}; row=${row#*$'\t'}
+        status=${row%%$'\t'*}
+        detail=${row#*$'\t'}
+        [[ "$status" == invalid ]] || continue
+        if [[ -n "$origin" ]]
+        then
+            bu_log_err -i 1 "Invalid setting $name='$value' (origin $origin): $detail"
+        else
+            bu_log_err -i 1 "Invalid setting $name: $detail"
+        fi
+    done
+    return 1
+}
+
 # Completion helpers (consumed by `bu set-config` via the --ret DSL specifier).
 __bu_config_completion_names()
 {
@@ -1328,6 +1889,19 @@ __bu_config_completion_values()
     do
         BU_RET+=("$entry")
     done
+}
+
+# Completion helper: settings registered with --enum-source (for
+# bu update-config-enum).
+__bu_config_completion_enum_source_names()
+{
+    local key
+    BU_RET=()
+    for key in "${!BU_CONFIG_PROPERTIES[@]}"
+    do
+        [[ "$key" == *,enum_source ]] && BU_RET+=("${key%,enum_source}")
+    done
+    return 0
 }
 
 # Completion helper: list registered layer names (for bu set-config --layer).
