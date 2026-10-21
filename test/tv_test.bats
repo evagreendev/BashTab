@@ -2179,6 +2179,55 @@ function test_tv_tmux_edit_config_applies_to_shell { #@test
     grep -qx 'BU_QUERY_EXECUTOR=combined' "$BATS_TEST_TMPDIR/settings.sh"
 }
 
+function test_tv_preview_outside_tmux_only_says_so { #@test
+    local result
+    result=$(TMUX= TMUX_PANE= __tv_in_child '{"a":1}' '
+        __bu_tv_render_status
+        [[ "$_TV_STATUS_HINTS" == *p:preview* ]] && echo "hint without preview"
+        _TV_KEY=p; __bu_tv_dispatch_key; echo "$_TV_MESSAGE"
+        _TV_PREVIEW_CMD="echo hi"
+        __bu_tv_render_status
+        [[ "$_TV_STATUS_HINTS" == *p:preview* ]] && echo "hint outside tmux"
+        _TV_KEY=p; __bu_tv_dispatch_key; echo "$_TV_MESSAGE|${_TV_PREVIEW_PANE:-no pane}"
+        __bu_tv_preview_sync; echo "pid=$_TV_PREVIEW_PID"')
+    assert_equal "$result" $'No preview: bu view-table --preview COMMAND\nPreview needs tmux|no pane\npid=0'
+}
+
+function test_tv_tmux_preview_follows_cursor { #@test
+    command -v tmux >/dev/null || skip "tmux not available"
+    local -r sock="bu-pv-$$-$RANDOM"
+    local pane viewer preview
+    local -r rows=$BATS_TEST_TMPDIR/rows.pv.jsonl
+    printf '{"name":"alpha"}\n{"name":"beta"}\n{"name":"gamma"}\n' > "$rows"
+    tmux -L "$sock" new-session -d -s pv -x 160 -y 30 "bash --norc"
+    viewer=$(tmux -L "$sock" display-message -p -t pv '#{pane_id}')
+    tmux -L "$sock" send-keys -t "$viewer" "source \"$DIR\"/../activate >/dev/null 2>&1; bu view-table --preview 'echo \"preview:\$(jq -r .name <<<\"\$BU_TV_RECORD\")\"' < \"$rows\"" Enter
+    __tv_wait_pane "$sock" "$viewer" 'Row [0-9]+/' 120
+    preview=$(tmux -L "$sock" list-panes -t pv -F '#{pane_id}' | grep -vx "$viewer")
+    [[ -n "$preview" ]] || { echo "no preview pane"; echo "$pane"; tmux -L "$sock" kill-server; return 1; }
+    grep -q 'p:preview' <<<"$pane" || { echo "$pane"; tmux -L "$sock" kill-server; return 1; }
+    __tv_wait_pane "$sock" "$preview" '^preview:alpha'
+    grep -q '^preview:alpha' <<<"$pane" || { echo "$pane"; tmux -L "$sock" kill-server; return 1; }
+    tmux -L "$sock" send-keys -t "$viewer" j
+    __tv_wait_pane "$sock" "$preview" '^preview:beta'
+    grep -q '^preview:beta' <<<"$pane" || { echo "$pane"; tmux -L "$sock" kill-server; return 1; }
+    # p closes the pane, q leaves none behind
+    tmux -L "$sock" send-keys -t "$viewer" p
+    sleep 1
+    local -i n
+    n=$(tmux -L "$sock" list-panes -t pv | wc -l)
+    (( n == 1 )) || { echo "p left $n panes"; tmux -L "$sock" kill-server; return 1; }
+    tmux -L "$sock" send-keys -t "$viewer" p
+    sleep 1
+    n=$(tmux -L "$sock" list-panes -t pv | wc -l)
+    (( n == 2 )) || { echo "p reopened $n panes"; tmux -L "$sock" kill-server; return 1; }
+    tmux -L "$sock" send-keys -t "$viewer" q
+    sleep 1
+    n=$(tmux -L "$sock" list-panes -t pv | wc -l)
+    tmux -L "$sock" kill-server
+    (( n == 1 )) || { echo "q left $n panes"; return 1; }
+}
+
 function test_tv_tmux_show_command_use_recalls_command { #@test
     command -v tmux >/dev/null || skip "tmux not available"
     local -r sock="bu-sc-$$-$RANDOM"

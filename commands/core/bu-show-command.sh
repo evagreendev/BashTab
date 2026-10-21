@@ -81,7 +81,8 @@ then
 Browse every registered command in bu view-table: sort, search (/) and
 filter (&) by name, type, pipeline stage or synopsis, and press Enter for
 everything bu get-command knows about one (fields, input contract, module,
-shadowing). Row actions:
+shadowing). Inside tmux, a pane beside the table previews the --help of the
+command under the cursor as you move (p hides and shows it). Row actions:
 
     i   page its --help
     o   open its script, or where its function is defined, in \$VISUAL / \$EDITOR
@@ -115,6 +116,7 @@ eval "$reload_cmd" \
         --max-width 60 \
         --key name \
         --reload "$reload_cmd" \
+        --preview '__bu_cli_show_command_action preview' \
         --action 'i:help=__bu_cli_show_command_action help' \
         --action 'o:open=__bu_cli_show_command_action open' \
         --action 'u:use=__bu_cli_show_command_action use' \

@@ -810,7 +810,8 @@ bu_cli_set_caller_shell_option()
 # becomes the viewer's status message.
 #
 # *Params*:
-# - `$1`: `help` (page `bu NAME --help`), `open` (open the script, or where
+# - `$1`: `help` (page `bu NAME --help`), `preview` (print it, for the
+#   preview pane), `open` (open the script, or where
 #   the function is defined, in $VISUAL / $EDITOR), `use` (queue NAME in
 #   BU_SHOW_COMMAND_QUEUE and quit the viewer), `all` (toggle the
 #   collision-parked commands on the next reload)
@@ -829,6 +830,9 @@ __bu_cli_show_command_action()
     help)
         bu_tv_interactive __bu_cli_show_command_page "$name" || return
         echo "bu $name --help"
+        ;;
+    preview)
+        bu "$name" --help 2>&1
         ;;
     open)
         case "$type" in

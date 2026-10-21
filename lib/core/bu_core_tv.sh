@@ -37,6 +37,12 @@
 # then replaced by COMMAND's JSONL output, the cursor staying on its record
 # (matched by the --key column). Actions can ask for input with bu_tv_prompt
 # and run interactive programs with bu_tv_interactive.
+# Preview (--preview COMMAND, inside tmux only): p splits a tmux pane off
+# beside the viewer and shows COMMAND's output for the cursor record there,
+# following the cursor. COMMAND runs in the background with the record in
+# BU_TV_RECORD and COLUMNS/LINES set to the pane's size; the pane itself
+# runs only a placeholder, its tty written by the viewer. Outside tmux p
+# only says so.
 # The cursor row is reversed; its cursor cell is drawn un-reversed, bold
 # and underlined.  Numeric columns are right-aligned and null shows as a
 # dim ∅.  With the
@@ -166,6 +172,13 @@ declare -g    _TV_RELOAD_CMD=       # Command whose JSONL replaces the rows afte
 declare -g    _TV_KEY_COL=          # Column identifying a record across reloads
 declare -g    _TV_MESSAGE=          # Status-line message from the last action
 declare -g    _TV_ACTION_OUT=       # File capturing a running action's output
+declare -g    _TV_PREVIEW_CMD=      # --preview: command previewing the cursor record
+declare -g    _TV_PREVIEW_PANE=     # tmux pane id of the open preview pane
+declare -g    _TV_PREVIEW_LAST=     # Record the preview pane last showed
+declare -g    _TV_PREVIEW_STALE=false  # Redraw the preview even for the same record
+declare -g -i _TV_PREVIEW_GEN=0     # Generation of the latest preview job
+declare -g -i _TV_PREVIEW_PID=0     # Latest preview job (0: none)
+declare -g    _TV_PREVIEW_GEN_FILE= # Latest generation, for the jobs to check
 declare -g    _TV_KEY=              # Out-param: last key read (__bu_tv_read_key)
 declare -g    _TV_EOF=false         # The tty hit EOF (read_key reports it as "q")
 declare -g    _TV_QUIT=false        # Event-loop exit flag
@@ -237,6 +250,7 @@ declare -g -r -a __BU_TV_HELP_LINES=(
     '  - +                hide column / bring hidden back'
     '  < >                move column left / right'
     '  c                  toggle the column sidebar'
+    '  p                  preview pane on / off (tmux, --preview)'
     '  Enter              record detail'
     '  Ctrl-L             re-measure the terminal'
     '  m                  toggle mouse reporting'
@@ -934,6 +948,7 @@ __bu_tv_terminal_restore()
 {
     trap - SIGINT SIGTERM SIGWINCH SIGTSTP SIGCONT SIGTTOU EXIT
     [[ -n "$_TV_ACTION_OUT" ]] && rm -f "$_TV_ACTION_OUT"
+    __bu_tv_preview_close
     __bu_tv_terminal_leave_tui
 }
 
@@ -974,6 +989,8 @@ __bu_tv_process_signals()
     then
         _TV_RESIZE_PENDING=false
         __bu_tv_remeasure
+        # The preview pane shares the width: redraw it at its new size
+        _TV_PREVIEW_STALE=true
     fi
     return 0
 }
@@ -2095,6 +2112,7 @@ __bu_tv_render_status()
     (( ${#_TV_HIDDEN[@]} )) && hints+='+:unhide '
     (( ${#_TV_MATCHED_ROWS[@]} )) && hints+='n/N:match '
     [[ -n "$_TV_SEARCH_QUERY$_TV_FILTER_QUERY" ]] && hints+='Esc:clear '
+    __bu_tv_preview_available && hints+='p:preview '
     __bu_tv_compose_status "$hints$__BU_TV_HINTS_TABLE" 'H:help' "${parts[@]}"
 }
 
@@ -4190,6 +4208,149 @@ __bu_tv_prompt_value()
     "$commit"
 }
 
+# ── Preview pane ─────────────────────────────────────────────────────────
+
+# ```
+# *Description*:
+# Whether a preview pane can open: a --preview command, inside tmux.
+# ```
+__bu_tv_preview_available()
+{
+    [[ -n "$_TV_PREVIEW_CMD" && -n "${TMUX:-}" && -n "${TMUX_PANE:-}" ]] && command -v tmux >/dev/null
+}
+
+# ```
+# *Description*:
+# Open the preview pane, or close it if open.  Without a --preview command,
+# or outside tmux, only say why on the status line.
+# ```
+__bu_tv_preview_toggle()
+{
+    if [[ -n "$_TV_PREVIEW_PANE" ]]
+    then
+        __bu_tv_preview_close
+    elif [[ -z "$_TV_PREVIEW_CMD" ]]
+    then
+        _TV_MESSAGE='No preview: bu view-table --preview COMMAND'
+    elif ! __bu_tv_preview_available
+    then
+        _TV_MESSAGE='Preview needs tmux'
+    else
+        __bu_tv_preview_open
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
+# Split a tmux pane off to the right of the viewer's, keeping the focus in
+# the viewer.  The pane runs only a placeholder: __bu_tv_preview_sync draws
+# on its tty.
+# ```
+__bu_tv_preview_open()
+{
+    local pane=
+    pane=$(tmux split-window -h -d -l 50% -t "$TMUX_PANE" -P -F '#{pane_id}' \
+        'exec sleep 2147483647' 2>/dev/null) || pane=
+    if [[ -z "$pane" ]]
+    then
+        _TV_MESSAGE='Could not open a tmux pane for the preview'
+        return 0
+    fi
+    _TV_PREVIEW_PANE=$pane
+    _TV_PREVIEW_STALE=true
+    [[ -n "$_TV_PREVIEW_GEN_FILE" ]] || _TV_PREVIEW_GEN_FILE=${BU_TMP_DIR:-/tmp}/tv-preview.$$
+    # The viewer's pane just got narrower
+    _TV_RESIZE_PENDING=true
+    return 0
+}
+
+# ```
+# *Description*:
+# Close the preview pane (if open) and stop its pending job.
+# ```
+__bu_tv_preview_close()
+{
+    [[ -n "$_TV_PREVIEW_PANE" ]] || return 0
+    (( _TV_PREVIEW_PID )) && kill "$_TV_PREVIEW_PID" 2>/dev/null
+    _TV_PREVIEW_PID=0
+    tmux kill-pane -t "$_TV_PREVIEW_PANE" 2>/dev/null
+    _TV_PREVIEW_PANE=
+    rm -f "$_TV_PREVIEW_GEN_FILE"
+    _TV_RESIZE_PENDING=true
+    return 0
+}
+
+# ```
+# *Description*:
+# After a render: when the cursor record changed (or the pane was resized),
+# start a background job drawing its preview, superseding any job still
+# running.  The event loop renders once per drained batch of keys, so a
+# held key starts one job per frame, not one per row.
+# ```
+__bu_tv_preview_sync()
+{
+    [[ -n "$_TV_PREVIEW_PANE" ]] || return 0
+    __bu_tv_cursor_data
+    local record=
+    (( _TV_FOUND_IDX >= 0 )) && record=${_TV_ROWS[_TV_FOUND_IDX]}
+    if ! "$_TV_PREVIEW_STALE" && [[ "$record" == "$_TV_PREVIEW_LAST" ]]
+    then
+        return 0
+    fi
+    _TV_PREVIEW_STALE=false
+    _TV_PREVIEW_LAST=$record
+    (( _TV_PREVIEW_PID )) && kill "$_TV_PREVIEW_PID" 2>/dev/null
+    _TV_PREVIEW_GEN=$((_TV_PREVIEW_GEN + 1))
+    printf '%s' "$_TV_PREVIEW_GEN" > "$_TV_PREVIEW_GEN_FILE"
+    __bu_tv_preview_job "$_TV_PREVIEW_GEN" "$record" </dev/null >/dev/null 2>&1 &
+    _TV_PREVIEW_PID=$!
+    return 0
+}
+
+# ```
+# *Description*:
+# Background job: run the preview command on a record and draw its output
+# on the preview pane's tty, clipped to the pane.  Gives up as soon as a
+# newer job has started, so a superseded preview is never drawn.
+#
+# *Params*:
+# - `$1`: Generation of this job
+# - `$2`: Record (JSON; empty: no rows, clear the pane)
+# ```
+__bu_tv_preview_job()
+{
+    local -r gen=$1 record=$2
+    local info= tty= out= frame line
+    local -i w=0 h=0 i
+    local -a lines=()
+    # Let a held key move on before doing any work
+    sleep 0.05
+    [[ "$(< "$_TV_PREVIEW_GEN_FILE")" == "$gen" ]] || return 0
+    info=$(tmux display-message -p -t "$_TV_PREVIEW_PANE" '#{pane_tty} #{pane_width} #{pane_height}' 2>/dev/null) || return 0
+    read -r tty w h <<<"$info"
+    [[ -c "$tty" ]] || return 0
+    if [[ -n "$record" ]]
+    then
+        out=$(COLUMNS=$w LINES=$h __bu_tv_eval_action "$_TV_PREVIEW_CMD" "$record" 2>&1)
+    fi
+    [[ "$(< "$_TV_PREVIEW_GEN_FILE")" == "$gen" ]] || return 0
+    # SO/SI (tput sgr0 under screen/tmux emits SI) would switch charsets
+    mapfile -t lines < <(expand <<<"${out//[$'\016\017']/}")
+    # Plain lines are clipped to the width here; autowrap off clips the rest
+    # (it would leave a long line's last character in the last column). No
+    # newline after the last line, so nothing scrolls off the top
+    frame=$'\e[?7l\e[?25l\e[0m\e[H\e[2J'
+    for (( i = 0; i < h && i < ${#lines[@]}; i++ ))
+    do
+        line=${lines[i]%$'\r'}
+        [[ "$line" == *$'\e'* ]] || line=${line:0:w}
+        (( i )) && frame+=$'\n'
+        frame+=$line
+    done
+    printf '%s\e[0m' "$frame" > "$tty"
+}
+
 # ```
 # *Description*:
 # For row actions: run an interactive program (e.g. $EDITOR) on the real
@@ -4302,6 +4463,7 @@ __bu_tv_dispatch_key()
         if "$_TV_SIDEBAR"; then _TV_SIDEBAR=false; else _TV_SIDEBAR=true; fi
         __bu_tv_clamp_offsets
         ;;
+    p)               __bu_tv_preview_toggle ;;
 
     # Overlays
     $'\x0a')         __bu_tv_open_detail ;;
@@ -4532,6 +4694,7 @@ bu_tv_enter()
     # ── Terminal setup ────────────────────────────────────────────────
     __bu_tv_terminal_setup || return 1
     __bu_tv_clamp_offsets
+    __bu_tv_preview_available && __bu_tv_preview_open
 
     # ── Event loop ────────────────────────────────────────────────────
     # One render per drained input batch: after the first (blocking) key,
@@ -4542,6 +4705,7 @@ bu_tv_enter()
         __bu_tv_process_signals
         "$_TV_QUIT" && break
         __bu_tv_render
+        __bu_tv_preview_sync
         __bu_tv_read_key 1
         __bu_tv_dispatch
         while ! "$_TV_QUIT" && __bu_tv_read_key 0
