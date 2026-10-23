@@ -79,10 +79,12 @@ jobs:
       # fig_specs/build/*.json is compiled output, not part of the submodule
       # checkout (see docs/README.md). Without it, completing git/ls in a
       # non-interactive shell (no bash-completion loader) yields nothing.
+      # Same commands as ./setup: lockfile-pinned, no dependency install
+      # scripts, and no npx (which `pnpm build` would use).
       - name: Build Fig specs
         if: matrix.test-file == 'test/help_preview_test.bats' || matrix.test-file == 'test/fzf_format_test.bats'
         run: |
-          (cd fig_specs && pnpm install --ignore-workspace && pnpm build)
+          (cd fig_specs && pnpm install --ignore-workspace --frozen-lockfile --ignore-scripts && pnpm exec autocomplete-tools compile)
           node fig_convert_to_json.mjs >/dev/null
 
       - name: Install BATS
