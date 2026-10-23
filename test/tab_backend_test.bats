@@ -4,8 +4,9 @@
 # (BU_AUTOCOMPLETE_TAB_BACKEND, lib/core/bu_core_autocomplete.sh):
 # - fzf-cheap: the fzf dropdown on the prompt row, no terminal queries
 # - readline:  readline's own completion, fed by a prepare handler that
-#              stashes the candidates (with descriptions) and swaps the
-#              command's compspec for one `complete`
+#              stashes the line and swaps the command's compspec for one
+#              `complete`, whose function runs the engine and adds the
+#              descriptions
 #
 # The helpers are tested in this shell; the backends drive a real interactive
 # `bash --norc` inside a detached tmux server, as bind_x_test.bats does.
@@ -165,39 +166,49 @@ function test_readline_describe_narrow_terminal_skips_alignment { #@test
 # MARK: readline stash
 
 function _tb_orig_completion { COMPREPLY=(original); }
+function _tb_format_completion { COMPREPLY=(--format=json --format=jsonl); }
+function _tb_empty_completion { COMPREPLY=(); }
 
-function test_readline_stash_func_drops_wordbreak_prefix_and_restores_spec { #@test
-    complete -F _tb_orig_completion tbcmd
+# ```md
+# Put the readline backend in the state its prepare handler leaves: the
+# command's compspec swapped for the stash function, the line stashed.
+#
+# Params:
+# - $1: compspec function the command really has
+# - $2: line in front of the cursor, as the handler saw it
+# - $3...: its words, as __bu_autocomplete_tab_parse_line split them
+# ```
+function __tb_stash_line {
+    local func=$1 front=$2
+    shift 2
+    complete -F "$func" tbcmd
     __BU_AUTOCOMPLETE_RL_SWAPPED_COMMAND=tbcmd
     __BU_AUTOCOMPLETE_RL_SWAPPED_SPEC=$(complete -p tbcmd)
     complete -F __bu_autocomplete_readline_stash_func tbcmd
-    __BU_AUTOCOMPLETE_RL_STASH=(--format=json --format=jsonl)
-    __BU_AUTOCOMPLETE_RL_STASH_COMPOPT=()
-    __BU_AUTOCOMPLETE_RL_STASH_WORD=--format=js
-    __BU_AUTOCOMPLETE_RL_STASH_FRONT='echo x | tbcmd --format=js'
+    __BU_AUTOCOMPLETE_RL_STASH_COMMAND_LINE=("$@")
+    __BU_AUTOCOMPLETE_RL_STASH_BEFORE_PIPE=${front%"$*"}
+    __BU_AUTOCOMPLETE_RL_STASH_FRONT=$front
     __BU_AUTOCOMPLETE_RL_STASH_IS_SET=true
+}
+
+function test_readline_stash_func_runs_engine_drops_wordbreak_prefix_and_restores_spec { #@test
+    __tb_stash_line _tb_format_completion 'echo x | tbcmd --format=js' tbcmd --format=js
 
     # What readline passes: the command after the pipe, and as $2 only the
     # text after the last COMP_WORDBREAKS character
     COMP_LINE='tbcmd --format=js'
     COMP_POINT=${#COMP_LINE}
-    run_stash() { __bu_autocomplete_readline_stash_func tbcmd js =; }
-    run_stash
-    assert_equal "$?" 0
+    COMPREPLY=()
+    local rc=0
+    __bu_autocomplete_readline_stash_func tbcmd js = || rc=$?
+    assert_equal "$rc" 0
     assert_equal "${COMPREPLY[*]}" "json jsonl"
-    assert_equal "$(complete -p tbcmd)" "complete -F _tb_orig_completion tbcmd"
+    assert_equal "$(complete -p tbcmd)" "complete -F _tb_format_completion tbcmd"
     assert_equal "$__BU_AUTOCOMPLETE_RL_STASH_IS_SET" false
 }
 
 function test_readline_stash_func_stale_stash_retries_original { #@test
-    complete -F _tb_orig_completion tbcmd
-    __BU_AUTOCOMPLETE_RL_SWAPPED_COMMAND=tbcmd
-    __BU_AUTOCOMPLETE_RL_SWAPPED_SPEC=$(complete -p tbcmd)
-    complete -F __bu_autocomplete_readline_stash_func tbcmd
-    __BU_AUTOCOMPLETE_RL_STASH=(stale)
-    __BU_AUTOCOMPLETE_RL_STASH_WORD=x
-    __BU_AUTOCOMPLETE_RL_STASH_FRONT='tbcmd x'
-    __BU_AUTOCOMPLETE_RL_STASH_IS_SET=true
+    __tb_stash_line _tb_orig_completion 'tbcmd x' tbcmd x
 
     # Another line than the one the stash was made for: 124 makes bash
     # restart completion with the (restored) original compspec
@@ -209,6 +220,110 @@ function test_readline_stash_func_stale_stash_retries_original { #@test
     assert_equal "$rc" 124
     assert_equal "${#COMPREPLY[@]}" 0
     assert_equal "$(complete -p tbcmd)" "complete -F _tb_orig_completion tbcmd"
+}
+
+function test_readline_stash_func_nothing_to_add_retries_original { #@test
+    __tb_stash_line _tb_empty_completion 'tbcmd x' tbcmd x
+    COMP_LINE='tbcmd x'
+    COMP_POINT=${#COMP_LINE}
+    COMPREPLY=(leftover)
+    local rc=0
+    __bu_autocomplete_readline_stash_func tbcmd x tbcmd || rc=$?
+    assert_equal "$rc" 124
+    assert_equal "${#COMPREPLY[@]}" 0
+    assert_equal "$(complete -p tbcmd)" "complete -F _tb_empty_completion tbcmd"
+}
+
+function _tb_probe_completion {
+    TB_SEEN_COMP_TYPE=${COMP_TYPE-unset}
+    COMPREPLY=(alpha beta)
+}
+
+function test_readline_stash_func_hides_bash_completion_variables { #@test
+    __tb_stash_line _tb_probe_completion 'tbcmd ' tbcmd ''
+    COMP_LINE='tbcmd '
+    COMP_POINT=${#COMP_LINE}
+    COMP_TYPE=63
+    COMP_KEY=9
+    TB_SEEN_COMP_TYPE=
+    __bu_autocomplete_readline_stash_func tbcmd '' tbcmd
+    assert_equal "$TB_SEEN_COMP_TYPE" unset
+    # Bash's own values are back once the function returns
+    assert_equal "$COMP_TYPE" 63
+}
+
+function _tb_logging_completion {
+    bu_log_err "completer says hi"
+    COMPREPLY=(alpha beta)
+}
+
+function test_readline_stash_func_queues_engine_log_for_printing { #@test
+    BU_AUTOCOMPLETE_LOG_LVL=$BU_LOG_LVL_ERR
+    __BU_AUTOCOMPLETE_RL_LOG_FILE=$BATS_TEST_TMPDIR/rl.log
+    local bound=
+    __bu_autocomplete_bind_x() { bound="$*"; }
+    __tb_stash_line _tb_logging_completion 'tbcmd ' tbcmd ''
+    COMP_LINE='tbcmd '
+    COMP_POINT=${#COMP_LINE}
+    __bu_autocomplete_readline_stash_func tbcmd '' tbcmd 2>"$BATS_TEST_TMPDIR/stderr"
+    # Nothing reached the terminal (stderr here): it went to the log file
+    assert_equal "$(< "$BATS_TEST_TMPDIR/stderr")" ''
+    grep -q 'completer says hi' "$__BU_AUTOCOMPLETE_RL_LOG_FILE" || fail "not logged: $(< "$__BU_AUTOCOMPLETE_RL_LOG_FILE")"
+    assert_equal "$bound" "$__BU_AUTOCOMPLETE_RL_LOG_KEYSEQ __bu_bind_readline_tab_print_log"
+    assert_equal "$__BU_LOG_AUTOCOMPLETE_OUT" /dev/tty
+}
+
+function test_readline_stash_func_without_log_binds_nothing { #@test
+    __BU_AUTOCOMPLETE_RL_LOG_FILE=$BATS_TEST_TMPDIR/rl.log
+    local bound=
+    __bu_autocomplete_bind_x() { bound="$*"; }
+    __tb_stash_line _tb_format_completion 'tbcmd --format=js' tbcmd --format=js
+    COMP_LINE='tbcmd --format=js'
+    COMP_POINT=${#COMP_LINE}
+    __bu_autocomplete_readline_stash_func tbcmd --format=js tbcmd
+    assert_equal "$bound" ''
+    [[ ! -s "$__BU_AUTOCOMPLETE_RL_LOG_FILE" ]] || fail "log not empty: $(< "$__BU_AUTOCOMPLETE_RL_LOG_FILE")"
+}
+
+function test_readline_print_log_prints_empties_and_unbinds { #@test
+    __BU_AUTOCOMPLETE_RL_LOG_FILE=$BATS_TEST_TMPDIR/rl.log
+    printf '%s\n' 'ERR one' 'ERR two' > "$__BU_AUTOCOMPLETE_RL_LOG_FILE"
+    local bound=
+    bind() { bound="$*"; }
+    run __bu_bind_readline_tab_print_log
+    assert_success
+    assert_output $'ERR one\nERR two'
+    __bu_bind_readline_tab_print_log 2>/dev/null
+    assert_equal "$bound" '"\C-x\C-_l": ""'
+    [[ ! -s "$__BU_AUTOCOMPLETE_RL_LOG_FILE" ]] || fail "log not emptied"
+}
+
+# MARK: compopt
+
+function test_compopt_record_only_records_without_the_builtin { #@test
+    BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS=()
+    __BU_COMPOPT_RECORD_ONLY=true
+    local rc=0
+    # Outside a completion function the builtin would fail
+    compopt -o plusdirs 2>/dev/null || rc=$?
+    __BU_COMPOPT_RECORD_ONLY=false
+    assert_equal "$rc" 0
+    assert_equal "${BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS[plusdirs]}" -o
+}
+
+function test_compopt_record_only_still_applies_to_a_named_command { #@test
+    complete -F _tb_orig_completion tbcmd
+    __BU_COMPOPT_RECORD_ONLY=true
+    compopt -o nospace tbcmd
+    __BU_COMPOPT_RECORD_ONLY=false
+    assert_equal "$(complete -p tbcmd)" "complete -o nospace -F _tb_orig_completion tbcmd"
+}
+
+function test_compopt_calls_the_builtin_by_default { #@test
+    local rc=0
+    compopt -o plusdirs 2>/dev/null || rc=$?
+    # Not in a completion function: the builtin's failure shows it ran
+    assert_equal "$rc" 1
 }
 
 function test_readline_restore_spec_removes_spec_the_command_did_not_have { #@test
@@ -232,7 +347,7 @@ function test_readline_backend_binds_tab_to_the_macro { #@test
     sleep 0.5
     tmux -L "$sock" kill-server
     grep -q '__bu_bind_readline_tab_prepare' "$out" || fail "prepare handler not bound: $(< "$out")"
-    grep -qF '"\C-i": "\C-x\C-_t\C-x\C-_c"' "$out" || fail "Tab macro not bound: $(< "$out")"
+    grep -qF '"\C-i": "\C-x\C-_t\C-x\C-_c\C-x\C-_l"' "$out" || fail "Tab macro not bound: $(< "$out")"
     grep -q '^backend=readline$' "$out" || fail "backend not recorded: $(< "$out")"
 }
 
@@ -271,6 +386,23 @@ function test_readline_backend_leaves_original_compspec_in_place { #@test
     sleep 1
     tmux -L "$sock" kill-server
     assert_equal "$(< "$out")" "complete -F __bu_autocomplete_completion_func_cli bu"
+}
+
+function test_readline_backend_prints_engine_log_above_the_prompt { #@test
+    local sock=tb$$e pane
+    __tb_tmux_setup "$sock" tblog readline
+    tmux -L "$sock" send-keys -t tblog "BU_AUTOCOMPLETE_LOG_LVL=\$BU_LOG_LVL_ERR; _tblog() { bu_log_err 'completer says hi'; COMPREPLY=(alpha beta); }; tblog() { :; }; complete -F _tblog tblog; clear" Enter
+    __tb_wait_pane "$sock" tblog 'tb\$ $' 20 || true
+    tmux -L "$sock" send-keys -t tblog 'tblog ' Tab
+    local rc=0
+    __tb_wait_pane "$sock" tblog 'completer says hi' 20 || rc=$?
+    sleep 0.5
+    pane=$(tmux -L "$sock" capture-pane -t tblog -p)
+    tmux -L "$sock" kill-server
+    ((rc == 0)) || fail "log not shown: $pane"
+    # The message on its own row, the line redrawn intact below it
+    grep -qE '^ERR .*completer says hi' <<<"$pane" || fail "message not on its own row: $pane"
+    grep -qE 'tb\$ tblog *$' <<<"$pane" || fail "line not redrawn: $pane"
 }
 
 function test_fzf_cheap_backend_completes_single_candidate { #@test

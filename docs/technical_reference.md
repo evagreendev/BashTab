@@ -460,20 +460,37 @@ and redrawing it afterwards, and on `fzf --height` drawing from the cursor row
 and returning there: nothing to measure or restore. The fzf backends fall back
 to `readline` when fzf is not installed.
 
-`readline` binds Tab to a macro of two internal key sequences
-(`\C-x\C-_t`, `\C-x\C-_c`). The first runs `__bu_bind_readline_tab_prepare`
-(`bind -x`): it runs the engine, adds the descriptions, stashes the
-candidates and points the command's compspec at
+`readline` binds Tab to a macro of three internal key sequences
+(`\C-x\C-_t`, `\C-x\C-_c`, `\C-x\C-_l`). The first runs
+`__bu_bind_readline_tab_prepare` (`bind -x`): it parses the line, stashes its
+words and points the command's compspec at
 `__bu_autocomplete_readline_stash_func`. The second is readline's `complete`,
-which calls that function: it restores the original compspec and returns the
-stash, minus the part of the word in front of readline's own word start
-(`--format=` in `--format=js`, an opening quote). Readline then inserts the
-common prefix, lists the candidates and honours inputrc settings
-(`show-all-if-ambiguous`, `completion-query-items`, `colored-stats`, ...) as
-usual. Because `complete` lists only when the command before it was
-`complete`, a Tab on an unchanged line rebinds the second key sequence to
-`possible-completions`. Command names and filename completions are left
-undescribed: readline displays a filename's last path component only.
+which calls that function: it restores the original compspec, runs the engine
+on the stashed words, adds the descriptions and returns the candidates, minus
+the part of the word in front of readline's own word start (`--format=` in
+`--format=js`, an opening quote). Readline then inserts the common prefix,
+lists the candidates and honours inputrc settings (`show-all-if-ambiguous`,
+`completion-query-items`, `colored-stats`, ...) as usual. Because `complete`
+lists only when the command before it was `complete`, a Tab on an unchanged
+line rebinds the second key sequence to `possible-completions`. Command names
+and filename completions are left undescribed: readline displays a filename's
+last path component only.
+
+The engine runs in the completion function, not the handler, because bash
+blanks the line for as long as a `bind -x` handler runs: the handler only
+parses, so the line is gone for a couple of milliseconds instead of for the
+whole completion. The completion function cannot write to the terminal
+(readline does not redraw after it), so while the engine runs:
+
+- log lines (`__BU_LOG_AUTOCOMPLETE_OUT`) and stderr go to a file; when it is
+  not empty, the third key sequence, otherwise an empty macro, is bound to
+  `__bu_bind_readline_tab_print_log`, a `bind -x` handler that prints it above
+  the redrawn prompt;
+- `compopt` without a command name only records options
+  (`__BU_COMPOPT_RECORD_ONLY`), so a completion function the engine calls
+  cannot change the options of the live completion;
+- bash's `COMP_*` variables are hidden, so the engine does not take itself for
+  a completion function.
 
 ### fzf autocomplete display
 

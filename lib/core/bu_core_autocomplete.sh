@@ -150,6 +150,11 @@ bu_autocomplete_initialize_current_completion_options()
     # bu_print_var BU_COMPOPT_CURRENT_COMPLETION_OPTIONS 
 }
 
+# While true, `compopt` without a command name only records the options: the
+# readline Tab backend runs the engine inside a completion function of its own,
+# whose options the completion functions it calls must not change
+declare -g __BU_COMPOPT_RECORD_ONLY=false
+
 bu_autocomplete_def_compopt()
 {
     BU_COMPOPT_IS_CUSTOM=true
@@ -164,6 +169,10 @@ bu_autocomplete_def_compopt()
         if ! "$has_name"
         then
             bu_insert_associative_array completion_options BU_COMPOPT_DYNAMIC_COMPLETION_OPTIONS
+            if "$__BU_COMPOPT_RECORD_ONLY"
+            then
+                return 0
+            fi
         fi
 
         builtin compopt "$@"
@@ -4690,13 +4699,13 @@ __bu_autocomplete_readline_describe()
     done
 }
 
-# Candidates handed from `__bu_bind_readline_tab_prepare` to
-# `__bu_autocomplete_readline_stash_func`, and the compspec swapped out
-declare -a -g __BU_AUTOCOMPLETE_RL_STASH=()
-declare -a -g __BU_AUTOCOMPLETE_RL_STASH_COMPOPT=()
+# The line handed from `__bu_bind_readline_tab_prepare` to
+# `__bu_autocomplete_readline_stash_func` (its words, as
+# `__bu_autocomplete_tab_parse_line` split them), and the compspec swapped out
+declare -a -g __BU_AUTOCOMPLETE_RL_STASH_COMMAND_LINE=()
+declare -g __BU_AUTOCOMPLETE_RL_STASH_BEFORE_PIPE=
 declare -g __BU_AUTOCOMPLETE_RL_STASH_IS_SET=false
 declare -g __BU_AUTOCOMPLETE_RL_STASH_FRONT=
-declare -g __BU_AUTOCOMPLETE_RL_STASH_WORD=
 declare -g __BU_AUTOCOMPLETE_RL_SWAPPED_COMMAND=
 declare -g __BU_AUTOCOMPLETE_RL_SWAPPED_SPEC=
 
@@ -4704,9 +4713,33 @@ declare -g __BU_AUTOCOMPLETE_RL_SWAPPED_SPEC=
 # command the second one is bound to, and the line it last ran on
 declare -g __BU_AUTOCOMPLETE_RL_PREPARE_KEYSEQ='\C-x\C-_t'
 declare -g __BU_AUTOCOMPLETE_RL_COMPLETE_KEYSEQ='\C-x\C-_c'
+declare -g __BU_AUTOCOMPLETE_RL_LOG_KEYSEQ='\C-x\C-_l'
 declare -g __BU_AUTOCOMPLETE_RL_COMPLETE_ACTION=complete
 declare -g __BU_AUTOCOMPLETE_RL_LAST_LINE=
 declare -g __BU_AUTOCOMPLETE_RL_LAST_POINT=
+
+# Where the completion function collects the engine's log output and stderr,
+# for `__bu_bind_readline_tab_print_log` to print
+declare -g __BU_AUTOCOMPLETE_RL_LOG_FILE=${BU_TMP_DIR:-/tmp}/readline-tab.$$
+
+# ```
+# *Description*:
+# Bind a key sequence to a `bind -x` handler, through `__bu_bind_x_run` where
+# bash needs it (see `BU_BIND_X_NEEDS_TTY_GUARD`).
+#
+# *Params*:
+# - `$1`: Key sequence, in `bind` notation
+# - `$2`: Handler function
+# ```
+__bu_autocomplete_bind_x()
+{
+    if "$BU_BIND_X_NEEDS_TTY_GUARD"
+    then
+        bind -x '"'"$1"'": __bu_bind_x_run '"$2"
+    else
+        bind -x '"'"$1"'": "'"$2"'"'
+    fi
+}
 
 # ```
 # *Description*:
@@ -4731,19 +4764,105 @@ __bu_autocomplete_readline_restore_spec()
 
 # ```
 # *Description*:
+# Run the completion engine on the line in the caller's `command_line` and
+# turn its candidates into what readline takes.
+#
+# *Params*: None
+#
+# *Returns*:
+# - Exit code: 0 with candidates (or a hint), 1 when the command's own
+#   compspec should run instead
+# - `${COMPREPLY[@]}`: The candidates, with descriptions
+# - The caller's `compopt_options`: Options for `compopt -o`
+# ```
+__bu_autocomplete_readline_collect()
+{
+    local BU_COMPREPLY_HINT=
+    local -a BU_COMPREPLY_METADATA=()
+    local completion_func_has_ansi_colors=false
+    local is_nospace=false
+    local is_dynamic_nospace=false
+    local is_filenames=false
+    __bu_autocomplete_tab_collect
+    case "$?" in
+    0)
+        __bu_autocomplete_strip_ansi_arrays COMPREPLY BU_COMPREPLY_METADATA
+        # Paths without `compopt -o filenames`: the same test the engine
+        # uses before it adds file metadata
+        if ! "$is_filenames" && [[ -e "${COMPREPLY[0]}" && -e "${COMPREPLY[-1]}" ]]
+        then
+            is_filenames=true
+        fi
+        if "$is_filenames"
+        then
+            # The engine ends directories with a slash; readline adds its own
+            # (mark-directories), when listing as well
+            local i
+            for i in "${!COMPREPLY[@]}"
+            do
+                if [[ "${COMPREPLY[i]}" == ?*/ ]]
+                then
+                    COMPREPLY[i]=${COMPREPLY[i]%/}
+                fi
+            done
+        elif "$BU_AUTOCOMPLETE_BIND_FZF_DISPLAY_METADATA"
+        then
+            __bu_autocomplete_readline_describe
+        fi
+        ;;
+    2)
+        if [[ -z "$BU_COMPREPLY_HINT" ]]
+        then
+            return 1
+        fi
+        # Readline lists both entries and inserts nothing: their common
+        # prefix is empty
+        COMPREPLY=("Hint: $BU_COMPREPLY_HINT" $'\xC2\xA0')
+        ;;
+    *)
+        return 1
+        ;;
+    esac
+
+    if "$is_filenames"
+    then
+        compopt_options+=(filenames)
+    fi
+    # As in __bu_autocomplete_tab_insert: a nospace from the compspec itself
+    # holds only for words that need a suffix
+    if "$is_dynamic_nospace" \
+        || { "$is_nospace" && ((${#COMPREPLY[@]} == 1)) && [[ "${COMPREPLY[0]: -1}" = [/=:@] ]]; }
+    then
+        compopt_options+=(nospace)
+    fi
+    return 0
+}
+
+# ```
+# *Description*:
 # Compspec function that `__bu_bind_readline_tab_prepare` puts on the command
-# being completed for one readline `complete`. It puts the original compspec
-# back and hands readline the stashed candidates.
+# being completed for one readline `complete` (or `possible-completions`). It
+# puts the original compspec back, runs the engine on the line the handler
+# stashed, and hands readline the candidates.
+#
+# The engine runs here rather than in the handler because bash blanks the
+# line for as long as a `bind -x` handler runs, and leaves it on screen while
+# a completion function does.
 #
 # Called for any other completion (the stash is used once, and must belong to
-# this line), it returns 124 instead: the compspec changed, so bash restarts
-# completion with the original one.
+# this line), or when the engine has nothing to add, it returns 124: the
+# compspec changed, so bash restarts completion with the original one.
+#
+# Readline does not redraw the line after a completion function, so nothing
+# here may write to the terminal: the engine's log output and stderr go to
+# `__BU_AUTOCOMPLETE_RL_LOG_FILE`, and the last key sequence of the Tab macro
+# is bound to `__bu_bind_readline_tab_print_log` when there is any.
 #
 # *Params*:
 # - `$2`: The text readline completes. Readline starts a word after any
 #   COMP_WORDBREAKS character (`--format=js` completes `js`) and after an
-#   opening quote, while the stash holds whole words: the part in front is
-#   dropped, as it stays on the line.
+#   opening quote, while the engine completes whole words: the part in front
+#   is dropped, as it stays on the line.
 # ```
 __bu_autocomplete_readline_stash_func()
 {
@@ -4757,8 +4876,33 @@ __bu_autocomplete_readline_stash_func()
     __BU_AUTOCOMPLETE_RL_STASH_IS_SET=false
 
     local text=$2
-    local word=$__BU_AUTOCOMPLETE_RL_STASH_WORD
-    COMPREPLY=("${__BU_AUTOCOMPLETE_RL_STASH[@]}")
+    local -a command_line=("${__BU_AUTOCOMPLETE_RL_STASH_COMMAND_LINE[@]}")
+    local command_line_front_before_pipe=$__BU_AUTOCOMPLETE_RL_STASH_BEFORE_PIPE
+    local -a compopt_options=()
+    local rc=0
+    # Bash's own completion variables describe this function's call, and would
+    # make everything the engine runs believe it runs as a completion function
+    # (bu_env_is_in_autocomplete)
+    local COMP_LINE COMP_POINT COMP_WORDS COMP_CWORD COMP_TYPE COMP_KEY
+    unset -v COMP_LINE COMP_POINT COMP_WORDS COMP_CWORD COMP_TYPE COMP_KEY
+
+    # Locals, so a Ctrl-C in the engine cannot leave them set
+    local __BU_LOG_AUTOCOMPLETE_OUT=$__BU_AUTOCOMPLETE_RL_LOG_FILE
+    local __BU_COMPOPT_RECORD_ONLY=true
+    : >"$__BU_AUTOCOMPLETE_RL_LOG_FILE"
+    __bu_autocomplete_readline_collect 2>>"$__BU_AUTOCOMPLETE_RL_LOG_FILE" || rc=$?
+    __BU_COMPOPT_RECORD_ONLY=false
+    if [[ -s "$__BU_AUTOCOMPLETE_RL_LOG_FILE" ]]
+    then
+        __bu_autocomplete_bind_x "$__BU_AUTOCOMPLETE_RL_LOG_KEYSEQ" __bu_bind_readline_tab_print_log
+    fi
+    if ((rc))
+    then
+        COMPREPLY=()
+        return 124
+    fi
+
+    local word=${command_line[-1]}
     if ((${#word} > ${#text}))
     then
         local prefix=${word:0:${#word}-${#text}}
@@ -4766,7 +4910,7 @@ __bu_autocomplete_readline_stash_func()
     fi
 
     local option
-    for option in "${__BU_AUTOCOMPLETE_RL_STASH_COMPOPT[@]}"
+    for option in "${compopt_options[@]}"
     do
         compopt -o "$option"
     done
@@ -4775,18 +4919,42 @@ __bu_autocomplete_readline_stash_func()
 
 # ```
 # *Description*:
+# Print what the readline backend's completion function collected in
+# `__BU_AUTOCOMPLETE_RL_LOG_FILE`, then unbind itself. Bash redraws the line
+# after a `bind -x` handler, so the output ends up above the prompt.
+#
+# This is a readline binding function.
+# ```
+__bu_bind_readline_tab_print_log()
+{
+    local -a lines=()
+    mapfile -t lines <"$__BU_AUTOCOMPLETE_RL_LOG_FILE"
+    : >"$__BU_AUTOCOMPLETE_RL_LOG_FILE"
+    if ((${#lines[@]}))
+    then
+        printf '%s\n' "${lines[@]}" >&2
+    fi
+    bind '"'"$__BU_AUTOCOMPLETE_RL_LOG_KEYSEQ"'": ""'
+    return 0
+}
+
+# ```
+# *Description*:
 # Tab backend `readline`: readline's own completion, fed by BashTab's engine so
 # the candidates carry descriptions.
 #
-# Tab is bound to a macro of two internal key sequences:
-# 1. this `bind -x` handler: it runs the engine on the line as the fzf
-#    backends do, adds the descriptions and stashes the candidates, then points
-#    the command's compspec at `__bu_autocomplete_readline_stash_func`;
-# 2. readline's `complete`, which calls that function for the candidates.
-# Readline does the rest as it always does: common-prefix insertion, the list
-# of candidates (show-all-if-ambiguous, completion-query-items, ...), quoting,
-# directory slashes. Nothing here touches the terminal; the only process
-# started besides the completion function's own is the subshell reading the
+# Tab is bound to a macro of three internal key sequences:
+# 1. this `bind -x` handler: it parses the line, stashes its words, then
+#    points the command's compspec at `__bu_autocomplete_readline_stash_func`;
+# 2. readline's `complete`, which calls that function: it runs the engine on
+#    the stashed words and adds the descriptions;
+# 3. nothing (an empty macro), unless that function bound it to print the
+#    engine's log output.
+# Bash blanks the line while a `bind -x` handler runs, so the handler does as
+# little as it can. Readline does the rest as it always does: common-prefix
+# insertion, the list of candidates (show-all-if-ambiguous,
+# completion-query-items, ...), quoting, directory slashes. The only process
+# started besides the completion functions' own is the subshell reading the
 # command's compspec.
 #
 # A second Tab on an unchanged line lists the candidates. Readline's
@@ -4834,69 +5002,9 @@ __bu_bind_readline_tab_prepare()
         return 0
     fi
 
-    local BU_COMPREPLY_HINT=
-    local -a BU_COMPREPLY_METADATA=()
-    local completion_func_has_ansi_colors=false
-    local is_nospace=false
-    local is_dynamic_nospace=false
-    local is_filenames=false
-    __bu_autocomplete_tab_collect
-    case "$?" in
-    0)
-        __bu_autocomplete_strip_ansi_arrays COMPREPLY BU_COMPREPLY_METADATA
-        # Paths without `compopt -o filenames`: the same test the engine
-        # uses before it adds file metadata
-        if ! "$is_filenames" && [[ -e "${COMPREPLY[0]}" && -e "${COMPREPLY[-1]}" ]]
-        then
-            is_filenames=true
-        fi
-        if "$is_filenames"
-        then
-            # The engine ends directories with a slash; readline adds its own
-            # (mark-directories), when listing as well
-            local i
-            for i in "${!COMPREPLY[@]}"
-            do
-                if [[ "${COMPREPLY[i]}" == ?*/ ]]
-                then
-                    COMPREPLY[i]=${COMPREPLY[i]%/}
-                fi
-            done
-        elif "$BU_AUTOCOMPLETE_BIND_FZF_DISPLAY_METADATA"
-        then
-            __bu_autocomplete_readline_describe
-        fi
-        ;;
-    2)
-        if [[ -z "$BU_COMPREPLY_HINT" ]]
-        then
-            # Nothing to add: the command's own compspec runs as usual
-            return 0
-        fi
-        # Readline lists both entries and inserts nothing: their common
-        # prefix is empty
-        COMPREPLY=("Hint: $BU_COMPREPLY_HINT" $'\xC2\xA0')
-        ;;
-    *)
-        return 0
-        ;;
-    esac
-
-    __BU_AUTOCOMPLETE_RL_STASH_COMPOPT=()
-    if "$is_filenames"
-    then
-        __BU_AUTOCOMPLETE_RL_STASH_COMPOPT+=(filenames)
-    fi
-    # As in __bu_autocomplete_tab_insert: a nospace from the compspec itself
-    # holds only for words that need a suffix
-    if "$is_dynamic_nospace" \
-        || { "$is_nospace" && ((${#COMPREPLY[@]} == 1)) && [[ "${COMPREPLY[0]: -1}" = [/=:@] ]]; }
-    then
-        __BU_AUTOCOMPLETE_RL_STASH_COMPOPT+=(nospace)
-    fi
-    __BU_AUTOCOMPLETE_RL_STASH=("${COMPREPLY[@]}")
+    __BU_AUTOCOMPLETE_RL_STASH_COMMAND_LINE=("${command_line[@]}")
+    __BU_AUTOCOMPLETE_RL_STASH_BEFORE_PIPE=$command_line_front_before_pipe
     __BU_AUTOCOMPLETE_RL_STASH_FRONT=$command_line_front
-    __BU_AUTOCOMPLETE_RL_STASH_WORD=${command_line[-1]}
     __BU_AUTOCOMPLETE_RL_STASH_IS_SET=true
 
     __BU_AUTOCOMPLETE_RL_SWAPPED_COMMAND=${command_line[0]}
@@ -5422,17 +5530,13 @@ bu_autocomplete_enable_tab()
     then
         keyseq=$__BU_AUTOCOMPLETE_RL_PREPARE_KEYSEQ
     fi
-    if "$BU_BIND_X_NEEDS_TTY_GUARD"
-    then
-        bind -x '"'"$keyseq"'": __bu_bind_x_run '"$handler"
-    else
-        bind -x '"'"$keyseq"'": "'"$handler"'"'
-    fi
+    __bu_autocomplete_bind_x "$keyseq" "$handler"
     if [[ "$backend" == readline ]]
     then
         bind '"'"$__BU_AUTOCOMPLETE_RL_COMPLETE_KEYSEQ"'": complete'
         __BU_AUTOCOMPLETE_RL_COMPLETE_ACTION=complete
-        bind '"\t": "'"$__BU_AUTOCOMPLETE_RL_PREPARE_KEYSEQ$__BU_AUTOCOMPLETE_RL_COMPLETE_KEYSEQ"'"'
+        bind '"'"$__BU_AUTOCOMPLETE_RL_LOG_KEYSEQ"'": ""'
+        bind '"\t": "'"$__BU_AUTOCOMPLETE_RL_PREPARE_KEYSEQ$__BU_AUTOCOMPLETE_RL_COMPLETE_KEYSEQ$__BU_AUTOCOMPLETE_RL_LOG_KEYSEQ"'"'
     fi
     BU_AUTOCOMPLETE_IS_CUSTOM_TAB=true
     BU_AUTOCOMPLETE_ACTIVE_TAB_BACKEND=$backend

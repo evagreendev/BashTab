@@ -840,6 +840,11 @@ __bu_log_lvl_enabled()
     (( $1 >= log_lvl_setting ))
 }
 
+# Where log lines go while autocompleting, appended to. The readline Tab
+# backend points it at a file for the length of its completion function,
+# which cannot write to the terminal without garbling the line.
+declare -g __BU_LOG_AUTOCOMPLETE_OUT=/dev/tty
+
 # ```
 # *Description*:
 # Print a single log line in the standard format: `PREFIX  file:line[func] message`
@@ -851,7 +856,8 @@ __bu_log_lvl_enabled()
 # - `...`: Log message
 #
 # *Notes*:
-# - Writes to /dev/tty while autocompleting, stderr otherwise.
+# - Writes to `__BU_LOG_AUTOCOMPLETE_OUT` (/dev/tty) while autocompleting,
+#   stderr otherwise.
 # ```
 __bu_log_print()
 {
@@ -869,7 +875,7 @@ __bu_log_print()
 
     if bu_env_is_in_autocomplete
     then
-        printf "${color}${log_prefix} ${basename}:${BASH_LINENO[frame-1]-}[${FUNCNAME[frame]-}] %s${BU_TPUT_RESET}\n" "$*" >/dev/tty
+        printf "${color}${log_prefix} ${basename}:${BASH_LINENO[frame-1]-}[${FUNCNAME[frame]-}] %s${BU_TPUT_RESET}\n" "$*" >>"$__BU_LOG_AUTOCOMPLETE_OUT"
     else
         printf "${color}${log_prefix} ${basename}:${BASH_LINENO[frame-1]-}[${FUNCNAME[frame]-}] %s${BU_TPUT_RESET}\n" "$*" >&2
     fi
@@ -1039,7 +1045,7 @@ bu_log_err_usage()
     local -r hint="${BU_TPUT_GREY}hint:  ${BU_USER_DEFINED_CLI_COMMAND_NAME:-bu} ${script_name} --help${BU_TPUT_RESET}"
     if bu_env_is_in_autocomplete
     then
-        printf '%s\n' "$hint" >/dev/tty
+        printf '%s\n' "$hint" >>"$__BU_LOG_AUTOCOMPLETE_OUT"
     else
         printf '%s\n' "$hint" >&2
     fi
@@ -1101,7 +1107,7 @@ __bu_log_cmd()
     local -r frame=$((log_idx + 3))
     if bu_env_is_in_autocomplete
     then
-        __bu_log_cmd_exec "$color" "$log_prefix" "$frame" "$is_ignore_exit_code" "$@" &>/dev/tty || rc=$?
+        __bu_log_cmd_exec "$color" "$log_prefix" "$frame" "$is_ignore_exit_code" "$@" &>>"$__BU_LOG_AUTOCOMPLETE_OUT" || rc=$?
     else
         __bu_log_cmd_exec "$color" "$log_prefix" "$frame" "$is_ignore_exit_code" "$@" >&2 || rc=$?
     fi
