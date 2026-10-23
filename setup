@@ -9,6 +9,13 @@ esac
 
 cd "$BASH_TAB_ROOT"
 
+# Install exactly what the lockfile pins and don't run dependency install
+# scripts: fig_specs pins pnpm 9, which runs them without approval and has
+# no minimumReleaseAge. `pnpm build` would also go through npx.
+FIG_INSTALL_CMD="pnpm install --ignore-workspace --frozen-lockfile --ignore-scripts"
+FIG_COMPILE_CMD="pnpm exec autocomplete-tools compile"
+FIG_BUILD_CMD="cd fig_specs && $FIG_INSTALL_CMD && $FIG_COMPILE_CMD && node ../fig_convert_to_json.mjs"
+
 echo "=== BashTab setup ==="
 echo ""
 
@@ -16,7 +23,7 @@ echo ""
 if command -v node &>/dev/null && command -v pnpm &>/dev/null; then
     if [[ -f fig_specs/build/act.json ]]; then
         echo "[fig] Specs already built (fig_specs/build/).  Skipping."
-        echo "       Run 'cd fig_specs && pnpm install --ignore-workspace && pnpm build && node ../fig_convert_to_json.mjs' to rebuild."
+        echo "       Run '$FIG_BUILD_CMD' to rebuild."
     else
         echo "[fig] Initialising submodule…"
         git submodule update --init fig_specs 2>/dev/null || {
@@ -24,13 +31,13 @@ if command -v node &>/dev/null && command -v pnpm &>/dev/null; then
             echo "       Fig-powered completions will not be available."
         }
         if [[ -f fig_specs/package.json ]]; then
-            echo "[fig] Installing dependencies (pnpm install --ignore-workspace)…"
-            (cd fig_specs && pnpm install --ignore-workspace --no-frozen-lockfile) || {
+            echo "[fig] Installing dependencies ($FIG_INSTALL_CMD)…"
+            (cd fig_specs && $FIG_INSTALL_CMD) || {
                 echo "       WARNING: pnpm install failed."
             }
-            echo "[fig] Building specs (pnpm build)…"
-            (cd fig_specs && pnpm build) || {
-                echo "       WARNING: pnpm build failed."
+            echo "[fig] Building specs ($FIG_COMPILE_CMD)…"
+            (cd fig_specs && $FIG_COMPILE_CMD) || {
+                echo "       WARNING: Fig spec compilation failed."
             }
             echo "[fig] Converting specs to JSON…"
             node fig_convert_to_json.mjs || {
@@ -42,7 +49,7 @@ else
     echo "[fig] Node.js or pnpm not found — skipping Fig specs."
     echo "       Install Node.js and pnpm, then run:"
     echo "         git submodule update --init fig_specs"
-    echo "         cd fig_specs && pnpm install --ignore-workspace && pnpm build && node ../fig_convert_to_json.mjs"
+    echo "         $FIG_BUILD_CMD"
 fi
 
 echo ""
