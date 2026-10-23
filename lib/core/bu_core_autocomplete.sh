@@ -2912,6 +2912,38 @@ __bu_autocomplete_bash_completion_is_loaded()
 
 # ```
 # *Description*:
+# Find bash-completion's main script: the distro location on Linux, Homebrew's on macOS.
+#
+# *Returns*:
+# - Exit code 0 if found, 1 otherwise
+# - `$BU_RET`: Path to the script
+#
+# *Notes*:
+# - Homebrew's etc/profile.d/bash_completion.sh is skipped on purpose: it only loads
+#   when PS1 is set, so it does nothing in the `bash -c` that fzf reloads run in.
+# ```
+__bu_autocomplete_find_bash_completion()
+{
+    local candidate
+    for candidate in \
+        /usr/share/bash-completion/bash_completion \
+        /etc/bash_completion \
+        "${HOMEBREW_PREFIX:-/opt/homebrew}"/share/bash-completion/bash_completion \
+        /usr/local/share/bash-completion/bash_completion
+    do
+        if [[ -r "$candidate" ]]
+        then
+            BU_RET=$candidate
+            return 0
+        fi
+    done
+    return 1
+}
+# Used by __bu_fzf_print_autocompletion before bu_entrypoint.sh is sourced
+export -f __bu_autocomplete_find_bash_completion
+
+# ```
+# *Description*:
 # Explain how to get bash-completion loaded on this OS.
 #
 # *Returns*:
@@ -2919,23 +2951,11 @@ __bu_autocomplete_bash_completion_is_loaded()
 # ```
 __bu_autocomplete_bash_completion_hint()
 {
-    local candidates=()
-    if [[ "$BU_ENV_IS_MACOS" == true ]]
+    if __bu_autocomplete_find_bash_completion
     then
-        candidates=("${HOMEBREW_PREFIX:-/opt/homebrew}"/etc/profile.d/bash_completion.sh /usr/local/etc/profile.d/bash_completion.sh)
-    else
-        candidates=(/usr/share/bash-completion/bash_completion /etc/bash_completion)
+        BU_RET="bash-completion is installed but not loaded. Source it in ~/.bashrc before BashTab: . $BU_RET"
+        return
     fi
-
-    local candidate
-    for candidate in "${candidates[@]}"
-    do
-        if [[ -r "$candidate" ]]
-        then
-            BU_RET="bash-completion is installed but not loaded. Source it in ~/.bashrc before BashTab: . $candidate"
-            return
-        fi
-    done
 
     if [[ "$BU_ENV_IS_MACOS" == true ]]
     then
@@ -3123,10 +3143,9 @@ __bu_fzf_print_autocompletion()
     # Note: On Ubuntu, in a non-interactive shell, the default .bashrc will just early return. No point sourcing it.
     # source "$HOME"/.bashrc &>/dev/null
 
-    if [[ -f /usr/share/bash-completion/bash_completion ]]; then
-        . /usr/share/bash-completion/bash_completion
-    elif [[ -f /etc/bash_completion ]]; then
-        . /etc/bash_completion
+    if __bu_autocomplete_find_bash_completion
+    then
+        . "$BU_RET"
     fi
 
     source "$BU_DIR"/bu_entrypoint.sh &>/dev/null
