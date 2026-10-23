@@ -1575,7 +1575,13 @@ bu_autocomplete_get_autocompletions()
         __bu_autocomplete_completion_func_default "$1"
         if ! bu_autocomplete_get_completion_func "$1"
         then
-            bu_log_err "Failed to get completion func for $1"
+            if ! __bu_autocomplete_bash_completion_is_loaded
+            then
+                __bu_autocomplete_bash_completion_hint
+                bu_log_err "No completions for $1: $BU_RET"
+            else
+                bu_log_err "Failed to get completion func for $1"
+            fi
             return 1
         fi
         ;;
@@ -2889,6 +2895,54 @@ __bu_autocomplete_completion_func_cached()
 
     bu_cat_str "$BU_NAMED_CACHE_DIR/$key"
     bu_compgen -W "$BU_RET" -- "$cur_word"
+}
+
+# ```
+# *Description*:
+# Check whether bash-completion is loaded, i.e. whether `__bu_autocomplete_completion_func_default`
+# has a fallback (`_completion_loader` or `_minimal`) for commands without their own compspec.
+#
+# *Returns*:
+# - Exit code 0 if bash-completion is loaded, 1 otherwise
+# ```
+__bu_autocomplete_bash_completion_is_loaded()
+{
+    bu_symbol_is_function _completion_loader || bu_symbol_is_function _minimal
+}
+
+# ```
+# *Description*:
+# Explain how to get bash-completion loaded on this OS.
+#
+# *Returns*:
+# - `$BU_RET`: Hint message
+# ```
+__bu_autocomplete_bash_completion_hint()
+{
+    local candidates=()
+    if [[ "$BU_ENV_IS_MACOS" == true ]]
+    then
+        candidates=("${HOMEBREW_PREFIX:-/opt/homebrew}"/etc/profile.d/bash_completion.sh /usr/local/etc/profile.d/bash_completion.sh)
+    else
+        candidates=(/usr/share/bash-completion/bash_completion /etc/bash_completion)
+    fi
+
+    local candidate
+    for candidate in "${candidates[@]}"
+    do
+        if [[ -r "$candidate" ]]
+        then
+            BU_RET="bash-completion is installed but not loaded. Source it in ~/.bashrc before BashTab: . $candidate"
+            return
+        fi
+    done
+
+    if [[ "$BU_ENV_IS_MACOS" == true ]]
+    then
+        BU_RET="bash-completion is not installed. Run 'brew install bash-completion@2', then source \$(brew --prefix)/etc/profile.d/bash_completion.sh in ~/.bashrc before BashTab"
+    else
+        BU_RET="bash-completion is not installed. Install the bash-completion package (e.g. 'sudo apt install bash-completion'), then source /usr/share/bash-completion/bash_completion in ~/.bashrc before BashTab"
+    fi
 }
 
 # ```

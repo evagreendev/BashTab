@@ -247,6 +247,14 @@ __bu_init_autocomplete()
     complete -F __bu_autocomplete_completion_func_source source
     complete -F __bu_autocomplete_completion_func_source .
     complete -F __bu_autocomplete_completion_func_default -D
+
+    # Without bash-completion, the -D handler has nothing to fall back to and
+    # basic commands like ls and cd lose even filename completion.
+    if [[ $- == *i* ]] && ! __bu_autocomplete_bash_completion_is_loaded
+    then
+        __bu_autocomplete_bash_completion_hint
+        bu_log_warn "$BU_RET"
+    fi
 }
 
 bu_init()
