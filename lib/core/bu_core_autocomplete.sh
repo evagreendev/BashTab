@@ -1562,7 +1562,22 @@ bu_autocomplete_get_autocompletions()
 
     bu_autocomplete_get_completion_func "$1"
     case "$?" in
-    0);;
+    0)
+        # bash-completion's generic handlers get options by parsing GNU-style
+        # `--help`, which macOS's BSD tools lack (`ls -<Tab>` offered only
+        # `--help --color=`). The Fig specs are written against macOS, so
+        # prefer them there.
+        local resolved_completion_func=$BU_RET
+        if [[ "$BU_ENV_IS_MACOS" == true ]] \
+            && [[ " _comp_complete_longopt _longopt _comp_complete_minimal _minimal " == *" $resolved_completion_func "* ]] \
+            && __bu_autocomplete_fig_completion_func "$1" "${command_line[-1]}" ""
+        then
+            has_ansi_colors=false
+            BU_RET_MAP=([has_ansi_colors]=$has_ansi_colors)
+            return 0
+        fi
+        BU_RET=$resolved_completion_func
+        ;;
     1)
         # Try Fig spec first, then fall back to default completion
         if __bu_autocomplete_fig_completion_func "$1" "${command_line[-1]}" ""
