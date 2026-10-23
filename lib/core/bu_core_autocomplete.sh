@@ -1531,6 +1531,49 @@ __bu_extract_inline_descriptions()
     done
 }
 
+# ```
+# *Description*:
+# Expand a shell alias in command position, so that `ls` aliased to
+# `gls --color=auto` completes like `gls --color=auto`.
+#
+# *Params*:
+# - `...`: Command line words
+#
+# *Returns*:
+# - `${BU_RET[@]}`: Command line words with the alias expanded
+#
+# *Notes*:
+# - Only aliases made of plain words are expanded. Anything with quotes,
+#   expansions, redirections or control operators is left alone rather than
+#   mis-split, as are aliases starting with a variable assignment.
+# - Alias chains are followed until the first word is not an alias, or is an
+#   alias for itself (`alias ls='ls -G'`), which is where bash stops too.
+# ```
+__bu_autocomplete_expand_alias()
+{
+    BU_RET=("$@")
+    local -A seen=()
+    local alias_value
+    local -a alias_words
+    while [[ -n "${BU_RET[0]}" \
+        && -n "${BASH_ALIASES[${BU_RET[0]}]+set}" \
+        && -z "${seen[${BU_RET[0]}]+set}" ]]
+    do
+        seen[${BU_RET[0]}]=1
+        alias_value=${BASH_ALIASES[${BU_RET[0]}]}
+        if [[ "$alias_value" == *[\;\|\&\<\>\(\)\$\`\'\"\\]* ]]
+        then
+            break
+        fi
+        read -r -a alias_words <<<"$alias_value"
+        if ((${#alias_words[@]} == 0)) \
+            || [[ "${alias_words[0]}" == "${BU_RET[0]}" || "${alias_words[0]}" == *=* ]]
+        then
+            break
+        fi
+        BU_RET=("${alias_words[@]}" "${BU_RET[@]:1}")
+    done
+}
 
 bu_autocomplete_get_autocompletions()
 {
@@ -1554,6 +1597,11 @@ bu_autocomplete_get_autocompletions()
         fi
         return
     fi
+
+    # Complete an alias as what it runs. The cursor word stays last, so
+    # COMPREPLY still applies to what the user typed.
+    __bu_autocomplete_expand_alias "$@"
+    set -- "${BU_RET[@]}"
 
     local has_ansi_colors=false
     # Declared before the fallback arms below: they index the cursor word via
