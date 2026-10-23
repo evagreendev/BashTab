@@ -3030,6 +3030,44 @@ __bu_autocomplete_bash_completion_hint()
 
 # ```
 # *Description*:
+# Give Homebrew's g-prefixed GNU tools (gls, gcp, gsed, ...) the `--help`
+# parsing completion that bash-completion registers for their unprefixed
+# names. bash-completion only knows the Linux names, so on macOS gls would
+# otherwise complete filenames only, while ls gets a parser that BSD ls,
+# lacking `--help`, can't feed.
+#
+# *Notes*:
+# - Homebrew links `opt/<formula>/libexec/gnubin/NAME` to `bin/gNAME`.
+# - Compspecs already registered for a gNAME are left alone.
+# ```
+__bu_autocomplete_register_gnu_g_tools()
+{
+    local prefix=${HOMEBREW_PREFIX:-/opt/homebrew}
+    local -a gnubin_paths=("$prefix"/opt/*/libexec/gnubin/*)
+    [[ -e "${gnubin_paths[0]}" ]] || return 0
+
+    local -A specs=()
+    local spec
+    while read -r spec
+    do
+        specs[${spec##* }]=$spec
+    done < <(complete -p 2>/dev/null)
+
+    local gnubin_path name handler
+    for gnubin_path in "${gnubin_paths[@]}"
+    do
+        name=${gnubin_path##*/}
+        [[ -z "${specs[g$name]+set}" && -x "$prefix/bin/g$name" ]] || continue
+        if [[ "${specs[$name]-}" =~ [[:space:]]-F[[:space:]]+(_comp_complete_longopt|_longopt)[[:space:]] ]]
+        then
+            handler=${BASH_REMATCH[1]}
+            complete -F "$handler" -- "g$name"
+        fi
+    done
+}
+
+# ```
+# *Description*:
 # Completion function for the default case when no specific completion function is found.
 #
 # *Params*:

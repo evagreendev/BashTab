@@ -255,6 +255,11 @@ __bu_init_autocomplete()
         __bu_autocomplete_bash_completion_hint
         bu_log_warn "$BU_RET"
     fi
+
+    if [[ "$BU_ENV_IS_MACOS" == true ]] && __bu_autocomplete_bash_completion_is_loaded
+    then
+        __bu_autocomplete_register_gnu_g_tools
+    fi
 }
 
 bu_init()
